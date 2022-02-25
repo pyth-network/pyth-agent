@@ -1,0 +1,22 @@
+name: Rust
+
+on:
+  push:
+    branches:
+      - master
+      
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Check-out code
+        uses: actions/checkout@v2
+      - name: Build image
+        run: docker build -t agent .
+      - name: Run tests
+        run: docker run -it -v $PWD:/agent agent ./tests.sh
