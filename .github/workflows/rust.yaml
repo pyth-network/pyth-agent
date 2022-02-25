@@ -19,4 +19,4 @@ jobs:
       - name: Build image
         run: docker build -t agent .
       - name: Run tests
-        run: docker run -it -v $PWD:/agent agent ./tests.sh
+        run: docker run -v $PWD:/agent agent ./tests.sh
