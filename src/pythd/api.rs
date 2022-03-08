@@ -349,4 +349,445 @@ mod rpc {
         }
     }
 
+    #[cfg(test)]
+    mod tests {
+        use anyhow::anyhow;
+        use jrpc::{Id, Request};
+        use mockall::predicate;
+        use rand::Rng;
+        use serde::de::DeserializeOwned;
+        use serde::Serialize;
+        use soketto::handshake::{Client, ServerResponse};
+        use std::str::from_utf8;
+        use std::sync::Arc;
+        use tokio::net::TcpStream;
+        use tokio_retry::strategy::FixedInterval;
+        use tokio_retry::Retry;
+        use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+
+        use super::super::rpc::{GetProductParams, SubscribePriceParams, UpdatePriceParams};
+        use super::super::{
+            Attrs, MockProtocol, PriceAccount, PriceAccountMetadata, ProductAccount,
+            ProductAccountMetadata, PubKey, PublisherAccount, Subscription,
+        };
+        use super::{ConnectionFactory, Server, SubscribeResult};
+
+        type Sender = soketto::Sender<Compat<TcpStream>>;
+        type Receiver = soketto::Receiver<Compat<TcpStream>>;
+
+        async fn start_server(protocol: MockProtocol) -> (Sender, Receiver) {
+            let port = portpicker::pick_unused_port().unwrap();
+
+            let connection_factory = ConnectionFactory {
+                protocol: Arc::new(Box::new(protocol)),
+            };
+            tokio::spawn(Server::serve(port, connection_factory));
+
+            // Create a test client, retrying as the server may take some time to start serving requests
+            let socket = Retry::spawn(FixedInterval::from_millis(100).take(20), || {
+                TcpStream::connect(("127.0.0.1", port))
+            })
+            .await
+            .unwrap();
+
+            // let socket = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            let mut client = Client::new(socket.compat(), "...", "/");
+
+            // Perform the websocket handshake
+            let handshake = client.handshake().await.unwrap();
+            assert!(matches!(handshake, ServerResponse::Accepted { .. }));
+            let (sender, receiver) = client.into_builder().finish();
+
+            (sender, receiver)
+        }
+
+        async fn send<T>(mut sender: Sender, request: Request<String, T>)
+        where
+            T: Serialize + DeserializeOwned,
+        {
+            sender.send_text(request.to_string()).await.unwrap();
+        }
+
+        async fn receive(mut receiver: Receiver) -> Vec<u8> {
+            let mut bytes = Vec::new();
+            receiver.receive_data(&mut bytes).await.unwrap();
+            bytes
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_get_product_success_test() {
+            // Set expectations on our mock protocol
+            let product_account = "some_product_account".to_string();
+            let mut protocol = MockProtocol::new();
+            protocol
+                .expect_get_product()
+                .with(predicate::eq(product_account.clone()))
+                .times(1)
+                .returning(|account| {
+                    Ok(ProductAccount {
+                        account,
+                        attr_dict: Attrs::from(
+                            [
+                                ("symbol", "BTC/USD"),
+                                ("asset_type", "Crypto"),
+                                ("country", "US"),
+                                ("quote_currency", "USD"),
+                                ("tenor", "spot"),
+                            ]
+                            .map(|(k, v)| (k.to_string(), v.to_string())),
+                        ),
+                        price_accounts: vec![PriceAccount {
+                            account: "some_price_account".to_string(),
+                            price_type: "price".to_string(),
+                            price_exponent: 8,
+                            status: "trading".to_string(),
+                            price: 536,
+                            conf: 67,
+                            twap: 276,
+                            twac: 463,
+                            valid_slot: 4628,
+                            pub_slot: 4736,
+                            prev_slot: 3856,
+                            prev_price: 400,
+                            prev_conf: 45,
+                            publisher_accounts: vec![
+                                PublisherAccount {
+                                    account: "some_publisher_account".to_string(),
+                                    status: "trading".to_string(),
+                                    price: 500,
+                                    conf: 24,
+                                    slot: 3563,
+                                },
+                                PublisherAccount {
+                                    account: "another_publisher_account".to_string(),
+                                    status: "halted".to_string(),
+                                    price: 300,
+                                    conf: 683,
+                                    slot: 5834,
+                                },
+                            ],
+                        }],
+                    })
+                });
+
+            // Start and connect to the RPC server
+            let (mut sender, receiver) = start_server(protocol).await;
+
+            // Make a binary request, which should be safely ignored
+            let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+            sender.send_binary(random_bytes).await.unwrap();
+
+            // Make a request
+            send(
+                sender,
+                Request::with_params(
+                    Id::from(1),
+                    "get_product".to_string(),
+                    GetProductParams {
+                        account: product_account,
+                    },
+                ),
+            )
+            .await;
+
+            // Wait for the result to come back
+            let bytes = receive(receiver).await;
+            let received_json = from_utf8(&bytes).unwrap();
+
+            // Check that the JSON representation is correct
+            let expected_json = r#"{"jsonrpc":"2.0","result":{"account":"some_product_account","attr_dict":{"asset_type":"Crypto","country":"US","quote_currency":"USD","symbol":"BTC/USD","tenor":"spot"},"price_accounts":[{"account":"some_price_account","price_type":"price","price_exponent":8,"status":"trading","price":536,"conf":67,"twap":276,"twac":463,"valid_slot":4628,"pub_slot":4736,"prev_slot":3856,"prev_price":400,"prev_conf":45,"publisher_accounts":[{"account":"some_publisher_account","status":"trading","price":500,"conf":24,"slot":3563},{"account":"another_publisher_account","status":"halted","price":300,"conf":683,"slot":5834}]}]},"id":1}"#;
+            assert_eq!(received_json, expected_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_unknown_method_error_test() {
+            // Start and connect to the server
+            let protocol = MockProtocol::new();
+            let (sender, receiver) = start_server(protocol).await;
+
+            // Make a request
+            send(
+                sender,
+                Request::with_params(
+                    Id::from(3),
+                    "wrong_method".to_string(),
+                    GetProductParams {
+                        account: "some_account".to_string(),
+                    },
+                ),
+            )
+            .await;
+
+            // Wait for the result to come back
+            let bytes = receive(receiver).await;
+
+            // Check that the result is what we expect
+            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32601,"message":"unknown variant `wrong_method`, expected one of `get_product_list`, `get_product`, `get_all_products`, `subscribe_price`, `update_price`","data":null},"id":3}"#;
+            let received_json = std::str::from_utf8(&bytes).unwrap();
+            assert_eq!(received_json, expected_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_missing_request_parameters_test() {
+            // Start and connect to the server
+            let protocol = MockProtocol::new();
+            let (sender, receiver) = start_server(protocol).await;
+
+            // Make a request
+            send(
+                sender,
+                Request::new(Id::from(5), "update_price".to_string()),
+            )
+            .await;
+
+            // Wait for the result to come back
+            let bytes = receive(receiver).await;
+            let received_json = from_utf8(&bytes).unwrap();
+
+            // Check that the result is what we expect
+            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Missing request parameters","data":null},"id":5}"#;
+            assert_eq!(received_json, expected_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_internal_error() {
+            // Set expectations on our mock protocol
+            let mut protocol = MockProtocol::new();
+            protocol
+                .expect_get_product()
+                .times(1)
+                .returning(|_| Err(anyhow!("some internal error")));
+
+            // Start and connect to the JRPC server
+            let (sender, receiver) = start_server(protocol).await;
+
+            // Make a request
+            send(
+                sender,
+                Request::with_params(
+                    Id::from(9),
+                    "get_product".to_string(),
+                    GetProductParams {
+                        account: "some_account".to_string(),
+                    },
+                ),
+            )
+            .await;
+
+            // Get the result back
+            let bytes = receive(receiver).await;
+            let received_json = std::str::from_utf8(&bytes).unwrap();
+
+            // Check that the result is what we expect
+            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"some internal error","data":null},"id":9}"#;
+            assert_eq!(expected_json, received_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_update_price_success() {
+            // Set expectations on our mock protocol
+            let status = "trading";
+            let params = UpdatePriceParams {
+                account: PubKey::from("some_price_account"),
+                price: 7467,
+                conf: 892,
+                status: status.to_string(),
+            };
+            let mut protocol = MockProtocol::new();
+            protocol
+                .expect_update_price()
+                .with(
+                    predicate::eq(params.account.clone()),
+                    predicate::eq(params.price),
+                    predicate::eq(params.conf),
+                    predicate::eq(status),
+                )
+                .times(1)
+                .returning(|_, _, _, _| Ok(()));
+
+            // Start and connect to the JRPC server
+            let (sender, receiver) = start_server(protocol).await;
+
+            // Make a request
+            send(
+                sender,
+                Request::with_params(Id::from(15), "update_price".to_string(), params),
+            )
+            .await;
+
+            // Get the result back
+            let bytes = receive(receiver).await;
+
+            // Assert that the result is what we expect
+            let expected_json = r#"{"jsonrpc":"2.0","result":0,"id":15}"#;
+            let received_json = from_utf8(&bytes).unwrap();
+            assert_eq!(received_json, expected_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn get_product_list_success_test() {
+            // Set expectations on our mock protocol
+            let product_account = PubKey::from("some_product_account");
+            let mut protocol = MockProtocol::new();
+            let data = vec![ProductAccountMetadata {
+                account: product_account.clone(),
+                attr_dict: Attrs::from(
+                    [
+                        ("symbol", "BTC/USD"),
+                        ("asset_type", "Crypto"),
+                        ("country", "US"),
+                        ("quote_currency", "USD"),
+                        ("tenor", "spot"),
+                    ]
+                    .map(|(k, v)| (k.to_string(), v.to_string())),
+                ),
+                prices: vec![
+                    PriceAccountMetadata {
+                        account: PubKey::from("some_price_account"),
+                        price_type: "price".to_string(),
+                        price_exponent: 4,
+                    },
+                    PriceAccountMetadata {
+                        account: PubKey::from("another_price_account"),
+                        price_type: "special".to_string(),
+                        price_exponent: 6,
+                    },
+                ],
+            }];
+            let return_data = data.clone();
+            protocol
+                .expect_get_product_list()
+                .times(1)
+                .returning(move || Ok(return_data.clone()));
+
+            // Start and connect to the JRPC server
+            let (sender, receiver) = start_server(protocol).await;
+
+            // Make a request
+            send(
+                sender,
+                Request::new(Id::from(11), "get_product_list".to_string()),
+            )
+            .await;
+
+            // Get the result back
+            let bytes = receive(receiver).await;
+
+            // Assert that the result is what we expect
+            let response: jrpc::Response<Vec<ProductAccountMetadata>> =
+                serde_json::from_slice(&bytes).unwrap();
+            assert!(matches!(response, jrpc::Response::Ok(success) if success.result == data));
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn get_all_products_success() {
+            // Set expectations on our mock protocol
+            let mut protocol = MockProtocol::new();
+            let data = vec![ProductAccount {
+                account: PubKey::from("some_product_account"),
+                attr_dict: Attrs::from(
+                    [
+                        ("symbol", "LTC/USD"),
+                        ("asset_type", "Crypto"),
+                        ("country", "US"),
+                        ("quote_currency", "USD"),
+                        ("tenor", "spot"),
+                    ]
+                    .map(|(k, v)| (k.to_string(), v.to_string())),
+                ),
+                price_accounts: vec![PriceAccount {
+                    account: PubKey::from("some_price_account"),
+                    price_type: "price".to_string(),
+                    price_exponent: 7463,
+                    status: "trading".to_string(),
+                    price: 6453,
+                    conf: 3434,
+                    twap: 6454,
+                    twac: 365,
+                    valid_slot: 3646,
+                    pub_slot: 2857,
+                    prev_slot: 7463,
+                    prev_price: 3784,
+                    prev_conf: 9879,
+                    publisher_accounts: vec![
+                        PublisherAccount {
+                            account: PubKey::from("some_publisher_account"),
+                            status: "trading".to_string(),
+                            price: 756,
+                            conf: 8787,
+                            slot: 2209,
+                        },
+                        PublisherAccount {
+                            account: PubKey::from("another_publisher_account"),
+                            status: "halted".to_string(),
+                            price: 0,
+                            conf: 0,
+                            slot: 6676,
+                        },
+                    ],
+                }],
+            }];
+            let return_data = data.clone();
+            protocol
+                .expect_get_all_products()
+                .times(1)
+                .returning(move || Ok(return_data.clone()));
+
+            // Start and connect to the JRPC server
+            let (sender, receiver) = start_server(protocol).await;
+
+            // Make a request
+            send(
+                sender,
+                Request::new(Id::from(5), "get_all_products".to_string()),
+            )
+            .await;
+
+            // Get the result back
+            let bytes = receive(receiver).await;
+
+            // Assert that the result is what we expect
+            let response: jrpc::Response<Vec<ProductAccount>> =
+                serde_json::from_slice(&bytes).unwrap();
+            assert!(matches!(response, jrpc::Response::Ok(success) if success.result == data));
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn subscribe_price_success() {
+            // Set expectations on our mock protocol
+            let price_account = PubKey::from("some_price_account");
+            let subscription = Subscription::from(16);
+            let mut protocol = MockProtocol::new();
+            protocol
+                .expect_subscribe_price()
+                .with(predicate::eq(price_account.clone()))
+                .times(1)
+                .returning(move |_| Ok(subscription));
+
+            // Start and connect to the JRPC server
+            let (sender, receiver) = start_server(protocol).await;
+
+            // Make a request
+            send(
+                sender,
+                Request::with_params(
+                    Id::from(13),
+                    "subscribe_price".to_string(),
+                    SubscribePriceParams {
+                        account: price_account,
+                    },
+                ),
+            )
+            .await;
+
+            // Get the result back
+            let bytes = receive(receiver).await;
+
+            // Assert that the result is what we expect
+            let response: jrpc::Response<SubscribeResult> = serde_json::from_slice(&bytes).unwrap();
+            assert!(
+                matches!(response, jrpc::Response::Ok(success) if success.result == SubscribeResult{ subscription })
+            );
+        }
+    }
 }
