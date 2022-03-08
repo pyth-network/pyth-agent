@@ -1,2 +1,2 @@
 # agent
-Publish and observe data on the Pyth Network
+Participate in the Pyth Network
