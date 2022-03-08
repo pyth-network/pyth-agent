@@ -74,3 +74,26 @@ pub struct PriceUpdate {
 }
 
 type Subscription = i64;
+
+// The Pythd JRPC API delegates to structs implementing the Protocol trait
+// to process API calls. This allows the business logic to be mocked out.
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait Protocol {
+    async fn get_product_list(&self) -> Result<Vec<ProductAccountMetadata>>;
+
+    async fn get_product(&self, account: PubKey) -> Result<ProductAccount>;
+
+    async fn get_all_products(&self) -> Result<Vec<ProductAccount>>;
+
+    async fn subscribe_price(&self, account: PubKey) -> Result<Subscription>;
+
+    async fn update_price(
+        &self,
+        account: PubKey,
+        price: Price,
+        conf: Conf,
+        status: &str,
+    ) -> Result<()>;
+}
+
