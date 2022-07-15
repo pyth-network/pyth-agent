@@ -21,6 +21,8 @@ template InputVerifier() {
     // ed25519 requires binary inputs.
     signal input price[64];
     signal input confidence[64];
+    signal input timestamp[64];
+    signal input online[64];
 
     // Publishers sign price and confidence with the following code:
     //
@@ -36,7 +38,7 @@ template InputVerifier() {
 
     // Create and assign signature messages to the EdDSA verifier.
     for(var i = 0; i < 64; i++) verifier.msg[i]     <== price[i];
-    for(var i = 0; i < 64; i++) verifier.msg[64+ i] <== confidence[i];
+    for(var i = 0; i < 64; i++) verifier.msg[64+i] <== confidence[i];
 
     // Assign the expected signature to the verifier.
     for(var j = 0; j < 256; j++) {

@@ -12,17 +12,18 @@ pragma circom 2.0.0;
 // - Dig more into Curve support and what our limitations are (currently BN254).
 // - Proof of concept P2P Protocol (even without P2P is fine).
 
-// - [ ] Timestamp oracle as a median.
+// - [x] Timestamp oracle as a median.
 // - [x] Fee for proving.
-// - [ ] Staleness threshold on price inputs.
-// - [ ] Publishers commit to timestamps.
-// - [ ] Publishers commit to observed online amount.
+// - [x] Staleness threshold on price inputs.
+// - [x] Publishers commit to timestamps.
+// - [x] Publishers commit to observed online amount.
 // - [ ] Min pub, required.
+// - [ ] Contract with N prices must work for <N. Dynamic N.
 
-include "node_modules/circomlib/circuits/bitify.circom";
 include "node_modules/circomlib/circuits/comparators.circom";
 
 include "lib/SortedArray.circom";
+include "lib/Median.circom";
 include "InputVerifier.circom";
 include "PriceModel.circom";
 
@@ -41,7 +42,7 @@ function calc_price(price_model, prices, confs, i) {
 }
 
 // Proof is per-price
-template Pyth(N) {
+template Pyth(N, TimestampThreshold) {
     // Publisher Controlled Inputs
     signal input  price_model[N*3][3];
     signal input  prices[N];
@@ -51,6 +52,26 @@ template Pyth(N) {
 
     // Return fee input as output for verification contracts to charge users.
     signal input  fee;
+
+    // In order to prevent the prover from choosing 
+    component timestamp_median = Median(N);
+    for(var i = 0; i < N; i++) {
+        timestamp_median.list[i] <== timestamps[i];
+    }
+
+    // All timestamps must be within a certain range of the median.
+    // TODO: Does it have to be bits?
+    component timestamp_gt[N];
+    component timestamp_lte[N];
+    for(var i = 0; i < N; i++) timestamp_lte[i] = LessEqThan(64);
+    for(var i = 0; i < N; i++) timestamp_gt[i]  = GreaterThan(64);
+
+    for(var i = 0; i < N; i++) {
+        timestamp_lte[i].in[0] <== timestamps[i];
+        timestamp_lte[i].in[1] <== timestamp_median.result;
+        timestamp_gt[i].in[0]  <== timestamps[i];
+        timestamp_gt[i].in[1]  <== timestamp_median.result - TimestampThreshold;
+    }
 
     // Signatures: A/R/S components are part of the ed25519 signature scheme.
     // 
@@ -73,11 +94,18 @@ template Pyth(N) {
     // verification.
     component Num2Bits_price_components[N];
     component Num2Bits_conf_components[N];
+    component Num2Bits_timestamp_components[N];
+    component Num2Bits_online_components[N];
     for(var i=0; i<N; i++) {
         Num2Bits_price_components[i] = Num2Bits(64);
         Num2Bits_conf_components[i]  = Num2Bits(64);
+        Num2Bits_timestamp_components[i] = Num2Bits(64);
+        Num2Bits_online_components[i] = Num2Bits(64);
+
         Num2Bits_price_components[i].in <== prices[i];
         Num2Bits_conf_components[i].in  <== confs[i];
+        Num2Bits_timestamp_components[i].in <== timestamps[i];
+        Num2Bits_online_components[i].in <== observed_online[i];
     }
 
     // Verify the encoded data against incoming signatures.
@@ -89,6 +117,8 @@ template Pyth(N) {
         for (var j = 0; j < 64; j++) {
             verifiers[i].price[j]      <== Num2Bits_price_components[i].out[j];
             verifiers[i].confidence[j] <== Num2Bits_conf_components[i].out[j];
+            verifiers[i].timestamp[j]  <== Num2Bits_timestamp_components[i].out[j];
+            verifiers[i].online[j]     <== Num2Bits_online_components[i].out[j];
         }
 
         // Assign Signature Components.
@@ -136,4 +166,4 @@ template Pyth(N) {
     p75        <== price_calc.agg_p75;
  }
 
-component main = Pyth(10);
+component main = Pyth(10, 10);
