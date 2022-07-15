@@ -1,0 +1,22 @@
+{
+    "name": "zkp",
+    "version": "1.0.0",
+    "description": "",
+    "main": "setup.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "circom": "^0.5.46",
+        "circomlib": "^2.0.3",
+        "circomlibjs": "^0.1.2",
+        "prettifier": "^0.4.0"
+    },
+    "devDependencies": {
+        "husky": "^8.0.1",
+        "lint-staged": "^12.4.1",
+        "prettier": "^2.6.2"
+    }
+}
