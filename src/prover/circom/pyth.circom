@@ -42,31 +42,45 @@ function calc_price(price_model, prices, confs, i) {
 }
 
 // Proof is per-price
-template Pyth(N, TimestampThreshold) {
-    // Publisher Controlled Inputs
-    signal input  price_model[N*3][3];
-    signal input  prices[N];
-    signal input  confs[N];
-    signal input  timestamps[N];
-    signal input  observed_online[N];
+template Pyth(Max, TimestampThreshold) {
+    // Publisher Controlled Inputs:
+    //
+    // Requirements:
+    // Check all array elements are sorted.
+    // Check all array elements are non-zero up to N. (0 indicates NULL).
+    // Check all array elements are zero (NULL) >= N.
+    //
+    // These requirements allow us to prove aggregations for a variable number
+    // of elements.
+    signal input  N;
+
+    signal input  price_model[Max*3][3];
+    signal input  prices[Max];
+    signal input  confs[Max];
+    signal input  timestamps[Max];
+    signal input  observed_online[Max];
+
+    var track=0;
+    for(var i=0; i<Max; i++) {
+    }
 
     // Return fee input as output for verification contracts to charge users.
     signal input  fee;
 
     // In order to prevent the prover from choosing 
-    component timestamp_median = Median(N);
-    for(var i = 0; i < N; i++) {
+    component timestamp_median = Median(Max);
+    for(var i = 0; i < Max; i++) {
         timestamp_median.list[i] <== timestamps[i];
     }
 
     // All timestamps must be within a certain range of the median.
     // TODO: Does it have to be bits?
-    component timestamp_gt[N];
-    component timestamp_lte[N];
-    for(var i = 0; i < N; i++) timestamp_lte[i] = LessEqThan(64);
-    for(var i = 0; i < N; i++) timestamp_gt[i]  = GreaterThan(64);
+    component timestamp_gt[Max];
+    component timestamp_lte[Max];
+    for(var i = 0; i < Max; i++) timestamp_lte[i] = LessEqThan(64);
+    for(var i = 0; i < Max; i++) timestamp_gt[i]  = GreaterThan(64);
 
-    for(var i = 0; i < N; i++) {
+    for(var i = 0; i < Max; i++) {
         timestamp_lte[i].in[0] <== timestamps[i];
         timestamp_lte[i].in[1] <== timestamp_median.result;
         timestamp_gt[i].in[0]  <== timestamps[i];
@@ -78,9 +92,9 @@ template Pyth(N, TimestampThreshold) {
     // NOTE: The hash used in ed25519 in this contract uses the MiMC hash
     //       function rather than SHA256 as in standard ed25519. You can use
     //       circomlibjs to produce signatures that match this algorithm.
-    signal input  A[N][256];
-    signal input  R[N][256];
-    signal input  S[N][256];
+    signal input  A[Max][256];
+    signal input  R[Max][256];
+    signal input  S[Max][256];
 
     // Output p-values for aggregattion.
     signal output p25;
@@ -92,11 +106,11 @@ template Pyth(N, TimestampThreshold) {
 
     // Convert Price/Confidence pairs into binary encoded values for signatur
     // verification.
-    component Num2Bits_price_components[N];
-    component Num2Bits_conf_components[N];
-    component Num2Bits_timestamp_components[N];
-    component Num2Bits_online_components[N];
-    for(var i=0; i<N; i++) {
+    component Num2Bits_price_components[Max];
+    component Num2Bits_conf_components[Max];
+    component Num2Bits_timestamp_components[Max];
+    component Num2Bits_online_components[Max];
+    for(var i=0; i<Max; i++) {
         Num2Bits_price_components[i] = Num2Bits(64);
         Num2Bits_conf_components[i]  = Num2Bits(64);
         Num2Bits_timestamp_components[i] = Num2Bits(64);
@@ -109,8 +123,8 @@ template Pyth(N, TimestampThreshold) {
     }
 
     // Verify the encoded data against incoming signatures.
-    component verifiers[N];
-    for(var i = 0; i < N; i++) {
+    component verifiers[Max];
+    for(var i = 0; i < Max; i++) {
         verifiers[i] = InputVerifier();
 
         // Assign output of binary conversion to signature verifier.
@@ -132,8 +146,8 @@ template Pyth(N, TimestampThreshold) {
     // We verify that the price_model has been given to us in order by iterating
     // over the signal set and checking that every element is smaller than its
     // successor. I.E: all(map(lambda a, b: a <= b, prices))
-    signal sort_checks[N*3];
-    for(var i=1; i<N*3; i++) {
+    signal sort_checks[Max*3];
+    for(var i=1; i<Max*3; i++) {
         var a = calc_price(price_model, prices, confs, i-1);
         var b = calc_price(price_model, prices, confs, i);
 
@@ -142,8 +156,8 @@ template Pyth(N, TimestampThreshold) {
         sort_checks[i] === 1;
     }
 
-    component price_calc = PriceModelCore(N*3);
-    for(var i=0; i<N*3; i++) {
+    component price_calc = PriceModelCore(Max*3);
+    for(var i=0; i<Max*3; i++) {
         // TODO: Constraint missing, do we need one? <-- dangerous.
         price_calc.prices[i] <-- calc_price(price_model, prices, confs, i);
     }
