@@ -12,16 +12,19 @@ pragma circom 2.0.0;
 // - Dig more into Curve support and what our limitations are (currently BN254).
 // - Proof of concept P2P Protocol (even without P2P is fine).
 
-// Timestamp oracle as a median.
-// Fee for proving.
-// 
+// - [ ] Timestamp oracle as a median.
+// - [x] Fee for proving.
+// - [ ] Staleness threshold on price inputs.
+// - [ ] Publishers commit to timestamps.
+// - [ ] Publishers commit to observed online amount.
+// - [ ] Min pub, required.
 
-include "../node_modules/circomlib/circuits/bitify.circom";
-include "../node_modules/circomlib/circuits/comparators.circom";
+include "node_modules/circomlib/circuits/bitify.circom";
+include "node_modules/circomlib/circuits/comparators.circom";
 
-include "lib/SortedArray.circom"
-include "InputVerifier.circom"
-include "PriceModel.circom"
+include "lib/SortedArray.circom";
+include "InputVerifier.circom";
+include "PriceModel.circom";
 
 function calc_price(price_model, prices, confs, i) {
     var price = prices[price_model[i][0]];
@@ -43,11 +46,11 @@ template Pyth(N) {
     signal input  price_model[N*3][3];
     signal input  prices[N];
     signal input  confs[N];
+    signal input  timestamps[N];
+    signal input  observed_online[N];
 
-    // Enforce fee output.
+    // Return fee input as output for verification contracts to charge users.
     signal input  fee;
-    signal output fee_out;
-    fee_out <== fee;
 
     // Signatures: A/R/S components are part of the ed25519 signature scheme.
     // 
@@ -80,7 +83,7 @@ template Pyth(N) {
     // Verify the encoded data against incoming signatures.
     component verifiers[N];
     for(var i = 0; i < N; i++) {
-        verifier[i] = InputVerifier(N);
+        verifiers[i] = InputVerifier();
 
         // Assign output of binary conversion to signature verifier.
         for (var j = 0; j < 64; j++) {
@@ -90,9 +93,9 @@ template Pyth(N) {
 
         // Assign Signature Components.
         for (var j = 0; j < 256; j++) {
-            verifiers[i].A[j]  <== A[i][j];
-            verifiers[i].R8[j] <== R[i][j];
-            verifiers[i].S[j]  <== S[i][j];
+            verifiers[i].A[j] <== A[i][j];
+            verifiers[i].R[j] <== R[i][j];
+            verifiers[i].S[j] <== S[i][j];
         }
     }
 
@@ -112,7 +115,6 @@ template Pyth(N) {
     component price_calc = PriceModelCore(N*3);
     for(var i=0; i<N*3; i++) {
         // TODO: Constraint missing, do we need one? <-- dangerous.
-        // TODO: Why does this not compile with <== ? Important.
         price_calc.prices[i] <-- calc_price(price_model, prices, confs, i);
     }
 
@@ -135,4 +137,3 @@ template Pyth(N) {
  }
 
 component main = Pyth(10);
-
