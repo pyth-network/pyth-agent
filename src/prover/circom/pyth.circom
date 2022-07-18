@@ -61,8 +61,6 @@ function checkLength(arr, MAX, N) {
         xor_cond[i].a <-- and_cond[i]; 
         xor_cond[i].b <-- and_cond2[i] 
         xor_cond.out <== 1; 
-
-
     }
 
 }
@@ -82,13 +80,13 @@ function calc_price(price_model, prices, confs, i) {
 }
 
 // Proof is per-price
-template Pyth(Max, timestampThreshold, validPubKeys) {
+template Pyth(Max, timestampThreshold) {
 
     /*
         Template Inputs 
         Max - maximum number of components included in the proof
         timestampThreshold - staleness threshold for data feed aggregation
-        validPubKeys - array of valid public keys
+        // callers public key is equal to the pubkey passed into the template 
     */
 
     // Publisher Controlled Inputs:
@@ -109,7 +107,7 @@ template Pyth(Max, timestampThreshold, validPubKeys) {
     signal input  prices[Max];
     signal input  confs[Max];
     signal input  timestamps[Max];
-    signal input  observed_online[Max];
+    signal input  observed_online[Max]; 
 
     // Signatures: A/R/S components are part of the ed25519 signature scheme.
     // 
@@ -146,6 +144,9 @@ template Pyth(Max, timestampThreshold, validPubKeys) {
         LastBitsSignatures[i] <-- S[i][255];     
     }
     checkLength(LastBitsSignatures, MAX, N);
+
+
+    
     
     // In order to prevent the prover from choosing 
     component timestamp_median = Median(Max);
@@ -185,6 +186,80 @@ template Pyth(Max, timestampThreshold, validPubKeys) {
         Num2Bits_conf_components[i].in  <== confs[i];
         Num2Bits_timestamp_components[i].in <== timestamps[i];
         Num2Bits_online_components[i].in <== observed_online[i];
+    }
+    
+    
+    //all of the signatures correspond to different public keys   
+    //create a map between valid pub keys and signatures 
+    // a - b > 0 
+    // n - msb 
+    // c -  
+    
+    // 4 - 5 (a - b)
+    // binary(4) = 100;  
+    // bin(5) = 101
+    // 100 
+    // 101
+
+    // (a + (inv b) + 1)
+    
+    // | -----5----- 0 ----------| 
+    // 0----------|---------| 
+    
+    // 00000100 
+    // - 
+    // 00000101 
+    // ___ 
+    
+    // 00000100 (4)
+    // +
+    // 11111010 (inv(5))
+    // + 
+    // 00000001 (1)
+    // _________ 
+    // 11111111
+
+    // ADD: 
+    // 10000000
+    //      100 
+    // ________
+    // 10000100
+    // + 
+    // 11111010    
+    // +
+    // 00000001 
+    // _________
+    // 01111111 
+
+    //assume the prover passes in sorted list
+    component binsubkey[MAX]; 
+    component binaddkey[MAX]; 
+     
+    //check if A is has unique elements 
+    /*  
+        note that A[i] - A[i+1] could be < 0
+        add (1<<256) to binary representation of (A[i] - A[j] to get around not having signed bit representations
+        create a range for which numbers above (1<<256) have 1 in the MSB and numbers below (1<<256) have 0 in the MSB    
+        note: LSB is index 0 
+    */
+     for (var i = 0; i < MAX; i++) {   
+        
+        binsubkey[i] = BinSub(256);   
+        binaddkey[i] = BinAdd(256);
+        
+        //feed A[i] into binsub[i] and check equality 
+        for (var j = 0; j < 256; j++) { 
+            binaddkey[i].in[0][j] <-- A[i][j]; 
+            binaddkey[i].in[1][255] <-- 1;     
+            
+            binsubkey[i].in[0][j] <-- binaddkey[i].out[j]; 
+            binsubkey[i].in[1][j] <-- A[i+1][j];     
+            
+        }   
+        //checks sort in ascending order 
+        binsubkey[i].out[255] === 0; 
+        //checks equality 
+        binsubkey[i].out[255] === 0;
     }
 
     // Verify the encoded data against incoming signatures.

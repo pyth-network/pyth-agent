@@ -11,7 +11,7 @@ include "node_modules/circomlib/circuits/eddsa.circom";
 //
 // The `N` parameter refers to the number of price components the circuit is
 // able to process, and is fixed at compile time.
-template InputVerifier(_pubkey) { 
+template InputVerifier() { 
     //tie the sigature to the pubkey of the caller 
     // Components of the input ed25519 signatures. Used by ed25519.circom
     signal input A[256];
