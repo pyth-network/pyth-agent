@@ -17,15 +17,55 @@ pragma circom 2.0.0;
 // - [x] Staleness threshold on price inputs.
 // - [x] Publishers commit to timestamps.
 // - [x] Publishers commit to observed online amount.
+// - [ ] Check the signatures are from different publishers 
+// - [ ] refactor code to template / functions
+// - [ ] checks for subgroup order 
 // - [ ] Min pub, required.
 // - [ ] Contract with N prices must work for <N. Dynamic N.
 
 include "node_modules/circomlib/circuits/comparators.circom";
+include "node_modules/circomlib/circuits/gates.circom";
 
 include "lib/SortedArray.circom";
 include "lib/Median.circom";
 include "InputVerifier.circom";
-include "PriceModel.circom";
+include "PriceModel.circom"; 
+
+//check conditions to ensure that elements up to the expected length 
+//are nonempty and everything above is empty 
+function checkLength(arr, MAX, N) {
+    var EMPTY = -1; 
+    component xor_cond[MAX]; 
+    component and_cond[MAX]; 
+    component and_cond2[MAX];   
+
+    for (var i = 0; i < MAX: i++) {
+        var p = i >= N; 
+        var q = arr[i] == EMPTY;   
+
+        var p1 = i < N; 
+        var q1 = arr[i] != EMPTY;   
+
+        xor_cond[i] = XOR(); 
+        and_cond[i] = AND(); 
+        and_cond2[i] = AND();
+
+        and_cond[i].a <-- p; 
+        and_cond[i].b <-- q; 
+        and_cond.out <== 1; 
+        
+        and_cond2[i].a <-- p1; 
+        and_cond2[i].b <-- q1; 
+        and_cond2.out <== 1; 
+
+        xor_cond[i].a <-- and_cond[i]; 
+        xor_cond[i].b <-- and_cond2[i] 
+        xor_cond.out <== 1; 
+
+
+    }
+
+}
 
 function calc_price(price_model, prices, confs, i) {
     var price = prices[price_model[i][0]];
@@ -42,7 +82,15 @@ function calc_price(price_model, prices, confs, i) {
 }
 
 // Proof is per-price
-template Pyth(Max, TimestampThreshold) {
+template Pyth(Max, timestampThreshold, validPubKeys) {
+
+    /*
+        Template Inputs 
+        Max - maximum number of components included in the proof
+        timestampThreshold - staleness threshold for data feed aggregation
+        validPubKeys - array of valid public keys
+    */
+
     // Publisher Controlled Inputs:
     //
     // Requirements:
@@ -51,41 +99,17 @@ template Pyth(Max, TimestampThreshold) {
     // Check all array elements are zero (NULL) >= N.
     //
     // These requirements allow us to prove aggregations for a variable number
-    // of elements.
-    signal input  N;
+    // of elements. 
+    //max = 10 
+    // N = 8
+    //thresh = 7 
+    signal input    N;
 
     signal input  price_model[Max*3][3];
     signal input  prices[Max];
     signal input  confs[Max];
     signal input  timestamps[Max];
     signal input  observed_online[Max];
-
-    var track=0;
-    for(var i=0; i<Max; i++) {
-    }
-
-    // Return fee input as output for verification contracts to charge users.
-    signal input  fee;
-
-    // In order to prevent the prover from choosing 
-    component timestamp_median = Median(Max);
-    for(var i = 0; i < Max; i++) {
-        timestamp_median.list[i] <== timestamps[i];
-    }
-
-    // All timestamps must be within a certain range of the median.
-    // TODO: Does it have to be bits?
-    component timestamp_gt[Max];
-    component timestamp_lte[Max];
-    for(var i = 0; i < Max; i++) timestamp_lte[i] = LessEqThan(64);
-    for(var i = 0; i < Max; i++) timestamp_gt[i]  = GreaterThan(64);
-
-    for(var i = 0; i < Max; i++) {
-        timestamp_lte[i].in[0] <== timestamps[i];
-        timestamp_lte[i].in[1] <== timestamp_median.result;
-        timestamp_gt[i].in[0]  <== timestamps[i];
-        timestamp_gt[i].in[1]  <== timestamp_median.result - TimestampThreshold;
-    }
 
     // Signatures: A/R/S components are part of the ed25519 signature scheme.
     // 
@@ -102,9 +126,50 @@ template Pyth(Max, TimestampThreshold) {
     signal output p75;
 
     // Width of the confidence interval around the p50 aggregate.
-    signal output confidence;
+    signal output confidence; 
+    // Return fee input as output for verification contracts to charge users.
+    signal input  fee;
+    //threshold - number of signatures we need to include 
+    //FILTER the input data
+    //checks length / vals of the signal inputs 
+    checkLength(prices, MAX, N); 
+    checkLength(confs, MAX, N); 
+    checkLength(timestamps, MAX, N); 
+    checkLength(observed_online, MAX, N);    
+    //set the last bit to -1 in the S component of the ED25519 signature 
+    //last 3 bits need to be 0 for a signature to be non-malleable 
+    //(curve order size ~< last 3 bits) 
 
-    // Convert Price/Confidence pairs into binary encoded values for signatur
+    //check last bit 
+    LastBitsSignatures[MAX]; 
+    for (var i = 0; i < MAX; i++) {      
+        LastBitsSignatures[i] <-- S[i][255];     
+    }
+    checkLength(LastBitsSignatures, MAX, N);
+    
+    // In order to prevent the prover from choosing 
+    component timestamp_median = Median(Max);
+    for(var i = 0; i < Max; i++) {
+        timestamp_median.list[i] <== timestamps[i];
+    }
+
+
+    // All timestamps must be within a certain range of the median.
+    // TODO: Does it have to be bits?
+    component timestamp_gt[Max];
+    component timestamp_lte[Max];
+    for(var i = 0; i < Max; i++) timestamp_lte[i] = LessEqThan(64);
+    for(var i = 0; i < Max; i++) timestamp_gt[i]  = GreaterThan(64);
+
+    for(var i = 0; i < Max; i++) {
+        timestamp_lte[i].in[0] <== timestamps[i];
+        timestamp_lte[i].in[1] <== timestamp_median.result;
+        timestamp_gt[i].in[0]  <== timestamps[i];
+        timestamp_gt[i].in[1]  <== timestamp_median.result - TimestampThreshold;
+    }
+
+
+    // Convert Price/Confidence pairs into binary encoded values for signature
     // verification.
     component Num2Bits_price_components[Max];
     component Num2Bits_conf_components[Max];

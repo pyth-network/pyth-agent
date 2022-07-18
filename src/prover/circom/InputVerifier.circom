@@ -11,7 +11,8 @@ include "node_modules/circomlib/circuits/eddsa.circom";
 //
 // The `N` parameter refers to the number of price components the circuit is
 // able to process, and is fixed at compile time.
-template InputVerifier() {
+template InputVerifier(_pubkey) { 
+    //tie the sigature to the pubkey of the caller 
     // Components of the input ed25519 signatures. Used by ed25519.circom
     signal input A[256];
     signal input R[256];
@@ -26,12 +27,12 @@ template InputVerifier() {
 
     // Publishers sign price and confidence with the following code:
     //
-    //   `signature = ed25519::sign(price || confidence, secret_key)`
+    //   `signature = ed25519::sign(price || confidence || timestamp || online || secret_key)`
     //
     // Therefore we must also create a verifier that can verify the signature
-    // of these 128 bit messages.
+    // of these 256 bit messages.
     component verifier;
-    verifier = EdDSAVerifier(128);
+    verifier = EdDSAVerifier(256);
 
     // Each component verifies one signature. If verification fails the
     // component will violate a constraint.
@@ -39,6 +40,8 @@ template InputVerifier() {
     // Create and assign signature messages to the EdDSA verifier.
     for(var i = 0; i < 64; i++) verifier.msg[i]     <== price[i];
     for(var i = 0; i < 64; i++) verifier.msg[64+i] <== confidence[i];
+    for(var i = 0; i < 64; i++) verifier.msg[128+i] <== timestamp[i];
+    for(var i = 0; i < 64; i++) verifier.msg[192+i] <== online[i];
 
     // Assign the expected signature to the verifier.
     for(var j = 0; j < 256; j++) {
