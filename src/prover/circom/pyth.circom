@@ -17,7 +17,7 @@ pragma circom 2.0.0;
 // - [x] Staleness threshold on price inputs.
 // - [x] Publishers commit to timestamps.
 // - [x] Publishers commit to observed online amount.
-// - [ ] Check the signatures are from different publishers 
+// - [x] Check the signatures are from different publishers 
 // - [ ] refactor code to template / functions
 // - [ ] checks for subgroup order 
 // - [ ] Min pub, required.
@@ -191,58 +191,39 @@ template Pyth(Max, timestampThreshold) {
     
     //all of the signatures correspond to different public keys   
     //create a map between valid pub keys and signatures 
-    // a - b > 0 
-    // n - msb 
-    // c -  
-    
-    // 4 - 5 (a - b)
-    // binary(4) = 100;  
-    // bin(5) = 101
-    // 100 
-    // 101
-
-    // (a + (inv b) + 1)
-    
-    // | -----5----- 0 ----------| 
-    // 0----------|---------| 
-    
-    // 00000100 
-    // - 
-    // 00000101 
-    // ___ 
-    
-    // 00000100 (4)
-    // +
-    // 11111010 (inv(5))
-    // + 
-    // 00000001 (1)
-    // _________ 
-    // 11111111
-
-    // ADD: 
-    // 10000000
-    //      100 
-    // ________
-    // 10000100
-    // + 
-    // 11111010    
-    // +
-    // 00000001 
-    // _________
-    // 01111111 
 
     //assume the prover passes in sorted list
     component binsubkey[MAX]; 
     component binaddkey[MAX]; 
      
+
+    
     //check if A is has unique elements 
-    /*  
-        note that A[i] - A[i+1] could be < 0
-        add (1<<256) to binary representation of (A[i] - A[j] to get around not having signed bit representations
-        create a range for which numbers above (1<<256) have 1 in the MSB and numbers below (1<<256) have 0 in the MSB    
-        note: LSB is index 0 
-    */
-     for (var i = 0; i < MAX; i++) {   
+    //assume A is sorted  
+
+    // check A is sorted in ascending order 
+    // A less-than check can be implemented by performing `A - B` and checking if the
+    // operation overflowed, in other words, if `A - B < 0` then B must have been larger
+    // than A. Circom however does not have signed bit operations. It's possible to still
+    // perform this check however by creating our own range by shifting all the numbers
+    // up by half of the integer range.
+
+    // For example, with an 8 bit range, shifting everything by 128 (1<<8), we get the
+    // following represntation:
+
+    // 00000000 = -128
+    // 10000000 =    0
+    // 11111111 =  128
+
+    // We can now achieve the same less-than check by performing: a
+
+    // 0 + A - B
+
+    // This generalizes to n-bit representations - we just shift everything by n (1 << 256) 
+    // As all positive numbers now have a 1 MSB, and all negative numbers have a 0 MSB,
+    // we can check if an overflow occured by checking if the MSB has become 0.  
+    //note that LSB is index 0 
+    for (var i = 0; i < MAX; i++) {   
         
         binsubkey[i] = BinSub(256);   
         binaddkey[i] = BinAdd(256);
