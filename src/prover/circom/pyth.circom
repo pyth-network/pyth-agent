@@ -67,8 +67,8 @@ function checkLength(arr, MAX, N) {
 
 function calc_price(price_model, prices, confs, i) {
     var price = prices[price_model[i][0]];
-    var conf  = confs[price_model[i][1]];
-    var op    = price_model[i][2];
+    var conf  = confs[price_model[i][0]];
+    var op    = price_model[i][1];
 
     if(op == 0) {
         return price - conf;
@@ -100,7 +100,15 @@ template Pyth(Max, timestampThreshold) {
     // of elements. 
     signal input    N;
 
-    signal input  price_model[Max*3][3];
+    // TODO: better name than vote
+    // price_model:
+    // 2-D array. Tuple of (price, conf and op) for each vote. These represent the provers
+    // input to the aggregation for each data feed. A single data feed's (price, conf) is
+    // converted to a tuple of (price-conf, price, price+conf) representing the 3 votes.
+    // Each vote is represented in the price model as a tuple of (index, op) where
+    // that x is the index into prices and confs arrays and op represents the operation
+    // (+-NOP) calc_price uses to reconstruct the values.
+    signal input  price_model[Max*3][2];
     signal input  prices[Max];
     signal input  confs[Max];
     signal input  timestamps[Max];
