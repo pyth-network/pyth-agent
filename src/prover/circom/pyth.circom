@@ -98,9 +98,6 @@ template Pyth(Max, timestampThreshold) {
     //
     // These requirements allow us to prove aggregations for a variable number
     // of elements. 
-    //max = 10 
-    // N = 8
-    //thresh = 7 
     signal input    N;
 
     signal input  price_model[Max*3][3];
@@ -127,18 +124,19 @@ template Pyth(Max, timestampThreshold) {
     signal output confidence; 
     // Return fee input as output for verification contracts to charge users.
     signal input  fee;
-    //threshold - number of signatures we need to include 
-    //FILTER the input data
-    //checks length / vals of the signal inputs 
+    
+    // Checks that each input array has the expected (N) number of elements.
     checkLength(prices, MAX, N); 
     checkLength(confs, MAX, N); 
     checkLength(timestamps, MAX, N); 
-    checkLength(observed_online, MAX, N);    
-    //set the last bit to -1 in the S component of the ED25519 signature 
-    //last 3 bits need to be 0 for a signature to be non-malleable 
-    //(curve order size ~< last 3 bits) 
+    checkLength(observed_online, MAX, N);  
 
-    //check last bit 
+    // We use the last bit of the S component of each ED25519 signature 
+    // as a flag which represents if that value is present.
+    // In a valid signature, the last 3 bits need to be 0 for the signature 
+    // to be non-malleable (curve order size ~< last 3 bits).
+    // We therefore extract the last bit of each S component into an array,
+    // and check that this has the expected length.
     LastBitsSignatures[MAX]; 
     for (var i = 0; i < MAX; i++) {      
         LastBitsSignatures[i] <-- S[i][255];     
