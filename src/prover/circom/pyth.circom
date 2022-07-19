@@ -124,6 +124,9 @@ template Pyth(max, timestampThreshold) {
     signal input  R[Max][256];
     signal input  S[Max][256];
 
+    // Return fee input as output for verification contracts to charge users.
+    signal input  fee;
+
     // Output p-values for aggregattion.
     signal output p25;
     signal output p50;
@@ -131,8 +134,6 @@ template Pyth(max, timestampThreshold) {
 
     // Width of the confidence interval around the p50 aggregate.
     signal output confidence; 
-    // Return fee input as output for verification contracts to charge users.
-    signal input  fee;
     
     // Checks that each input array has the expected (N) number of elements.
     checkLength(prices, MAX, N); 
