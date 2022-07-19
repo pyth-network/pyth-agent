@@ -112,7 +112,8 @@ template Pyth(max, timestampThreshold) {
     signal input  prices[Max];
     signal input  confs[Max];
     signal input  timestamps[Max];
-    signal input  observed_online[Max]; 
+    // TODO: double-check if this is necessary
+    // signal input  observed_online[Max]; 
 
     // Signatures: A/R/S components are part of the ed25519 signature scheme.
     // 

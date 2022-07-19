@@ -9,9 +9,6 @@ include "node_modules/circomlib/circuits/eddsa.circom";
 //
 // The price and component at position `i`, must correspond to the signature
 // at position `i`.
-//
-// The `N` parameter refers to the number of price components the circuit is
-// able to process, and is fixed at compile time.
 template InputVerifier() { 
     //tie the sigature to the pubkey of the caller 
     // Components of the input ed25519 signatures. Used by ed25519.circom
@@ -19,12 +16,11 @@ template InputVerifier() {
     signal input R[256];
     signal input S[256];
 
-    // Price and confidence components are encoded as 64 bit binary integers as
+    // // Price and confidence components are encoded as 64 bit binary integers as
     // ed25519 requires binary inputs.
     signal input price[64];
     signal input confidence[64];
     signal input timestamp[64];
-    signal input online[64];
 
     // Publishers sign price and confidence with the following code:
     //
@@ -42,7 +38,6 @@ template InputVerifier() {
     for(var i = 0; i < 64; i++) verifier.msg[i]     <== price[i];
     for(var i = 0; i < 64; i++) verifier.msg[64+i] <== confidence[i];
     for(var i = 0; i < 64; i++) verifier.msg[128+i] <== timestamp[i];
-    for(var i = 0; i < 64; i++) verifier.msg[192+i] <== online[i];
 
     // Assign the expected signature to the verifier.
     for(var j = 0; j < 256; j++) {
