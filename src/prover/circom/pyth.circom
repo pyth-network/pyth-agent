@@ -186,59 +186,53 @@ template Pyth(Max, timestampThreshold) {
         Num2Bits_online_components[i].in <== observed_online[i];
     }
     
-    
-    //all of the signatures correspond to different public keys   
-    //create a map between valid pub keys and signatures 
-
-    //assume the prover passes in sorted list
-    component binsubkey[MAX]; 
-    component binaddkey[MAX]; 
-     
-
-    
-    //check if A is has unique elements 
-    //assume A is sorted  
-
-    // check A is sorted in ascending order 
+    // We need to check that each signature given corresponds to a unique public key.
+    // This is so a single publisher cannot submit multiple entries to a proof.
+    // A is the public key component of the signature, so we need to check that all
+    // the given A's are unique.
+    //
+    // We do this by requiring that A is sorted in ascending order, then iterating over
+    // the array and checking that a[i + 1] > a[i].
+    //
     // A less-than check can be implemented by performing `A - B` and checking if the
-    // operation overflowed, in other words, if `A - B < 0` then B must have been larger
+    // operation overflowed. In other words, if `A - B < 0` then B must have been larger
     // than A. Circom however does not have signed bit operations. It's possible to still
     // perform this check however by creating our own range by shifting all the numbers
     // up by half of the integer range.
-
+    //
     // For example, with an 8 bit range, shifting everything by 128 (1<<8), we get the
-    // following represntation:
-
+    // following representation:
+    //
     // 00000000 = -128
     // 10000000 =    0
     // 11111111 =  128
-
-    // We can now achieve the same less-than check by performing: a
-
+    //
+    // We can now achieve the same less-than check by performing
+    //
     // 0 + A - B
-
+    //
     // This generalizes to n-bit representations - we just shift everything by n (1 << 256) 
     // As all positive numbers now have a 1 MSB, and all negative numbers have a 0 MSB,
     // we can check if an overflow occured by checking if the MSB has become 0.  
-    //note that LSB is index 0 
+    // Note that LSB is index 0, and bits go left-to-right.
+    component binsub_pubkey[MAX]; 
+    component binadd_pubkey[MAX]; 
     for (var i = 0; i < MAX; i++) {   
         
-        binsubkey[i] = BinSub(256);   
-        binaddkey[i] = BinAdd(256);
+        binsub_pubkey[i] = BinSub(257);  
+        binadd_pubkey[i] = BinAdd(257); // TODO: use BinSum
         
-        //feed A[i] into binsub[i] and check equality 
+        // Perform 0 + A - B to check equality
         for (var j = 0; j < 256; j++) { 
-            binaddkey[i].in[0][j] <-- A[i][j]; 
-            binaddkey[i].in[1][255] <-- 1;     
+            binadd_pubkey[i].in[0][j] <-- A[i][j]; 
+            binadd_pubkey[i].in[1][255] <-- 1;     
             
-            binsubkey[i].in[0][j] <-- binaddkey[i].out[j]; 
-            binsubkey[i].in[1][j] <-- A[i+1][j];     
-            
-        }   
-        //checks sort in ascending order 
-        binsubkey[i].out[255] === 0; 
-        //checks equality 
-        binsubkey[i].out[255] === 0;
+            binsub_pubkey[i].in[0][j] <-- binadd_pubkey[i].out[j]; 
+            binsub_pubkey[i].in[1][j] <-- A[i+1][j];     
+        }
+
+        // Check that the MSB is 0, indicating that the subtraction "overflowed", so A[i+1] > A[i]
+        binsub_pubkey[i].out[255] === 0; 
     }
 
     // Verify the encoded data against incoming signatures.
