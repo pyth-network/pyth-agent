@@ -1,5 +1,6 @@
 pragma circom 2.0.0;
 
+// TODO: use poseidon hash function instead (eddsaposeidon)
 include "node_modules/circomlib/circuits/eddsa.circom";
 
 // InputVerifier receives a list of signatures, prices, and components, and
