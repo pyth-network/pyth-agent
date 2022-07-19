@@ -80,11 +80,11 @@ function calc_price(price_model, prices, confs, i) {
 }
 
 // Proof is per-price
-template Pyth(Max, timestampThreshold) {
+template Pyth(max, timestampThreshold) {
 
     /*
         Template Inputs 
-        Max - maximum number of components included in the proof
+        max - maximum number of components included in the proof
         timestampThreshold - staleness threshold for data feed aggregation
         // callers public key is equal to the pubkey passed into the template 
     */
