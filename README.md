@@ -1,4 +1,7 @@
 # agent
+
+To run the circom test, navigate to the `src/prover/circom` directory and run `npm run test`.
+
 Participate in the Pyth Network 
 
 - **Short term — 2 months**

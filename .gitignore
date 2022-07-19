@@ -11,3 +11,5 @@ Cargo.lock
 
 # Circom build files
 src/prover/circom/build
+src/prover/circom/node_modules
+src/prover/circom/test/*.test.circom

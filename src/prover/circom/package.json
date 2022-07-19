@@ -4,12 +4,12 @@
     "description": "",
     "main": "setup.js",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "test": "npx mocha test/test-framework.js"
     },
     "author": "",
     "license": "ISC",
     "dependencies": {
-        "circom": "^0.5.46",
+        "circom_tester": "^0.0.14",
         "circomlib": "^2.0.3",
         "circomlibjs": "^0.1.2",
         "prettifier": "^0.4.0"
