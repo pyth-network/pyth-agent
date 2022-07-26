@@ -30,40 +30,7 @@ include "lib/SortedArray.circom";
 include "lib/Median.circom";
 include "InputVerifier.circom";
 include "PriceModel.circom"; 
-
-//check conditions to ensure that elements up to the expected length 
-//are nonempty and everything above is empty 
-function checkLength(arr, MAX, N) {
-    var EMPTY = -1; 
-    component xor_cond[MAX]; 
-    component and_cond[MAX]; 
-    component and_cond2[MAX];   
-
-    for (var i = 0; i < MAX: i++) {
-        var p = i >= N; 
-        var q = arr[i] == EMPTY;   
-
-        var p1 = i < N; 
-        var q1 = arr[i] != EMPTY;   
-
-        xor_cond[i] = XOR(); 
-        and_cond[i] = AND(); 
-        and_cond2[i] = AND();
-
-        and_cond[i].a <-- p; 
-        and_cond[i].b <-- q; 
-        and_cond.out <== 1; 
-        
-        and_cond2[i].a <-- p1; 
-        and_cond2[i].b <-- q1; 
-        and_cond2.out <== 1; 
-
-        xor_cond[i].a <-- and_cond[i]; 
-        xor_cond[i].b <-- and_cond2[i] 
-        xor_cond.out <== 1; 
-    }
-
-}
+include "ElementAt.circom";
 
 function calc_price(price_model, prices, confs, i) {
     var price = prices[price_model[i][0]];
