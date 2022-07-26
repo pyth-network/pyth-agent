@@ -1,9 +1,13 @@
 pragma circom 2.0.0;
 
+include "Median.circom";
+include "ElementAt.circom";
+
 // PriceModelCore contains the core Pyth aggregation logic.
-template PriceModelCore(N) {
+template PriceModelCore(max) {
     // List of prices +/- confidences in pre-sorted order.
-    signal input  prices[N];
+    signal input prices[max];
+    signal input n;
 
     // Output signal containing the aggregate + confidences.
     signal output agg_p25;
@@ -11,23 +15,22 @@ template PriceModelCore(N) {
     signal output agg_p75;
 
     // Find the middle element of the input list.
-    var middle = N >> 1;
-    var p25    = N >> 2;
-    var p75    = N - p25 - 1;
-
-    // If N is an odd number of elements, it means the `middle` is in fact the
-    // actual midpoint, we can simply return. When even the `middle` is the
-    // right element of the middle pair, the result is then the average of the
-    // two elements.
-    if (N & 1) {
-        agg_p50 <== prices[middle];
-    } else {
-        var left  = prices[middle - 1];
-        var right = prices[middle];
-        agg_p50 <== (left + right) / 2;
+    var middle = n >> 1;
+    var p25    = n >> 2;
+    var p75    = n - p25 - 1;
+    
+    // Compute the p50 median
+    component median = Median(max);
+    median.n <== n;
+    for (var i = 0; i < max; i++) {
+        median.list[i] <== prices[i];
     }
+    agg_p50 <-- median.result;
 
     // Extract p25/p75.
-    agg_p25 <== prices[p25];
-    agg_p75 <== prices[p75];
+    // This is because the index is unknown, and will cause the constraint to be 
+    // unknown. Need a way of computing the array access without making the constaints
+    // non-quadratic, so without using the input signal.
+    agg_p25 <-- elementAt(prices, p25, max);
+    agg_p75 <-- elementAt(prices, p75, max);
 }
