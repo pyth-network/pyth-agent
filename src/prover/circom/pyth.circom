@@ -144,24 +144,37 @@ template Pyth(max, timestampThreshold) {
     checkLastBitsSignaturesLength.n <== N;
 
     // In order to prevent the prover from choosing 
-    component timestamp_median = Median(Max);
-    for(var i = 0; i < Max; i++) {
+    component timestamp_median = Median(max);
+    timestamp_median.n <== N;
+    for(var i = 0; i < max; i++) {
         timestamp_median.list[i] <== timestamps[i];
     }
 
-
     // All timestamps must be within a certain range of the median.
     // TODO: Does it have to be bits?
-    component timestamp_gt[Max];
-    component timestamp_lte[Max];
-    for(var i = 0; i < Max; i++) timestamp_lte[i] = LessEqThan(64);
-    for(var i = 0; i < Max; i++) timestamp_gt[i]  = GreaterThan(64);
+    component timestamp_gt[max];
+    component timestamp_lt[max];
+    for(var i = 0; i < max; i++) timestamp_lt[i] = LessThan(64);
+    for(var i = 0; i < max; i++) timestamp_gt[i]  = GreaterThan(64);
 
-    for(var i = 0; i < Max; i++) {
-        timestamp_lte[i].in[0] <== timestamps[i];
-        timestamp_lte[i].in[1] <== timestamp_median.result;
+    component valid_timestamp[max];
+    component timestamp_in_range[max];
+    for(var i = 0; i < max; i++) {
+        timestamp_lt[i].in[0] <== timestamps[i];
+        timestamp_lt[i].in[1] <== timestamp_median.result + timestampThreshold;
+
         timestamp_gt[i].in[0]  <== timestamps[i];
-        timestamp_gt[i].in[1]  <== timestamp_median.result - TimestampThreshold;
+        timestamp_gt[i].in[1]  <== timestamp_median.result - timestampThreshold;
+
+        timestamp_in_range[i] = AND();
+        timestamp_in_range[i].a <== timestamp_lt[i].out;
+        timestamp_in_range[i].b <== timestamp_gt[i].out;
+        
+        valid_timestamp[i] = OR();
+        var absent = i >= N;
+        valid_timestamp[i].a <== timestamp_in_range[i].out;
+        valid_timestamp[i].b <-- absent;
+        valid_timestamp[i].out === 1;
     }
 
 
