@@ -312,7 +312,7 @@ template Pyth(max, timestampThreshold) {
     }
 
     component price_calc = PriceModelCore(max*3);
-    price_calc.n <-- N;
+    price_calc.n <-- N*3;
     for(var i=0; i<max*3; i++) {
         // TODO: Constraint missing, do we need one? <-- dangerous.
         price_calc.prices[i] <-- calc_price(price_model, prices, confs, i);
