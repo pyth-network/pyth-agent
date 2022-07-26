@@ -103,10 +103,28 @@ template Pyth(max, timestampThreshold) {
     signal output confidence; 
     
     // Checks that each input array has the expected (N) number of elements.
-    checkLength(prices, MAX, N); 
-    checkLength(confs, MAX, N); 
-    checkLength(timestamps, MAX, N); 
-    checkLength(observed_online, MAX, N);  
+    component checkPricesLength = CheckLength(max);
+    for (var i = 0; i < max; i++) {
+        checkPricesLength.arr[i] <== prices[i];
+    }
+    checkPricesLength.n <== N;
+
+    component checkConfsLength = CheckLength(max);
+    for (var i = 0; i < max; i++) {
+        checkConfsLength.arr[i] <== confs[i];
+    }
+    checkConfsLength.n <== N;
+
+    component checkTimestampsLength = CheckLength(max);
+    for (var i = 0; i < max; i++) {
+        checkTimestampsLength.arr[i] <== timestamps[i];
+    }
+    checkTimestampsLength.n <== N;
+
+    // TODO: check A/R/S length
+    // TODO: check price_model length
+
+    // checkLength(observed_online, max, N);  
 
     // We use the last bit of the S component of each ED25519 signature 
     // as a flag which represents if that value is present.
