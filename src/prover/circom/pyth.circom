@@ -272,23 +272,29 @@ template Pyth(max, timestampThreshold) {
     }
 
     // Verify the encoded data against incoming signatures.
-    component verifiers[Max];
-    for(var i = 0; i < Max; i++) {
+    component verifiers[max];
+    for(var i = 0; i < max; i++) {
         verifiers[i] = InputVerifier();
+
+        // Pass in first signature if input is absent
+        var present = i < N;
+        var absent = i >= N;
 
         // Assign output of binary conversion to signature verifier.
         for (var j = 0; j < 64; j++) {
-            verifiers[i].price[j]      <== Num2Bits_price_components[i].out[j];
-            verifiers[i].confidence[j] <== Num2Bits_conf_components[i].out[j];
-            verifiers[i].timestamp[j]  <== Num2Bits_timestamp_components[i].out[j];
-            verifiers[i].online[j]     <== Num2Bits_online_components[i].out[j];
+
+            // Use this selecting trick to avoid dynamic array accesses
+            verifiers[i].price[j]      <-- (Num2Bits_price_components[i].out[j] * present) + (Num2Bits_price_components[0].out[j] * absent);
+            verifiers[i].confidence[j] <-- (Num2Bits_conf_components[i].out[j] * present) + (Num2Bits_conf_components[0].out[j] * absent);
+            verifiers[i].timestamp[j]  <-- (Num2Bits_timestamp_components[i].out[j] * present) + (Num2Bits_timestamp_components[0].out[j] * absent);
+            // verifiers[i].online[j]     <== Num2Bits_online_components[i].out[j];
         }
 
         // Assign Signature Components.
         for (var j = 0; j < 256; j++) {
-            verifiers[i].A[j] <== A[i][j];
-            verifiers[i].R[j] <== R[i][j];
-            verifiers[i].S[j] <== S[i][j];
+            verifiers[i].A[j] <-- (A[i][j] * present) + (A[0][j] * absent);
+            verifiers[i].R[j] <-- (R[i][j] * present) + (R[0][j] * present);
+            verifiers[i].S[j] <-- (S[i][j] * present) + (S[0][j] * present);
         }
     }
 
