@@ -29,7 +29,10 @@ template InputVerifier() {
     // Therefore we must also create a verifier that can verify the signature
     // of these 256 bit messages.
     component verifier;
-    verifier = EdDSAVerifier(256);
+    // TODO: confirm what alias checking achieves.
+    // WARNING: n should reflect the size of the message payload, if not then the signature
+    // verification could throw false negatives.
+    verifier = EdDSAVerifier(192);
 
     // Each component verifies one signature. If verification fails the
     // component will violate a constraint.
