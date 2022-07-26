@@ -4,7 +4,7 @@ const path = require("path");
 const c_tester = require("circom_tester").c;
 const { randomBytes } = require("crypto");
 const { buildEddsa } = require("circomlibjs");
-const { assert } = require("console");
+const assert = require("assert");
 
 /*
 Test cases:
@@ -178,7 +178,7 @@ it ('there should fail if public key is invalid', async() => {
         const pubKeyInvalid = randomBytes(32);
         assert(pubKey != pubKeyInvalid);
 
-        const packedPubKey = eddsa.babyJub.packPoint(pubKey);  
+        const packedPubKey = eddsa.babyJub.packPoint(pubKeyInvalid);  
         const A = packedPubKey;
             
     // Generate signature component (R S)
@@ -200,12 +200,11 @@ it ('there should fail if public key is invalid', async() => {
     console.log('----- Input ------')
     console.log(input)
 
-    // Constraints should 
-    assert.throws(await circuit.calculateWitness(input, true), Error, "msg")
+    assert.throws(async function() {
+        await circuit.calculateWitness(input, true);
+    }); 
+
 });
     
-    // it ('should verify the signatures correctly passed in', async() => {
-         
-    // }); 
 });   
 
