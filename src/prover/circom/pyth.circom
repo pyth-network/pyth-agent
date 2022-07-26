@@ -25,11 +25,15 @@ pragma circom 2.0.0;
 
 include "node_modules/circomlib/circuits/comparators.circom";
 include "node_modules/circomlib/circuits/gates.circom";
+include "node_modules/circomlib/circuits/binsum.circom";
+include "node_modules/circomlib/circuits/binsub.circom";
+include "node_modules/circomlib/circuits/mux1.circom";
 
-include "lib/SortedArray.circom";
-include "lib/Median.circom";
+include "SortedArray.circom";
+include "Median.circom";
 include "InputVerifier.circom";
 include "PriceModel.circom"; 
+include "CheckLength.circom";
 include "ElementAt.circom";
 
 function calc_price(price_model, prices, confs, i) {
