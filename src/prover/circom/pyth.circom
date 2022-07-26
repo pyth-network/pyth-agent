@@ -18,10 +18,10 @@ pragma circom 2.0.0;
 // - [x] Publishers commit to timestamps.
 // - [x] Publishers commit to observed online amount.
 // - [x] Check the signatures are from different publishers 
-// - [ ] refactor code to template / functions
-// - [ ] checks for subgroup order 
+// - [x] refactor code to template / functions
+// - [x] checks for subgroup order 
+// - [x] Contract with N prices must work for <N. Dynamic N.
 // - [ ] Min pub, required.
-// - [ ] Contract with N prices must work for <N. Dynamic N.
 
 include "node_modules/circomlib/circuits/comparators.circom";
 include "node_modules/circomlib/circuits/gates.circom";
