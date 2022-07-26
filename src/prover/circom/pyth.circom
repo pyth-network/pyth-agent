@@ -56,7 +56,7 @@ function calc_price(price_model, prices, confs, i) {
 }
 
 // Proof is per-price
-template Pyth(max, timestampThreshold) {
+template Pyth(max, timestampThreshold, minPublishers) {
 
     /*
         Template Inputs 
