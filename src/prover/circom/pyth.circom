@@ -16,7 +16,6 @@ pragma circom 2.0.0;
 // - [x] Fee for proving.
 // - [x] Staleness threshold on price inputs.
 // - [x] Publishers commit to timestamps.
-// - [x] Publishers commit to observed online amount.
 // - [x] Check the signatures are from different publishers 
 // - [x] refactor code to template / functions
 // - [x] checks for subgroup order 
@@ -83,7 +82,6 @@ template Pyth(max, timestampThreshold) {
     signal input  prices[max];
     signal input  confs[max];
     signal input  timestamps[max];
-    // TODO: double-check if this is necessary
 
     // Signatures: A/R/S components are part of the ed25519 signature scheme.
     // 
@@ -287,7 +285,6 @@ template Pyth(max, timestampThreshold) {
             verifiers[i].price[j]      <-- (Num2Bits_price_components[i].out[j] * present) + (Num2Bits_price_components[0].out[j] * absent);
             verifiers[i].confidence[j] <-- (Num2Bits_conf_components[i].out[j] * present) + (Num2Bits_conf_components[0].out[j] * absent);
             verifiers[i].timestamp[j]  <-- (Num2Bits_timestamp_components[i].out[j] * present) + (Num2Bits_timestamp_components[0].out[j] * absent);
-            // verifiers[i].online[j]     <== Num2Bits_online_components[i].out[j];
         }
 
         // Assign Signature Components.
