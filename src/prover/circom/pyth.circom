@@ -134,13 +134,15 @@ template Pyth(max, timestampThreshold) {
     // and check that this has the expected length.
     var LastBitsSignatures[max]; 
     for (var i = 0; i < max; i++) {      
-        LastBitsSignatures[i] <-- S[i][255];     
+        LastBitsSignatures[i] = S[i][255];     
     }
-    checkLength(LastBitsSignatures, MAX, N);
 
+    component checkLastBitsSignaturesLength = CheckLength(max);
+    for (var i = 0; i < max; i++) {
+        checkLastBitsSignaturesLength.arr[i] <== timestamps[i];
+    }
+    checkLastBitsSignaturesLength.n <== N;
 
-    
-    
     // In order to prevent the prover from choosing 
     component timestamp_median = Median(Max);
     for(var i = 0; i < Max; i++) {
