@@ -84,7 +84,6 @@ template Pyth(max, timestampThreshold) {
     signal input  confs[max];
     signal input  timestamps[max];
     // TODO: double-check if this is necessary
-    // signal input  observed_online[Max]; 
 
     // Signatures: A/R/S components are part of the ed25519 signature scheme.
     // 
@@ -187,17 +186,14 @@ template Pyth(max, timestampThreshold) {
     component Num2Bits_price_components[max];
     component Num2Bits_conf_components[max];
     component Num2Bits_timestamp_components[max];
-    // component Num2Bits_online_components[Max];
     for(var i=0; i<max; i++) {
         Num2Bits_price_components[i] = Num2Bits(64);
         Num2Bits_conf_components[i]  = Num2Bits(64);
         Num2Bits_timestamp_components[i] = Num2Bits(64);
-        // Num2Bits_online_components[i] = Num2Bits(64);
 
         Num2Bits_price_components[i].in <== prices[i];
         Num2Bits_conf_components[i].in  <== confs[i];
         Num2Bits_timestamp_components[i].in <== timestamps[i];
-        // Num2Bits_online_components[i].in <== observed_online[i];
     }
     
     // We need to check that each signature given corresponds to a unique public key.
