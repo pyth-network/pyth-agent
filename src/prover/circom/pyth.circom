@@ -183,17 +183,17 @@ template Pyth(max, timestampThreshold) {
     component Num2Bits_price_components[Max];
     component Num2Bits_conf_components[Max];
     component Num2Bits_timestamp_components[Max];
-    component Num2Bits_online_components[Max];
-    for(var i=0; i<Max; i++) {
+    // component Num2Bits_online_components[Max];
+    for(var i=0; i<max; i++) {
         Num2Bits_price_components[i] = Num2Bits(64);
         Num2Bits_conf_components[i]  = Num2Bits(64);
         Num2Bits_timestamp_components[i] = Num2Bits(64);
-        Num2Bits_online_components[i] = Num2Bits(64);
+        // Num2Bits_online_components[i] = Num2Bits(64);
 
         Num2Bits_price_components[i].in <== prices[i];
         Num2Bits_conf_components[i].in  <== confs[i];
         Num2Bits_timestamp_components[i].in <== timestamps[i];
-        Num2Bits_online_components[i].in <== observed_online[i];
+        // Num2Bits_online_components[i].in <== observed_online[i];
     }
     
     // We need to check that each signature given corresponds to a unique public key.
