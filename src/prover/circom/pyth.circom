@@ -20,7 +20,7 @@ pragma circom 2.0.0;
 // - [x] refactor code to template / functions
 // - [x] checks for subgroup order 
 // - [x] Contract with N prices must work for <N. Dynamic N.
-// - [ ] Min pub, required.
+// - [x] Min pub, required.
 // - [ ] Generate and deploy verfication contract
 // - [ ] Make simulator generate proof
 // - [ ] Make simulator submit proof to verification contract 
@@ -108,6 +108,13 @@ template Pyth(max, timestampThreshold) {
 
     // Width of the confidence interval around the p50 aggregate.
     signal output confidence; 
+
+    // Check that we have the minimum amount of publishers
+    // TODO: double-check size of input
+    component enoughPublishers = GreaterThan(64);
+    enoughPublishers.in[0] <== minPublishers;
+    enoughPublishers.in[1] <== N;
+    enoughPublishers.out === 1;
     
     // Checks that each input array has the expected (N) number of elements.
     component checkPricesLength = CheckLength(max);
