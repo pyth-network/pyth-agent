@@ -122,10 +122,7 @@ template Pyth(max, timestampThreshold) {
     }
     checkTimestampsLength.n <== N;
 
-    // TODO: check A/R/S length
-    // TODO: check price_model length
-
-    // checkLength(observed_online, max, N);  
+    // TODO: Check price_model length
 
     // We use the last bit of the S component of each ED25519 signature 
     // as a flag which represents if that value is present.
