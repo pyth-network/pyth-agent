@@ -180,9 +180,9 @@ template Pyth(max, timestampThreshold) {
 
     // Convert Price/Confidence pairs into binary encoded values for signature
     // verification.
-    component Num2Bits_price_components[Max];
-    component Num2Bits_conf_components[Max];
-    component Num2Bits_timestamp_components[Max];
+    component Num2Bits_price_components[max];
+    component Num2Bits_conf_components[max];
+    component Num2Bits_timestamp_components[max];
     // component Num2Bits_online_components[Max];
     for(var i=0; i<max; i++) {
         Num2Bits_price_components[i] = Num2Bits(64);
