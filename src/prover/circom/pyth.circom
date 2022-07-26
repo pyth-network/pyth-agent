@@ -301,18 +301,22 @@ template Pyth(max, timestampThreshold) {
     // We verify that the price_model has been given to us in order by iterating
     // over the signal set and checking that every element is smaller than its
     // successor. I.E: all(map(lambda a, b: a <= b, prices))
-    signal sort_checks[Max*3];
-    for(var i=1; i<Max*3; i++) {
+    component sort_checks[max*3];
+    for(var i=1; i<max*3; i++) {    
         var a = calc_price(price_model, prices, confs, i-1);
         var b = calc_price(price_model, prices, confs, i);
 
         // Constrain r1 < r2
-        sort_checks[i] <-- a <= b;
-        sort_checks[i] === 1;
+        var absent = i >= (N * 3);
+        sort_checks[i] = OR();
+        sort_checks[i].a <-- a <= b;
+        sort_checks[i].b <-- absent; 
+        sort_checks[i].out === 1;
     }
 
-    component price_calc = PriceModelCore(Max*3);
-    for(var i=0; i<Max*3; i++) {
+    component price_calc = PriceModelCore(max*3);
+    price_calc.n <-- N;
+    for(var i=0; i<max*3; i++) {
         // TODO: Constraint missing, do we need one? <-- dangerous.
         price_calc.prices[i] <-- calc_price(price_model, prices, confs, i);
     }
