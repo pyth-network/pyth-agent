@@ -75,10 +75,10 @@ template Pyth(max, timestampThreshold) {
     // Each vote is represented in the price model as a tuple of (index, op) where
     // that x is the index into prices and confs arrays and op represents the operation
     // (+-NOP) calc_price uses to reconstruct the values.
-    signal input  price_model[Max*3][2];
-    signal input  prices[Max];
-    signal input  confs[Max];
-    signal input  timestamps[Max];
+    signal input  price_model[max*3][2];
+    signal input  prices[max];
+    signal input  confs[max];
+    signal input  timestamps[max];
     // TODO: double-check if this is necessary
     // signal input  observed_online[Max]; 
 
@@ -87,9 +87,9 @@ template Pyth(max, timestampThreshold) {
     // NOTE: The hash used in ed25519 in this contract uses the MiMC hash
     //       function rather than SHA256 as in standard ed25519. You can use
     //       circomlibjs to produce signatures that match this algorithm.
-    signal input  A[Max][256];
-    signal input  R[Max][256];
-    signal input  S[Max][256];
+    signal input  A[max][256];
+    signal input  R[max][256];
+    signal input  S[max][256];
 
     // Return fee input as output for verification contracts to charge users.
     signal input  fee;
@@ -114,8 +114,8 @@ template Pyth(max, timestampThreshold) {
     // to be non-malleable (curve order size ~< last 3 bits).
     // We therefore extract the last bit of each S component into an array,
     // and check that this has the expected length.
-    LastBitsSignatures[MAX]; 
-    for (var i = 0; i < MAX; i++) {      
+    var LastBitsSignatures[max]; 
+    for (var i = 0; i < max; i++) {      
         LastBitsSignatures[i] <-- S[i][255];     
     }
     checkLength(LastBitsSignatures, MAX, N);
