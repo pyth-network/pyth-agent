@@ -21,6 +21,12 @@ pragma circom 2.0.0;
 // - [x] checks for subgroup order 
 // - [x] Contract with N prices must work for <N. Dynamic N.
 // - [ ] Min pub, required.
+// - [ ] Generate and deploy verfication contract
+// - [ ] Make simulator generate proof
+// - [ ] Make simulator submit proof to verification contract 
+// - [ ] Constraint assignment when calling templates, through the whole circuit
+// - [ ] BinSum output length
+// - [ ] Unit tests for each logic block
 
 include "node_modules/circomlib/circuits/comparators.circom";
 include "node_modules/circomlib/circuits/gates.circom";
