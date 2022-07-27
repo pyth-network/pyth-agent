@@ -112,8 +112,8 @@ template Pyth(max, timestampThreshold, minPublishers) {
     // Check that we have the minimum amount of publishers
     // TODO: double-check size of input
     component enoughPublishers = GreaterThan(64);
-    enoughPublishers.in[0] <== minPublishers;
-    enoughPublishers.in[1] <== N;
+    enoughPublishers.in[0] <== N;
+    enoughPublishers.in[1] <== minPublishers;
     enoughPublishers.out === 1;
     
     // Checks that each input array has the expected (N) number of elements.
