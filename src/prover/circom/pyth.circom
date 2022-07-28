@@ -115,44 +115,6 @@ template Pyth(max, timestampThreshold, minPublishers) {
     enoughPublishers.in[0] <== N;
     enoughPublishers.in[1] <== minPublishers;
     enoughPublishers.out === 1;
-    
-    // Checks that each input array has the expected (N) number of elements.
-    component checkPricesLength = CheckLength(max);
-    for (var i = 0; i < max; i++) {
-        checkPricesLength.arr[i] <== prices[i];
-    }
-    checkPricesLength.n <== N;
-
-    component checkConfsLength = CheckLength(max);
-    for (var i = 0; i < max; i++) {
-        checkConfsLength.arr[i] <== confs[i];
-    }
-    checkConfsLength.n <== N;
-
-    component checkTimestampsLength = CheckLength(max);
-    for (var i = 0; i < max; i++) {
-        checkTimestampsLength.arr[i] <== timestamps[i];
-    }
-    checkTimestampsLength.n <== N;
-
-    // TODO: Check price_model length
-
-    // We use the last bit of the S component of each ED25519 signature 
-    // as a flag which represents if that value is present.
-    // In a valid signature, the last 3 bits need to be 0 for the signature 
-    // to be non-malleable (curve order size ~< last 3 bits).
-    // We therefore extract the last bit of each S component into an array,
-    // and check that this has the expected length.
-    var LastBitsSignatures[max]; 
-    for (var i = 0; i < max; i++) {      
-        LastBitsSignatures[i] = S[i][255];     
-    }
-
-    component checkLastBitsSignaturesLength = CheckLength(max);
-    for (var i = 0; i < max; i++) {
-        checkLastBitsSignaturesLength.arr[i] <== timestamps[i];
-    }
-    checkLastBitsSignaturesLength.n <== N;
 
     // In order to prevent the prover from choosing 
     component timestamp_median = Median(max);
