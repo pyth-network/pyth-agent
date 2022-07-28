@@ -32,6 +32,7 @@ include "node_modules/circomlib/circuits/comparators.circom";
 include "node_modules/circomlib/circuits/gates.circom";
 include "node_modules/circomlib/circuits/binsum.circom";
 include "node_modules/circomlib/circuits/binsub.circom";
+include "node_modules/circomlib/circuits/bitify.circom";
 include "node_modules/circomlib/circuits/mux1.circom";
 
 include "SortedArray.circom";
