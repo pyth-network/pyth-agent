@@ -110,7 +110,7 @@ component main = InputVerifier();
                 
         // Sign components
         // Message payload: 
-        // packed array of price (64-bit), conf (64-bit), timestamp (64-bit), online (64-bit)
+        // packed array of price (64-bit), conf (64-bit), timestamp (64-bit)
         const payload = 
             toBinString(conv(BigInt(price)).reverse()) +
             toBinString(conv(BigInt(conf)).reverse()) +
