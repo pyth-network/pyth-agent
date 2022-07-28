@@ -26,6 +26,8 @@ pragma circom 2.0.0;
 // - [ ] Make simulator submit proof to verification contract 
 // - [ ] Constraint assignment when calling templates, through the whole circuit
 // - [ ] BinSum output length
+// - [ ] Publishers need to sign the price identifier
+// - [ ] Output timestamp median to use as timestamp for aggregate
 // - [ ] Unit tests for each logic block
 
 include "node_modules/circomlib/circuits/comparators.circom";
@@ -66,6 +68,8 @@ template Pyth(max, timestampThreshold, minPublishers) {
     */
 
     // Publisher Controlled Inputs:
+    // WARNING! 
+    //  Changing the order of these signals will break the Solidity parsing logic.
     //
     // Requirements:
     // Check all array elements are sorted.
@@ -78,8 +82,8 @@ template Pyth(max, timestampThreshold, minPublishers) {
 
     // TODO: better name than vote
     // price_model:
-    // 2-D array. Tuple of (price, conf and op) for each vote. These represent the provers
-    // input to the aggregation for each data feed. A single data feed's (price, conf) is
+    // 2-D array. Tuple of (index and op) for each vote. These represent the provers
+    // input to the aggregation for each data feed. A single data feed's (index, conf) is
     // converted to a tuple of (price-conf, price, price+conf) representing the 3 votes.
     // Each vote is represented in the price model as a tuple of (index, op) where
     // that x is the index into prices and confs arrays and op represents the operation
@@ -308,4 +312,5 @@ template Pyth(max, timestampThreshold, minPublishers) {
     p75        <== price_calc.agg_p75;
  }
 
+//                                                                                max, timestampThreshold, minPublishers
 component main{public[N, price_model, prices, confs, timestamps, A, R, S, fee]} = Pyth(5, 10, 0);
