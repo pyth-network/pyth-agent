@@ -178,6 +178,7 @@ pub mod circom {
 
             // Generate the input for the proof
             let input_json = self.generate_input(data).await?;
+            debug!(self.logger, "input_json"; "data" => input_json.clone());
             let mut input_file = NamedTempFile::new()?;
             write!(input_file, "{}", input_json)?;
 
