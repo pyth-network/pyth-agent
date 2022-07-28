@@ -38,7 +38,6 @@ include "SortedArray.circom";
 include "Median.circom";
 include "InputVerifier.circom";
 include "PriceModel.circom"; 
-include "CheckLength.circom";
 include "ElementAt.circom";
 
 function calc_price(price_model, prices, confs, i) {
