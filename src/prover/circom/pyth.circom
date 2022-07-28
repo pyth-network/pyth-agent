@@ -308,4 +308,4 @@ template Pyth(max, timestampThreshold, minPublishers) {
     p75        <== price_calc.agg_p75;
  }
 
-component main = Pyth(10, 10);
+component main = Pyth(10, 10, 3);

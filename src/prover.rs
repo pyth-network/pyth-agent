@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
@@ -11,6 +11,7 @@ pub type DataFeedIdentifier = pyth_sdk::Identifier;
 pub type Online = i64;
 pub type Price = i64;
 pub type Conf = u64;
+pub type Fee = i64;
 
 pub struct Prover {
     // Incomming message channel
@@ -25,10 +26,13 @@ pub struct Prover {
     // Circom proof generator
     proof_generator: circom::ProofGenerator,
 
+    // Fee this prover charges per proof
+    fee: Fee,
+
     logger: Logger,
 }
 
-#[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct CacheKey {
     publisher_identifier: PublisherIdentifier,
     data_feed_identifier: DataFeedIdentifier,
@@ -44,9 +48,6 @@ pub struct Data {
     pub price: Price,
     pub conf: Conf,
     pub timestamp: DateTime<Utc>,
-
-    // An estimate of the number of publishers online
-    pub online: Online,
 }
 
 impl From<Data> for CacheKey {
@@ -75,6 +76,7 @@ impl Prover {
         rx: Receiver<Message>,
         staleness_threshold: Duration,
         proof_generator: circom::ProofGenerator,
+        fee: Fee,
         logger: Logger,
     ) -> Self {
         Prover {
@@ -82,11 +84,14 @@ impl Prover {
             data: HashMap::default(),
             staleness_threshold,
             proof_generator,
+            fee,
             logger,
         }
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        info!(self.logger, "starting prover node");
+
         while let Some(message) = self.rx.recv().await {
             match message {
                 Message::Data { data } => {
@@ -108,111 +113,121 @@ impl Prover {
         &self,
         data_feed_identifier: DataFeedIdentifier,
     ) -> Result<circom::Proof> {
-        let data = self
+        let mut data: Vec<Data> = self
             .data
             .values()
             .filter(|data| (Utc::now() - data.timestamp) < self.staleness_threshold)
-            .filter(|data| data.data_feed_identifier == data_feed_identifier);
+            .filter(|data| data.data_feed_identifier == data_feed_identifier)
+            .cloned()
+            .collect();
 
-        self.proof_generator
-            .generate_proof(data.cloned().collect())
-            .await
+        // Sort the data by timestamp
+        data.sort_by(|a, b| a.timestamp.partial_cmp(&b.timestamp).unwrap());
+
+        self.proof_generator.generate_proof(data).await
     }
 }
 
 pub mod circom {
 
     use super::Data;
+    use anyhow::anyhow;
     use anyhow::Result;
+    use pyth_sdk::UnixTimestamp;
+    use serde::Serialize;
+    use slog::Logger;
+    use std::fmt;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+    use tokio::process::Command;
+
+    type Fee = super::Fee;
 
     #[derive(Debug)]
+    // TODO: add witness to this
     pub struct Proof;
 
-    type Price = super::Price;
-    type Conf = super::Conf;
-    type Vote = Price;
-    type Online = i64;
-
-    struct PriceModel {
-        votes: Vec<Vote>,
+    pub struct ProofGenerator {
+        fee: Fee,
+        logger: Logger,
     }
 
-    // struct Signature {
-
-    // }
-
-    // struct Signatures {
-    //     A: Vec<
-    // }
-
-    struct ProofInput {
-        price_model: PriceModel,
-        prices: Vec<Price>,
-        confs: Vec<Conf>,
-        online: Vec<Online>,
-        publisher_count: i64,
-
-        // Signatures
-        // sig_a
+    #[derive(Serialize)]
+    struct InputData {
+        n: usize,
+        prices: Vec<super::Price>,
+        confs: Vec<super::Conf>,
+        timestamps: Vec<UnixTimestamp>,
+        fee: Fee,
     }
-
-    impl From<Vec<Data>> for ProofInput {
-        fn from(data: Vec<Data>) -> Self {
-            let mut votes = Vec::new();
-            let mut prices = Vec::new();
-            let mut confs = Vec::new();
-            let mut online = Vec::new();
-
-            // Add each item of data to the proof input
-            for item in &data {
-                // Calculate the votes this item contributes
-                let upper = item.price + (item.conf as i64);
-                let original = item.price;
-                let lower = item.price - (item.conf as i64);
-                votes.push(upper);
-                votes.push(original);
-                votes.push(lower);
-
-                // Add the price and conf values
-                prices.push(item.price);
-                confs.push(item.conf);
-
-                // Add the observed number of publishers online
-                online.push(item.online);
-            }
-
-            // TODO: sort the votes
-            // TODO: correct representation of proof model
-
-            ProofInput {
-                price_model: PriceModel { votes },
-                prices,
-                confs,
-                online,
-                publisher_count: data.len() as i64,
-            }
-        }
-    }
-
-    pub struct ProofGenerator;
 
     impl ProofGenerator {
-        pub fn new() -> Self {
-            todo!();
+        pub fn new(fee: Fee, logger: Logger) -> Self {
+            ProofGenerator { fee, logger }
         }
 
         pub async fn generate_proof(&self, data: Vec<Data>) -> Result<Proof> {
-            // Proof generation:
-            // - Compile the circuit to get a low-level representation in r1cs
-            //   - Create a script which
-            // - Compute the witness (input.json)
-            // - Assign this witness to the prover
+            if data.is_empty() {
+                info!(self.logger, "no data");
+                return Ok(Proof {});
+            }
 
-            // Convert the input data into the proof input format
+            let mut data_debug = String::new();
+            fmt::write(&mut data_debug, format_args!("{:#?}", data))?;
+            debug!(self.logger, "generating circom proof"; "data" => data_debug);
 
-            // TODO: actual proof generation
+            // Generate the input for the proof
+            let input_json = self.generate_input(data).await?;
+            let mut input_file = NamedTempFile::new()?;
+            write!(input_file, "{}", input_json)?;
 
-            todo!();
+            // Generate the witness
+            let witness_file = NamedTempFile::new()?;
+            tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+
+            let witness_command =
+                Command::new("/workspaces/agent/src/prover/circom/build/pyth_cpp/pyth")
+                    .arg(
+                        input_file
+                            .path()
+                            .to_str()
+                            .ok_or_else(|| anyhow!("failed to get path of temporary input file"))?,
+                    )
+                    .arg(
+                        witness_file.path().to_str().ok_or_else(|| {
+                            anyhow!("failed to get path of temporary witness file")
+                        })?,
+                    )
+                    .output()
+                    .await?;
+            debug!(self.logger, "generated witness");
+
+            info!(self.logger, "generated witness"; "stdout" => std::str::from_utf8(&witness_command.stdout)?.to_string(), "stderr" => std::str::from_utf8(&witness_command.stderr)?.to_string());
+
+            // TODO: submit witness to verifier contract
+            // TODO: return meaningful Proof object
+            Ok(Proof {})
+        }
+
+        async fn generate_input(&self, data: Vec<Data>) -> Result<String> {
+            debug!(self.logger, "generating input");
+
+            let input_data = InputData {
+                n: data.len(),
+                prices: data.iter().map(|d| d.price).collect(),
+                confs: data.iter().map(|d| d.conf).collect(),
+                timestamps: data.iter().map(|d| d.timestamp.timestamp()).collect(),
+                fee: self.fee,
+            };
+
+            let input_bytes = Command::new("node")
+                .arg("/workspaces/agent/src/prover/circom/generate_input.js")
+                .arg(serde_json::to_string(&input_data)?)
+                .output()
+                .await?
+                .stdout;
+
+            Ok(std::str::from_utf8(&input_bytes)?.to_string())
         }
     }
 }

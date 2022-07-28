@@ -3,22 +3,24 @@ name = "pyth-agent"
 version = "0.1.0"
 edition = "2021"
 
-[[ bin ]]
+[[bin]]
 name = "agent"
 path = "src/bin/agent.rs"
 
-[[ bin ]]
+[[bin]]
 name = "simulate"
 path = "src/bin/simulate.rs"
 
 [dependencies]
 anyhow = "1.0.55"
-serde = { version = "1.0.136", features = [ "derive" ] }
+serde = { version = "1.0.136", features = ["derive"] }
 async-trait = "0.1.52"
-warp = { version = "0.3.1", features = [ "websocket" ] }
+warp = { version = "0.3.1", features = ["websocket"] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = "0.1.1"
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+] }
 jrpc = "0.4.1"
 serde_json = "1.0.79"
 tracing = "0.1.31"
@@ -33,9 +35,10 @@ slog = "2.7.0"
 schnorrkel = "0.10.1"
 slog-term = "2.9.0"
 rand = "0.8.5"
+tempfile = "3.3.0"
 
 [dev-dependencies]
-tokio-util = { version = "0.7.0", features = ["full"]}
+tokio-util = { version = "0.7.0", features = ["full"] }
 soketto = "0.7.1"
 mockall = "0.11.0"
 portpicker = "0.1.1"
