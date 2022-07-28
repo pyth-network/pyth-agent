@@ -195,117 +195,117 @@ template Pyth(max, timestampThreshold, minPublishers) {
     // As all positive numbers now have a 1 MSB, and all negative numbers have a 0 MSB,
     // we can check if an overflow occured by checking if the MSB has become 0.  
     // Note that LSB is index 0, and bits go left-to-right.
-    component binsum_pubkey[max];
-    component binsub_pubkey[max]; 
-    component unique_pubkeys[max];
-    for (var i = 0; i < (max - 1); i++) {   
-        binsum_pubkey[i] = BinSum(267, 2);  // TODO: check nbits logic in binsum
-        binsub_pubkey[i] = BinSub(257); 
+    // component binsum_pubkey[max];
+    // component binsub_pubkey[max]; 
+    // component unique_pubkeys[max];
+    // for (var i = 0; i < (max - 1); i++) {   
+    //     binsum_pubkey[i] = BinSum(267, 2);  // TODO: check nbits logic in binsum
+    //     binsub_pubkey[i] = BinSub(257); 
         
-        // Perform 0 + A - B to check equality
+    //     // Perform 0 + A - B to check equality
 
-        // Add 1 << n to A[i]
-        for (var j = 0; j < 255; j++) { 
-            binsum_pubkey[i].in[0][j] <-- A[i][j]; 
-            binsum_pubkey[i].in[1][j] <-- 0;
-        }
-        binsum_pubkey[i].in[0][255] <-- A[i][255];
-        binsum_pubkey[i].in[1][255] <-- 1;
+    //     // Add 1 << n to A[i]
+    //     for (var j = 0; j < 255; j++) { 
+    //         binsum_pubkey[i].in[0][j] <-- A[i][j]; 
+    //         binsum_pubkey[i].in[1][j] <-- 0;
+    //     }
+    //     binsum_pubkey[i].in[0][255] <-- A[i][255];
+    //     binsum_pubkey[i].in[1][255] <-- 1;
 
-        // pad BinSum with extra zeros
-        // TODO: why is this necessary
-        for (var j = 256; j < 267; j++) {
-            binsum_pubkey[i].in[0][j] <-- 0;
-            binsum_pubkey[i].in[1][j] <-- 0;
-        }
+    //     // pad BinSum with extra zeros
+    //     // TODO: why is this necessary
+    //     for (var j = 256; j < 267; j++) {
+    //         binsum_pubkey[i].in[0][j] <-- 0;
+    //         binsum_pubkey[i].in[1][j] <-- 0;
+    //     }
 
-        var result = binsum_pubkey[0].out[255];
+    //     var result = binsum_pubkey[0].out[255];
 
-        // Subtract A[i+1] from the result of (A[i] + (1 << n))
-        // TODO: double-check this
-        for (var j = 0; j < 255; j++) {
-            binsub_pubkey[i].in[0][j] <-- binsum_pubkey[i].out[j]; 
-            binsub_pubkey[i].in[1][j] <-- A[i+1][j];     
-        }
-        binsub_pubkey[i].in[0][255] <-- 0;
-        binsub_pubkey[i].in[1][255] <-- 0;
-        binsub_pubkey[i].in[0][256] <-- 0;
-        binsub_pubkey[i].in[1][256] <-- 0;
+    //     // Subtract A[i+1] from the result of (A[i] + (1 << n))
+    //     // TODO: double-check this
+    //     for (var j = 0; j < 255; j++) {
+    //         binsub_pubkey[i].in[0][j] <-- binsum_pubkey[i].out[j]; 
+    //         binsub_pubkey[i].in[1][j] <-- A[i+1][j];     
+    //     }
+    //     binsub_pubkey[i].in[0][255] <-- 0;
+    //     binsub_pubkey[i].in[1][255] <-- 0;
+    //     binsub_pubkey[i].in[0][256] <-- 0;
+    //     binsub_pubkey[i].in[1][256] <-- 0;
 
-        // Check that the MSB is 0, indicating that the subtraction "overflowed", so A[i+1] > A[i]
-        unique_pubkeys[i] = OR();
-        var absent = i >= N;
-        var unique = binsub_pubkey[i].out[255] == 0;
-        unique_pubkeys[i].a <-- unique;
-        unique_pubkeys[i].b <-- absent;
-        unique_pubkeys[i].out === 1;
-    }
+    //     // Check that the MSB is 0, indicating that the subtraction "overflowed", so A[i+1] > A[i]
+    //     unique_pubkeys[i] = OR();
+    //     var absent = i >= N;
+    //     var unique = binsub_pubkey[i].out[255] == 0;
+    //     unique_pubkeys[i].a <-- unique;
+    //     unique_pubkeys[i].b <-- absent;
+    //     unique_pubkeys[i].out === 1;
+    // }
 
-    // Verify the encoded data against incoming signatures.
-    component verifiers[max];
-    for(var i = 0; i < max; i++) {
-        verifiers[i] = InputVerifier();
+    // // Verify the encoded data against incoming signatures.
+    // component verifiers[max];
+    // for(var i = 0; i < max; i++) {
+    //     verifiers[i] = InputVerifier();
 
-        // Pass in first signature if input is absent
-        var present = i < N;
-        var absent = i >= N;
+    //     // Pass in first signature if input is absent
+    //     var present = i < N;
+    //     var absent = i >= N;
 
-        // Assign output of binary conversion to signature verifier.
-        for (var j = 0; j < 64; j++) {
+    //     // Assign output of binary conversion to signature verifier.
+    //     for (var j = 0; j < 64; j++) {
 
-            // Use this selecting trick to avoid dynamic array accesses
-            verifiers[i].price[j]      <-- (Num2Bits_price_components[i].out[j] * present) + (Num2Bits_price_components[0].out[j] * absent);
-            verifiers[i].confidence[j] <-- (Num2Bits_conf_components[i].out[j] * present) + (Num2Bits_conf_components[0].out[j] * absent);
-            verifiers[i].timestamp[j]  <-- (Num2Bits_timestamp_components[i].out[j] * present) + (Num2Bits_timestamp_components[0].out[j] * absent);
-        }
+    //         // Use this selecting trick to avoid dynamic array accesses
+    //         verifiers[i].price[j]      <-- (Num2Bits_price_components[i].out[j] * present) + (Num2Bits_price_components[0].out[j] * absent);
+    //         verifiers[i].confidence[j] <-- (Num2Bits_conf_components[i].out[j] * present) + (Num2Bits_conf_components[0].out[j] * absent);
+    //         verifiers[i].timestamp[j]  <-- (Num2Bits_timestamp_components[i].out[j] * present) + (Num2Bits_timestamp_components[0].out[j] * absent);
+    //     }
 
-        // Assign Signature Components.
-        for (var j = 0; j < 256; j++) {
-            verifiers[i].A[j] <-- (A[i][j] * present) + (A[0][j] * absent);
-            verifiers[i].R[j] <-- (R[i][j] * present) + (R[0][j] * present);
-            verifiers[i].S[j] <-- (S[i][j] * present) + (S[0][j] * present);
-        }
-    }
+    //     // Assign Signature Components.
+    //     for (var j = 0; j < 256; j++) {
+    //         verifiers[i].A[j] <-- (A[i][j] * present) + (A[0][j] * absent);
+    //         verifiers[i].R[j] <-- (R[i][j] * present) + (R[0][j] * present);
+    //         verifiers[i].S[j] <-- (S[i][j] * present) + (S[0][j] * present);
+    //     }
+    // }
 
-    // We verify that the price_model has been given to us in order by iterating
-    // over the signal set and checking that every element is smaller than its
-    // successor. I.E: all(map(lambda a, b: a <= b, prices))
-    component sort_checks[max*3];
-    for(var i=1; i<max*3; i++) {    
-        var a = calc_price(price_model, prices, confs, i-1);
-        var b = calc_price(price_model, prices, confs, i);
+    // // We verify that the price_model has been given to us in order by iterating
+    // // over the signal set and checking that every element is smaller than its
+    // // successor. I.E: all(map(lambda a, b: a <= b, prices))
+    // component sort_checks[max*3];
+    // for(var i=1; i<max*3; i++) {    
+    //     var a = calc_price(price_model, prices, confs, i-1);
+    //     var b = calc_price(price_model, prices, confs, i);
 
-        // Constrain r1 < r2
-        var absent = i >= (N * 3);
-        sort_checks[i] = OR();
-        sort_checks[i].a <-- a <= b;
-        sort_checks[i].b <-- absent; 
-        sort_checks[i].out === 1;
-    }
+    //     // Constrain r1 < r2
+    //     var absent = i >= (N * 3);
+    //     sort_checks[i] = OR();
+    //     sort_checks[i].a <-- a <= b;
+    //     sort_checks[i].b <-- absent; 
+    //     sort_checks[i].out === 1;
+    // }
 
-    component price_calc = PriceModelCore(max*3);
-    price_calc.n <-- N*3;
-    for(var i=0; i<max*3; i++) {
-        // TODO: Constraint missing, do we need one? <-- dangerous.
-        price_calc.prices[i] <-- calc_price(price_model, prices, confs, i);
-    }
+    // component price_calc = PriceModelCore(max*3);
+    // price_calc.n <-- N*3;
+    // for(var i=0; i<max*3; i++) {
+    //     // TODO: Constraint missing, do we need one? <-- dangerous.
+    //     price_calc.prices[i] <-- calc_price(price_model, prices, confs, i);
+    // }
 
-    // Calculate confidence from aggregation result.
-    var agg_conf_left  = price_calc.agg_p50 - price_calc.agg_p25;
-    var agg_conf_right = price_calc.agg_p75 - price_calc.agg_p50;
-    var agg_conf       =
-        agg_conf_right > agg_conf_left
-            ? agg_conf_right
-            : agg_conf_left;
+    // // Calculate confidence from aggregation result.
+    // var agg_conf_left  = price_calc.agg_p50 - price_calc.agg_p25;
+    // var agg_conf_right = price_calc.agg_p75 - price_calc.agg_p50;
+    // var agg_conf       =
+    //     agg_conf_right > agg_conf_left
+    //         ? agg_conf_right
+    //         : agg_conf_left;
 
-    signal confidence_1 <-- agg_conf_right > agg_conf_left;
-    signal confidence_2 <== confidence_1*agg_conf_right;
-    signal confidence_3 <== (1-confidence_1)*agg_conf_left;
+    // signal confidence_1 <-- agg_conf_right > agg_conf_left;
+    // signal confidence_2 <== confidence_1*agg_conf_right;
+    // signal confidence_3 <== (1-confidence_1)*agg_conf_left;
 
-    confidence <== confidence_2 + confidence_3;
-    p25        <== price_calc.agg_p25;
-    p50        <== price_calc.agg_p50;
-    p75        <== price_calc.agg_p75;
+    // confidence <== confidence_2 + confidence_3;
+    // p25        <== price_calc.agg_p25;
+    // p50        <== price_calc.agg_p50;
+    // p75        <== price_calc.agg_p75;
  }
 
 component main = Pyth(10, 10, 3);
