@@ -37,7 +37,7 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            publisher_node_count: 5,
+            publisher_node_count: 2,
             data_feed_count: 5,
             prover_node_count: 1,
             prover_rx_capacity: 100,

@@ -242,30 +242,30 @@ template Pyth(max, timestampThreshold, minPublishers) {
     // }
 
     // Verify the encoded data against incoming signatures.
-    // component verifiers[max];
-    // for(var i = 0; i < max; i++) {
-    //     verifiers[i] = InputVerifier();
+    component verifiers[max];
+    for(var i = 0; i < max; i++) {
+        verifiers[i] = InputVerifier();
 
-    //     // Pass in first signature if input is absent
-    //     var present = i < N;
-    //     var absent = i >= N;
+        // Pass in first signature if input is absent
+        var present = i < N;
+        var absent = i >= N;
 
-    //     // Assign output of binary conversion to signature verifier.
-    //     for (var j = 0; j < 64; j++) {
+        // Assign output of binary conversion to signature verifier.
+        for (var j = 0; j < 64; j++) {
 
-    //         // Use this selecting trick to avoid dynamic array accesses
-    //         verifiers[i].price[j]      <-- (Num2Bits_price_components[i].out[j] * present) + (Num2Bits_price_components[0].out[j] * absent);
-    //         verifiers[i].confidence[j] <-- (Num2Bits_conf_components[i].out[j] * present) + (Num2Bits_conf_components[0].out[j] * absent);
-    //         verifiers[i].timestamp[j]  <-- (Num2Bits_timestamp_components[i].out[j] * present) + (Num2Bits_timestamp_components[0].out[j] * absent);
-    //     }
+            // Use this selecting trick to avoid dynamic array accesses
+            verifiers[i].price[j]      <-- (Num2Bits_price_components[i].out[j] * present) + (Num2Bits_price_components[0].out[j] * absent);
+            verifiers[i].confidence[j] <-- (Num2Bits_conf_components[i].out[j] * present) + (Num2Bits_conf_components[0].out[j] * absent);
+            verifiers[i].timestamp[j]  <-- (Num2Bits_timestamp_components[i].out[j] * present) + (Num2Bits_timestamp_components[0].out[j] * absent);
+        }
 
-    //     // Assign Signature Components.
-    //     for (var j = 0; j < 256; j++) {
-    //         verifiers[i].A[j] <-- (A[i][j] * present) + (A[0][j] * absent);
-    //         verifiers[i].R[j] <-- (R[i][j] * present) + (R[0][j] * present);
-    //         verifiers[i].S[j] <-- (S[i][j] * present) + (S[0][j] * present);
-    //     }
-    // }
+        // Assign Signature Components.
+        for (var j = 0; j < 256; j++) {
+            verifiers[i].A[j] <-- (A[i][j] * present) + (A[0][j] * absent);
+            verifiers[i].R[j] <-- (R[i][j] * present) + (R[0][j] * absent);
+            verifiers[i].S[j] <-- (S[i][j] * present) + (S[0][j] * absent);
+        }
+    }
 
     // We verify that the price_model has been given to us in order by iterating
     // over the signal set and checking that every element is smaller than its
@@ -308,4 +308,4 @@ template Pyth(max, timestampThreshold, minPublishers) {
     p75        <== price_calc.agg_p75;
  }
 
-component main{public[N, price_model, prices, confs, timestamps, A, R, S, fee]} = Pyth(10, 10, 3);
+component main{public[N, price_model, prices, confs, timestamps, A, R, S, fee]} = Pyth(5, 10, 0);

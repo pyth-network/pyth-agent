@@ -22,7 +22,7 @@ Example minified:
 */
 
 // Hardcoded max length of Pyth input
-const max = 10;
+const max = 2;
 const empty = 0;
 
 // Utility functions
