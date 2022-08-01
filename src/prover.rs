@@ -184,30 +184,50 @@ pub mod circom {
 
             // Generate the witness
             let witness_file = NamedTempFile::new()?;
-            tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-
             let witness_command =
                 Command::new("/workspaces/agent/src/prover/circom/build/pyth_cpp/pyth")
-                    .arg(
-                        input_file
-                            .path()
-                            .to_str()
-                            .ok_or_else(|| anyhow!("failed to get path of temporary input file"))?,
-                    )
-                    .arg(
-                        witness_file.path().to_str().ok_or_else(|| {
-                            anyhow!("failed to get path of temporary witness file")
-                        })?,
-                    )
+                    .arg(self.file_path(&input_file)?)
+                    .arg(self.file_path(&witness_file)?)
                     .output()
                     .await?;
-            debug!(self.logger, "generated witness");
-
             info!(self.logger, "generated witness"; "stdout" => std::str::from_utf8(&witness_command.stdout)?.to_string(), "stderr" => std::str::from_utf8(&witness_command.stderr)?.to_string());
 
-            // TODO: submit witness to verifier contract
+            // Generate the proof
+            let proof_file = NamedTempFile::new()?;
+            let public_file = NamedTempFile::new()?;
+            let proof_generate_command = Command::new("snarkjs")
+                .arg("groth16")
+                .arg("prove")
+                .arg("/workspaces/agent/src/prover/circom/build/pyth_0001.zkey")
+                .arg(self.file_path(&witness_file)?)
+                .arg(self.file_path(&proof_file)?)
+                .arg(self.file_path(&public_file)?)
+                .output()
+                .await?;
+            info!(self.logger, "generated proof"; "stdout" => std::str::from_utf8(&proof_generate_command.stdout)?.to_string(), "stderr" => std::str::from_utf8(&proof_generate_command.stderr)?.to_string());
+
+            // Generate and submit calldata
+            debug!(
+                self.logger,
+                "generating and submitting calldata to verifier contract"
+            );
+            let generate_and_submit_command = &Command::new("python3")
+                .arg("/workspaces/agent/src/prover/circom/generate_and_submit_calldata.py")
+                .arg(self.file_path(&public_file)?)
+                .arg(self.file_path(&proof_file)?)
+                .output()
+                .await?;
+            info!(self.logger, "generated and submitted calldata"; "stdout" => std::str::from_utf8(&generate_and_submit_command.stdout)?.to_string(), "stderr" => std::str::from_utf8(&generate_and_submit_command.stderr)?.to_string());
+
             // TODO: return meaningful Proof object
             Ok(Proof {})
+        }
+
+        fn file_path(&self, file: &NamedTempFile) -> Result<String> {
+            file.path()
+                .to_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow!("failed to get path of temporary public file"))
         }
 
         async fn generate_input(&self, data: Vec<Data>) -> Result<String> {
