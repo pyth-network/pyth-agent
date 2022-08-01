@@ -13,3 +13,8 @@ Cargo.lock
 src/prover/circom/build
 src/prover/circom/node_modules
 src/prover/circom/test/*.test.circom
+src/prover/circom/calldata.txt
+src/prover/circom/verifier_contract/build
+src/prover/circom/verifier_contract/node_modules
+src/prover/circom/verifier_contract/.secret
+src/prover/circom/verifier_contract/keys.json
