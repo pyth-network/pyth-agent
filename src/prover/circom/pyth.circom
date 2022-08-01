@@ -43,6 +43,7 @@ include "InputVerifier.circom";
 include "PriceModel.circom"; 
 include "ElementAt.circom";
 
+// Reconstruct price from vote
 function calc_price(price_model, prices, confs, i) {
     var price = prices[price_model[i][0]];
     var conf  = confs[price_model[i][0]];
@@ -313,4 +314,4 @@ template Pyth(max, timestampThreshold, minPublishers) {
  }
 
 //                                                                                max, timestampThreshold, minPublishers
-component main{public[N, price_model, prices, confs, timestamps, A, R, S, fee]} = Pyth(5, 10, 0);
+component main{public[N, price_model, prices, confs, timestamps, A, R, S, fee]} = Pyth(5, 10, 3);
