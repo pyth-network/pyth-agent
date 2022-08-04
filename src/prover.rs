@@ -190,7 +190,7 @@ pub mod circom {
                     .arg(self.file_path(&witness_file)?)
                     .output()
                     .await?;
-            info!(self.logger, "generated witness"; "stdout" => std::str::from_utf8(&witness_command.stdout)?.to_string(), "stderr" => std::str::from_utf8(&witness_command.stderr)?.to_string());
+            info!(self.logger, "generated witness\n\n"; "stdout" => std::str::from_utf8(&witness_command.stdout)?.to_string(), "stderr" => std::str::from_utf8(&witness_command.stderr)?.to_string());
 
             // Generate the proof
             let proof_file = NamedTempFile::new()?;
@@ -204,20 +204,23 @@ pub mod circom {
                 .arg(self.file_path(&public_file)?)
                 .output()
                 .await?;
-            info!(self.logger, "generated proof"; "stdout" => std::str::from_utf8(&proof_generate_command.stdout)?.to_string(), "stderr" => std::str::from_utf8(&proof_generate_command.stderr)?.to_string());
-
+            // info!(self.logger, "generated proof"; "stdout" => std::str::from_utf8(&proof_generate_command.stdout)?.to_string(), "stderr" => std::str::from_utf8(&proof_generate_command.stderr)?.to_string());
             // Generate and submit calldata
-            debug!(
-                self.logger,
-                "generating and submitting calldata to verifier contract"
-            );
+            debug!(self.logger, "submitting proof to verifier contract...");
             let generate_and_submit_command = &Command::new("python3")
                 .arg("/workspaces/agent/src/prover/circom/generate_and_submit_calldata.py")
                 .arg(self.file_path(&public_file)?)
                 .arg(self.file_path(&proof_file)?)
                 .output()
                 .await?;
-            info!(self.logger, "generated and submitted calldata"; "stdout" => std::str::from_utf8(&generate_and_submit_command.stdout)?.to_string(), "stderr" => std::str::from_utf8(&generate_and_submit_command.stderr)?.to_string());
+            info!(self.logger, "generated and submitted calldata";
+                "stdout" => std::str::from_utf8(&generate_and_submit_command.stdout)?.to_string(),
+                "stderr" => std::str::from_utf8(&generate_and_submit_command.stderr)?.to_string(),
+                "public_file" => self.file_path(&public_file)?,
+                "proof_file" => self.file_path(&proof_file)?,
+            );
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(10000)).await;
 
             // TODO: return meaningful Proof object
             Ok(Proof {})

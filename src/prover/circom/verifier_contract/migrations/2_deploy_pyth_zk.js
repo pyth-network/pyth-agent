@@ -5,7 +5,7 @@ var Verifier = artifacts.require("Verifier");
 module.exports = function(deployer) {
 
   // Deploy all the Points
-  for (var i = 0; i < 25; i++) {
+  for (var i = 0; i < 1; i++) {
     var G1Point = artifacts.require("G1Points"+i);
     deployer.deploy(G1Point);
     deployer.link(G1Point, [Pairing, Verifier, ZKPyth]);

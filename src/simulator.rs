@@ -37,8 +37,8 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            publisher_node_count: 2,
-            data_feed_count: 5,
+            publisher_node_count: 47,
+            data_feed_count: 30,
             prover_node_count: 1,
             prover_rx_capacity: 100,
             prover_fee: 35,
@@ -279,8 +279,8 @@ impl SimulatedGossipNode {
         Data {
             publisher_pub_key: publisher,
             data_feed_identifier: data_feed,
-            price: OsRng.gen_range(0..10),
-            conf: OsRng.gen_range(0..10),
+            price: OsRng.gen_range(0..4),
+            conf: OsRng.gen_range(0..4),
             timestamp: Utc::now() + Duration::seconds(OsRng.gen_range(0..=2)),
         }
     }

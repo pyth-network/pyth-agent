@@ -1,5 +1,5 @@
 const { buildEddsa } = require("circomlibjs");
-const { randomBytes } = require("crypto");
+const { randomBytes, createHmac } = require("crypto");
 
 /*
 Paramaters:
@@ -22,7 +22,7 @@ Example minified:
 */
 
 // Hardcoded max length of Pyth input
-const max = 5;
+const max = 50;
 const empty = 0;
 
 // Utility functions
@@ -52,6 +52,7 @@ const toCircomBin = (bytes) =>
 const padArray = (arr, size, fill) =>
     arr.concat(Array(size - arr.length).fill(fill));
 
+
 (async function () {
 
     // Parse the JSON from the CLI argument
@@ -67,7 +68,8 @@ const padArray = (arr, size, fill) =>
         A: [],
         R: [],
         S: [],
-        fee: data.fee,
+        fee: data.fee, 
+        hashpubkeys: 0,
     }
 
     // Generate the price model votes
@@ -86,6 +88,8 @@ const padArray = (arr, size, fill) =>
 
     const eddsa = await buildEddsa();
 
+
+    const pubKeysArray = []; 
     // For each data input, generate a random signature and add to the price model
     for (let i = 0; i < data.n; i++) {
         
@@ -96,6 +100,7 @@ const padArray = (arr, size, fill) =>
         const pubKey = eddsa.prv2pub(privateKey);
         const packedPubKey = eddsa.babyJub.packPoint(pubKey);  
         const A = packedPubKey;
+        pubKeysArray.push(A); 
 
         // Generate the payload
         // Encode payload with bytes reversed to satisfy Circom's
@@ -121,6 +126,16 @@ const padArray = (arr, size, fill) =>
         input.R[i] = toCircomBin(R);
         input.S[i] = toCircomBin(S);
     }
+
+    //Hash the public keys
+    // const hmac = createHmac('sha256', 'a secret');
+    // hmac.update(pubKeysArray.toString());
+    // const hash_val = hmac.digest('hex');
+    //console.log(hash_val.length); 
+    // const hash_val_decimal = parseInt(hash_val, 16);
+    // input.hashpubkeys = hash_val_decimal; 
+    input.hashpubkeys = 0;
+    //console.log(hash_val_decimal);
 
     // Pad the result to the length the Pyth contract expects
     input.price_model = padArray(input.price_model, max*3, Array(2).fill(empty));

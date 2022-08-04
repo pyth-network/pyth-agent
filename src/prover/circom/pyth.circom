@@ -178,6 +178,81 @@ template Pyth(max, timestampThreshold, minPublishers) {
         Num2Bits_conf_components[i].in  <== confs[i];
         Num2Bits_timestamp_components[i].in <== timestamps[i];
     }
+    
+    // We need to check that each signature given corresponds to a unique public key.
+    // This is so a single publisher cannot submit multiple entries to a proof.
+    // A is the public key component of the signature, so we need to check that all
+    // the given A's are unique.
+    //
+    // We do this by requiring that A is sorted in ascending order, then iterating over
+    // the array and checking that a[i + 1] > a[i].
+    //
+    // A less-than check can be implemented by performing `A - B` and checking if the
+    // operation overflowed. In other words, if `A - B < 0` then B must have been larger
+    // than A. Circom however does not have signed bit operations. It's possible to still
+    // perform this check however by creating our own range by shifting all the numbers
+    // up by half of the integer range.
+    //
+    // For example, with an 8 bit range, shifting everything by 128 (1<<8), we get the
+    // following representation:
+    //
+    // 00000000 = -128
+    // 10000000 =    0
+    // 11111111 =  128
+    //
+    // We can now achieve the same less-than check by performing
+    //
+    // 0 + A - B
+    //
+    // This generalizes to n-bit representations - we just shift everything by n (1 << 256) 
+    // As all positive numbers now have a 1 MSB, and all negative numbers have a 0 MSB,
+    // we can check if an overflow occured by checking if the MSB has become 0.  
+    // Note that LSB is index 0, and bits go left-to-right.
+    // component binsum_pubkey[max];
+    // component binsub_pubkey[max]; 
+    // component unique_pubkeys[max];
+    // for (var i = 0; i < (max - 1); i++) {   
+    //     binsum_pubkey[i] = BinSum(267, 2);  // TODO: check nbits logic in binsum
+    //     binsub_pubkey[i] = BinSub(257); 
+        
+    //     // Perform 0 + A - B to check equality
+
+    //     // Add 1 << n to A[i]
+    //     for (var j = 0; j < 255; j++) { 
+    //         binsum_pubkey[i].in[0][j] <-- A[i][j]; 
+    //         binsum_pubkey[i].in[1][j] <-- 0;
+    //     }
+    //     binsum_pubkey[i].in[0][255] <-- A[i][255];
+    //     binsum_pubkey[i].in[1][255] <-- 1;
+
+    //     // pad BinSum with extra zeros
+    //     // TODO: why is this necessary
+    //     for (var j = 256; j < 267; j++) {
+    //         binsum_pubkey[i].in[0][j] <-- 0;
+    //         binsum_pubkey[i].in[1][j] <-- 0;
+    //     }
+
+    //     var result = binsum_pubkey[0].out[255];
+
+    //     // Subtract A[i+1] from the result of (A[i] + (1 << n))
+    //     // TODO: double-check this
+    //     for (var j = 0; j < 255; j++) {
+    //         binsub_pubkey[i].in[0][j] <-- binsum_pubkey[i].out[j]; 
+    //         binsub_pubkey[i].in[1][j] <-- A[i+1][j];     
+    //     }
+    //     binsub_pubkey[i].in[0][255] <-- 0;
+    //     binsub_pubkey[i].in[1][255] <-- 0;
+    //     binsub_pubkey[i].in[0][256] <-- 0;
+    //     binsub_pubkey[i].in[1][256] <-- 0;
+
+    //     // Check that the MSB is 0, indicating that the subtraction "overflowed", so A[i+1] > A[i]
+    //     unique_pubkeys[i] = OR();
+    //     var absent = i >= N;
+    //     var unique = binsub_pubkey[i].out[255] == 0;
+    //     unique_pubkeys[i].a <-- unique;
+    //     unique_pubkeys[i].b <-- absent;
+    //     unique_pubkeys[i].out === 1;
+    // }
 
     // Verify the encoded data against incoming signatures.
     component verifiers[max];
@@ -247,4 +322,4 @@ template Pyth(max, timestampThreshold, minPublishers) {
  }
 
 //                                                                                max, timestampThreshold, minPublishers
-component main{public[hashpubkeys, A, fee]} = Pyth(50, 10, 45);
+component main{public[hashpubkeys, fee]} = Pyth(50, 10, 45);

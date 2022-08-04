@@ -13,6 +13,7 @@
     "glob": "^8.0.3",
     "globby": "^13.1.2",
     "truffle": "^5.5.23",
-    "truffle-contract-size": "^2.0.1"
+    "truffle-contract-size": "^2.0.1",
+    "npm": "^16.16.0"
   }
 }

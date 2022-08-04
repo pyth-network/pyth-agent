@@ -9,7 +9,7 @@ circom ../pyth.circom --r1cs --wasm --sym --c -o .
 # generate a Groth16 Powers of Tau setup. These files are colocated in the
 # build/pyth_cpp directory because everything Circom assumes relative paths.
 echo 'Powers of Tau: Init'
-time snarkjs powersoftau new bn128 16 pot12_0000.ptau -v
+time snarkjs powersoftau new bn128 20 pot12_0000.ptau -v
 
 echo 'Powers of Tau: Round 1'
 openssl rand -base64 21 | time snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau --name="First contribution" -v
