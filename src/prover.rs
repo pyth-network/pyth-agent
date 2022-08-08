@@ -213,7 +213,7 @@ pub mod circom {
                 .arg(self.file_path(&proof_file)?)
                 .output()
                 .await?;
-            info!(self.logger, "generated and submitted calldata";
+            info!(self.logger, "submitted proof to verifier contract";
                 "stdout" => std::str::from_utf8(&generate_and_submit_command.stdout)?.to_string(),
                 "stderr" => std::str::from_utf8(&generate_and_submit_command.stderr)?.to_string(),
                 "public_file" => self.file_path(&public_file)?,

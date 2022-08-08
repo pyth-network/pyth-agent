@@ -41,10 +41,6 @@ def main():
     c = [int(x, 16) for x in calldata[2]]
     i = [int(x, 16) for x in calldata[3]]
 
-    # signed_transaction = contract.functions.submitProof(a, b, c, i).build_transaction({
-
-    # })
-
     # Submit the proof and update the price
     nonce = w3.eth.getTransactionCount(
         account.address,
