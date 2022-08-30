@@ -3,7 +3,6 @@
 //
 // It does not implement the business logic, only exposes a websocket server which
 // accepts messages and can return responses in the expected format.
-
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
