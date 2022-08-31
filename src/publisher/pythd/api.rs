@@ -555,4 +555,551 @@ pub mod rpc {
         }
     }
 
+    #[cfg(test)]
+    mod tests {
+        use anyhow::anyhow;
+        use iobuffer::IoBuffer;
+        use jrpc::{Id, Request};
+        use rand::Rng;
+        use serde::de::DeserializeOwned;
+        use serde::Serialize;
+        use slog_extlog::slog_test;
+        use soketto::handshake::{Client, ServerResponse};
+        use std::str::from_utf8;
+        use tokio::net::TcpStream;
+        use tokio::sync::{broadcast, mpsc};
+        use tokio::task::JoinHandle;
+        use tokio_retry::strategy::FixedInterval;
+        use tokio_retry::Retry;
+        use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+
+        use crate::publisher::pythd::adapter;
+        use crate::publisher::pythd::api::rpc::{
+            SubscribePriceParams, SubscribePriceSchedParams, UpdatePriceParams,
+        };
+        use crate::publisher::pythd::api::{NotifyPrice, NotifyPriceSched, PriceUpdate};
+
+        use super::super::rpc::GetProductParams;
+        use super::super::{
+            Attrs, PriceAccount, PriceAccountMetadata, ProductAccount, ProductAccountMetadata,
+            PubKey, PublisherAccount, SubscriptionID,
+        };
+        use super::{Config, Server};
+
+        struct TestAdapter {
+            rx: mpsc::Receiver<adapter::Message>,
+        }
+
+        impl TestAdapter {
+            async fn recv(&mut self) -> adapter::Message {
+                self.rx.recv().await.unwrap()
+            }
+        }
+
+        struct TestServer {
+            shutdown_tx: broadcast::Sender<()>,
+            jh: JoinHandle<()>,
+        }
+
+        impl Drop for TestServer {
+            fn drop(&mut self) {
+                self.shutdown_tx.send(());
+            }
+        }
+
+        struct TestClient {
+            sender: soketto::Sender<Compat<TcpStream>>,
+            receiver: soketto::Receiver<Compat<TcpStream>>,
+        }
+
+        impl TestClient {
+            async fn new(server_port: u16) -> Self {
+                // Connect to the server, retrying as the server may take some time to respond to requests initially
+                let socket = Retry::spawn(FixedInterval::from_millis(100).take(20), || {
+                    TcpStream::connect(("127.0.0.1", server_port))
+                })
+                .await
+                .unwrap();
+                let mut client = Client::new(socket.compat(), "...", "/");
+
+                // Perform the websocket handshake
+                let handshake = client.handshake().await.unwrap();
+                assert!(matches!(handshake, ServerResponse::Accepted { .. }));
+
+                let (sender, receiver) = client.into_builder().finish();
+                TestClient { sender, receiver }
+            }
+
+            async fn send<T>(&mut self, request: Request<String, T>)
+            where
+                T: Serialize + DeserializeOwned,
+            {
+                self.sender.send_text(request.to_string()).await.unwrap();
+            }
+
+            async fn recv_json(&mut self) -> String {
+                let bytes = self.recv_bytes().await;
+                from_utf8(&bytes).unwrap().to_string()
+            }
+
+            async fn recv_bytes(&mut self) -> Vec<u8> {
+                let mut bytes = Vec::new();
+                self.receiver.receive_data(&mut bytes).await.unwrap();
+                bytes
+            }
+        }
+
+        async fn start_server() -> (TestServer, TestClient, TestAdapter) {
+            let listen_port = portpicker::pick_unused_port().unwrap();
+
+            // Create the test adapter
+            let (adapter_tx, adapter_rx) = mpsc::channel(100);
+            let test_adapter = TestAdapter { rx: adapter_rx };
+
+            // Create and spawn a server (the SUT)
+            let (shutdown_tx, shutdown_rx) = broadcast::channel(10);
+            let logger = slog_test::new_test_logger(IoBuffer::new());
+            let config = Config {
+                listen_address: format!("127.0.0.1:{:}", listen_port),
+                ..Default::default()
+            };
+            let server = Server::new(adapter_tx, config, logger);
+            let jh = tokio::spawn(async move {
+                server.run(shutdown_rx).await;
+            });
+            let test_server = TestServer { shutdown_tx, jh };
+
+            // Create a test client to interact with the server
+            let test_client = TestClient::new(listen_port).await;
+
+            (test_server, test_client, test_adapter)
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_get_product_success_test() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+
+            // Make a binary request, which should be safely ignored
+            let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+            test_client.sender.send_binary(random_bytes).await.unwrap();
+
+            // Define the product account we expect to receive back
+            let product_account_key = "some_product_account".to_string();
+            let product_account = ProductAccount {
+                account: product_account_key.clone(),
+                attr_dict: Attrs::from(
+                    [
+                        ("symbol", "BTC/USD"),
+                        ("asset_type", "Crypto"),
+                        ("country", "US"),
+                        ("quote_currency", "USD"),
+                        ("tenor", "spot"),
+                    ]
+                    .map(|(k, v)| (k.to_string(), v.to_string())),
+                ),
+                price_accounts: vec![PriceAccount {
+                    account: "some_price_account".to_string(),
+                    price_type: "price".to_string(),
+                    price_exponent: 8,
+                    status: "trading".to_string(),
+                    price: 536,
+                    conf: 67,
+                    twap: 276,
+                    twac: 463,
+                    valid_slot: 4628,
+                    pub_slot: 4736,
+                    prev_slot: 3856,
+                    prev_price: 400,
+                    prev_conf: 45,
+                    publisher_accounts: vec![
+                        PublisherAccount {
+                            account: "some_publisher_account".to_string(),
+                            status: "trading".to_string(),
+                            price: 500,
+                            conf: 24,
+                            slot: 3563,
+                        },
+                        PublisherAccount {
+                            account: "another_publisher_account".to_string(),
+                            status: "halted".to_string(),
+                            price: 300,
+                            conf: 683,
+                            slot: 5834,
+                        },
+                    ],
+                }],
+            };
+
+            // Make a request
+            test_client
+                .send(Request::with_params(
+                    Id::from(1),
+                    "get_product".to_string(),
+                    GetProductParams {
+                        account: product_account_key,
+                    },
+                ))
+                .await;
+
+            // Expect the adapter to receive the corresponding message and send the product account in return
+            if let adapter::Message::GetProduct { result_tx, .. } = test_adapter.recv().await {
+                result_tx.send(Ok(product_account)).unwrap();
+            }
+
+            // Wait for the result to come back
+            let received_json = test_client.recv_json().await;
+
+            // Check that the JSON representation is correct
+            let expected_json = r#"{"jsonrpc":"2.0","result":{"account":"some_product_account","attr_dict":{"asset_type":"Crypto","country":"US","quote_currency":"USD","symbol":"BTC/USD","tenor":"spot"},"price_accounts":[{"account":"some_price_account","price_type":"price","price_exponent":8,"status":"trading","price":536,"conf":67,"twap":276,"twac":463,"valid_slot":4628,"pub_slot":4736,"prev_slot":3856,"prev_price":400,"prev_conf":45,"publisher_accounts":[{"account":"some_publisher_account","status":"trading","price":500,"conf":24,"slot":3563},{"account":"another_publisher_account","status":"halted","price":300,"conf":683,"slot":5834}]}]},"id":1}"#;
+            assert_eq!(received_json, expected_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_unknown_method_error_test() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, _) = start_server().await;
+
+            // Make a request with an unknown methid
+            test_client
+                .send(Request::with_params(
+                    Id::from(3),
+                    "wrong_method".to_string(),
+                    GetProductParams {
+                        account: "some_account".to_string(),
+                    },
+                ))
+                .await;
+
+            // Wait for the result to come back
+            let received_json = test_client.recv_json().await;
+
+            // Check that the result is what we expect
+            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32601,"message":"unknown variant `wrong_method`, expected one of `get_product_list`, `get_product`, `get_all_products`, `subscribe_price`, `notify_price`, `subscribe_price_sched`, `notify_price_sched`, `update_price`","data":null},"id":3}"#;
+            assert_eq!(received_json, expected_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_missing_request_parameters_test() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, _) = start_server().await;
+
+            // Make a request with missing parameters
+            test_client
+                .send(Request::new(Id::from(5), "update_price".to_string()))
+                .await;
+
+            // Wait for the result to come back
+            let received_json = test_client.recv_json().await;
+
+            // Check that the result is what we expect
+            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Missing request parameters","data":null},"id":5}"#;
+            assert_eq!(received_json, expected_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_internal_error() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+
+            // Make a request
+            test_client
+                .send(Request::with_params(
+                    Id::from(9),
+                    "get_product".to_string(),
+                    GetProductParams {
+                        account: "some_account".to_string(),
+                    },
+                ))
+                .await;
+
+            // Make the adapter throw an error in return
+            if let adapter::Message::GetProduct { result_tx, .. } = test_adapter.recv().await {
+                result_tx.send(Err(anyhow!("some internal error"))).unwrap();
+            }
+
+            // Get the result back
+            let received_json = test_client.recv_json().await;
+
+            // Check that the result is what we expect
+            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"some internal error","data":null},"id":9}"#;
+            assert_eq!(expected_json, received_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn json_update_price_success() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+
+            // Make a request to update the price
+            let status = "trading";
+            let params = UpdatePriceParams {
+                account: PubKey::from("some_price_account"),
+                price: 7467,
+                conf: 892,
+                status: status.to_string(),
+            };
+            test_client
+                .send(Request::with_params(
+                    Id::from(15),
+                    "update_price".to_string(),
+                    params.clone(),
+                ))
+                .await;
+
+            // Assert that the adapter receives this
+            assert!(matches!(
+                test_adapter.recv().await,
+                adapter::Message::UpdatePrice {
+                    account,
+                    price,
+                    conf,
+                    status
+                } if account == params.account && price == params.price && conf == params.conf && status == params.status
+            ));
+
+            // Get the result back
+            let received_json = test_client.recv_json().await;
+
+            // Assert that the result is what we expect
+            let expected_json = r#"{"jsonrpc":"2.0","result":0,"id":15}"#;
+            assert_eq!(received_json, expected_json);
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn get_product_list_success_test() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+
+            // Define the data we are working with
+            let product_account = PubKey::from("some_product_account");
+            let data = vec![ProductAccountMetadata {
+                account: product_account.clone(),
+                attr_dict: Attrs::from(
+                    [
+                        ("symbol", "BTC/USD"),
+                        ("asset_type", "Crypto"),
+                        ("country", "US"),
+                        ("quote_currency", "USD"),
+                        ("tenor", "spot"),
+                    ]
+                    .map(|(k, v)| (k.to_string(), v.to_string())),
+                ),
+                prices: vec![
+                    PriceAccountMetadata {
+                        account: PubKey::from("some_price_account"),
+                        price_type: "price".to_string(),
+                        price_exponent: 4,
+                    },
+                    PriceAccountMetadata {
+                        account: PubKey::from("another_price_account"),
+                        price_type: "special".to_string(),
+                        price_exponent: 6,
+                    },
+                ],
+            }];
+
+            // Make a GetProductList request
+            test_client
+                .send(Request::new(Id::from(11), "get_product_list".to_string()))
+                .await;
+
+            // Instruct the adapter to send our data back
+            if let adapter::Message::GetProductList { result_tx } = test_adapter.recv().await {
+                result_tx.send(Ok(data.clone())).unwrap();
+            }
+
+            // Get the result back
+            let bytes = test_client.recv_bytes().await;
+
+            // Assert that the result is what we expect
+            let response: jrpc::Response<Vec<ProductAccountMetadata>> =
+                serde_json::from_slice(&bytes).unwrap();
+            assert!(matches!(response, jrpc::Response::Ok(success) if success.result == data));
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn get_all_products_success() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+
+            // Define the data we are working with
+            let data = vec![ProductAccount {
+                account: PubKey::from("some_product_account"),
+                attr_dict: Attrs::from(
+                    [
+                        ("symbol", "LTC/USD"),
+                        ("asset_type", "Crypto"),
+                        ("country", "US"),
+                        ("quote_currency", "USD"),
+                        ("tenor", "spot"),
+                    ]
+                    .map(|(k, v)| (k.to_string(), v.to_string())),
+                ),
+                price_accounts: vec![PriceAccount {
+                    account: PubKey::from("some_price_account"),
+                    price_type: "price".to_string(),
+                    price_exponent: 7463,
+                    status: "trading".to_string(),
+                    price: 6453,
+                    conf: 3434,
+                    twap: 6454,
+                    twac: 365,
+                    valid_slot: 3646,
+                    pub_slot: 2857,
+                    prev_slot: 7463,
+                    prev_price: 3784,
+                    prev_conf: 9879,
+                    publisher_accounts: vec![
+                        PublisherAccount {
+                            account: PubKey::from("some_publisher_account"),
+                            status: "trading".to_string(),
+                            price: 756,
+                            conf: 8787,
+                            slot: 2209,
+                        },
+                        PublisherAccount {
+                            account: PubKey::from("another_publisher_account"),
+                            status: "halted".to_string(),
+                            price: 0,
+                            conf: 0,
+                            slot: 6676,
+                        },
+                    ],
+                }],
+            }];
+
+            // Make a GetAllProducts request
+            test_client
+                .send(Request::new(Id::from(5), "get_all_products".to_string()))
+                .await;
+
+            // Instruct the adapter to send our data back
+            if let adapter::Message::GetAllProducts { result_tx, .. } = test_adapter.recv().await {
+                result_tx.send(Ok(data.clone())).unwrap();
+            }
+
+            // Get the result back
+            let bytes = test_client.recv_bytes().await;
+
+            // Assert that the result is what we expect
+            let response: jrpc::Response<Vec<ProductAccount>> =
+                serde_json::from_slice(&bytes).unwrap();
+            assert!(matches!(response, jrpc::Response::Ok(success) if success.result == data));
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn subscribe_price_success() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+
+            // Make a SubscribePrice request
+            let price_account = PubKey::from("some_price_account");
+            test_client
+                .send(Request::with_params(
+                    Id::from(13),
+                    "subscribe_price".to_string(),
+                    SubscribePriceParams {
+                        account: price_account,
+                    },
+                ))
+                .await;
+
+            // Send a subscription ID back, and then a Notify Price update.
+            // Check that both are received by the client.
+            match test_adapter.recv().await {
+                adapter::Message::SubscribePrice {
+                    account: _,
+                    notify_price_tx,
+                    result_tx,
+                } => {
+                    // Send the subscription ID from the adapter to the server
+                    let subscription_id = SubscriptionID::from(16);
+                    result_tx.send(Ok(subscription_id)).unwrap();
+
+                    // Assert that the client connection receives the subscription ID
+                    assert_eq!(
+                        test_client.recv_json().await,
+                        r#"{"jsonrpc":"2.0","result":{"subscription":16},"id":13}"#
+                    );
+
+                    // Send a Notify Price event from the adapter to the server, with the corresponding subscription id
+                    let notify_price_update = NotifyPrice {
+                        subscription: subscription_id,
+                        result: PriceUpdate {
+                            price: 74,
+                            conf: 24,
+                            status: "trading".to_string(),
+                            valid_slot: 6786,
+                            pub_slot: 9897,
+                        },
+                    };
+                    notify_price_tx.send(notify_price_update).await.unwrap();
+
+                    // Assert that the client connection receives the notify_price notification
+                    // with the subscription ID and price update.
+                    assert_eq!(
+                        test_client.recv_json().await,
+                        r#"{"jsonrpc":"2.0","method":"notify_price","params":{"subscription":16,"result":{"price":74,"conf":24,"status":"trading","valid_slot":6786,"pub_slot":9897}}}"#
+                    )
+                }
+                _ => panic!("Uexpected message received from adapter"),
+            };
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn subscribe_price_sched_success() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+
+            // Make a SubscribePriceSched request
+            let price_account = PubKey::from("some_price_account");
+            test_client
+                .send(Request::with_params(
+                    Id::from(19),
+                    "subscribe_price_sched".to_string(),
+                    SubscribePriceSchedParams {
+                        account: price_account,
+                    },
+                ))
+                .await;
+
+            // Send a subscription ID back, and then a Notify Price Sched update.
+            // Check that both are received by the client.
+            match test_adapter.recv().await {
+                adapter::Message::SubscribePriceSched {
+                    account: _,
+                    notify_price_sched_tx,
+                    result_tx,
+                } => {
+                    // Send the subscription ID from the adapter to the server
+                    let subscription_id = SubscriptionID::from(27);
+                    result_tx.send(Ok(subscription_id)).unwrap();
+
+                    // Assert that the client connection receives the subscription ID
+                    assert_eq!(
+                        test_client.recv_json().await,
+                        r#"{"jsonrpc":"2.0","result":{"subscription":27},"id":19}"#
+                    );
+
+                    // Send a Notify Price Sched event from the adapter to the server, with the corresponding subscription id
+                    let notify_price_sched_update = NotifyPriceSched {
+                        subscription: subscription_id,
+                    };
+                    notify_price_sched_tx
+                        .send(notify_price_sched_update)
+                        .await
+                        .unwrap();
+
+                    // Assert that the client connection receives the notify_price notification
+                    // with the correct subscription ID.
+                    assert_eq!(
+                        test_client.recv_json().await,
+                        r#"{"jsonrpc":"2.0","method":"notify_price_sched","params":{"subscription":27}}"#
+                    )
+                }
+                _ => panic!("Uexpected message received from adapter"),
+            };
+        }
+    }
 }
