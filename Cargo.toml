@@ -27,11 +27,9 @@ slog = "2.7.0"
 schnorrkel = "0.10.1"
 slog-term = "2.9.0"
 rand = "0.8.5"
-solana-shadow = "0.2.4"
 slog-async = "2.7.0"
 config = "0.13.2"
 thiserror = "1.0.32"
-openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
 tokio-util = { version = "0.7.0", features = ["full"] }
