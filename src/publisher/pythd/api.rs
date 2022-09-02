@@ -603,7 +603,8 @@ pub mod rpc {
 
         impl Drop for TestServer {
             fn drop(&mut self) {
-                self.shutdown_tx.send(());
+                let _ = self.shutdown_tx.send(());
+                self.jh.abort();
             }
         }
 
