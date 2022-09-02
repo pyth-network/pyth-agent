@@ -1,5 +1,5 @@
 use super::api::{
-    Conf, NotifyPrice, NotifyPriceSched, Price, ProductAccount, ProductAccountMetadata, PubKey,
+    Conf, NotifyPrice, NotifyPriceSched, Price, ProductAccount, ProductAccountMetadata, Pubkey,
     SubscriptionID,
 };
 use anyhow::Result;
@@ -14,24 +14,24 @@ pub enum Message {
         result_tx: oneshot::Sender<Result<Vec<ProductAccountMetadata>>>,
     },
     GetProduct {
-        account: PubKey,
+        account: Pubkey,
         result_tx: oneshot::Sender<Result<ProductAccount>>,
     },
     GetAllProducts {
         result_tx: oneshot::Sender<Result<Vec<ProductAccount>>>,
     },
     SubscribePrice {
-        account: PubKey,
+        account: Pubkey,
         notify_price_tx: mpsc::Sender<NotifyPrice>,
         result_tx: oneshot::Sender<Result<SubscriptionID>>,
     },
     SubscribePriceSched {
-        account: PubKey,
+        account: Pubkey,
         notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
         result_tx: oneshot::Sender<Result<SubscriptionID>>,
     },
     UpdatePrice {
-        account: PubKey,
+        account: Pubkey,
         price: Price,
         conf: Conf,
         status: String,

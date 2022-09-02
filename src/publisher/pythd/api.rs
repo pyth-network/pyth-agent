@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub type PubKey = String;
+pub type Pubkey = String;
 pub type Attrs = BTreeMap<String, String>;
 
 pub type Price = i64;
@@ -18,28 +18,28 @@ pub type Slot = u64;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ProductAccountMetadata {
-    pub account: PubKey,
+    pub account: Pubkey,
     pub attr_dict: Attrs,
     pub prices: Vec<PriceAccountMetadata>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PriceAccountMetadata {
-    pub account: PubKey,
+    pub account: Pubkey,
     pub price_type: String,
     pub price_exponent: Exponent,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ProductAccount {
-    pub account: PubKey,
+    pub account: Pubkey,
     pub attr_dict: Attrs,
     pub price_accounts: Vec<PriceAccount>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PriceAccount {
-    pub account: PubKey,
+    pub account: Pubkey,
     pub price_type: String,
     pub price_exponent: Exponent,
     pub status: String,
@@ -57,7 +57,7 @@ pub struct PriceAccount {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PublisherAccount {
-    pub account: PubKey,
+    pub account: Pubkey,
     pub status: String,
     pub price: Price,
     pub conf: Conf,
@@ -104,7 +104,7 @@ pub mod rpc {
     use warp::Filter;
 
     use super::super::adapter;
-    use super::{Conf, NotifyPrice, NotifyPriceSched, Price, PubKey, SubscriptionID};
+    use super::{Conf, NotifyPrice, NotifyPriceSched, Price, Pubkey, SubscriptionID};
 
     #[derive(Serialize, Deserialize, Debug)]
     #[serde(rename_all = "snake_case")]
@@ -121,22 +121,22 @@ pub mod rpc {
 
     #[derive(Serialize, Deserialize, Debug)]
     struct GetProductParams {
-        account: PubKey,
+        account: Pubkey,
     }
 
     #[derive(Serialize, Deserialize, Debug)]
     struct SubscribePriceParams {
-        account: PubKey,
+        account: Pubkey,
     }
 
     #[derive(Serialize, Deserialize, Debug)]
     struct SubscribePriceSchedParams {
-        account: PubKey,
+        account: Pubkey,
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone)]
     struct UpdatePriceParams {
-        account: PubKey,
+        account: Pubkey,
         price: Price,
         conf: Conf,
         status: String,
@@ -582,7 +582,7 @@ pub mod rpc {
         use super::super::rpc::GetProductParams;
         use super::super::{
             Attrs, PriceAccount, PriceAccountMetadata, ProductAccount, ProductAccountMetadata,
-            PubKey, PublisherAccount, SubscriptionID,
+            Pubkey, PublisherAccount, SubscriptionID,
         };
         use super::{Config, Server};
 
@@ -835,7 +835,7 @@ pub mod rpc {
             // Make a request to update the price
             let status = "trading";
             let params = UpdatePriceParams {
-                account: PubKey::from("some_price_account"),
+                account: Pubkey::from("some_price_account"),
                 price: 7467,
                 conf: 892,
                 status: status.to_string(),
@@ -873,7 +873,7 @@ pub mod rpc {
             let (_test_server, mut test_client, mut test_adapter) = start_server().await;
 
             // Define the data we are working with
-            let product_account = PubKey::from("some_product_account");
+            let product_account = Pubkey::from("some_product_account");
             let data = vec![ProductAccountMetadata {
                 account: product_account.clone(),
                 attr_dict: Attrs::from(
@@ -888,12 +888,12 @@ pub mod rpc {
                 ),
                 prices: vec![
                     PriceAccountMetadata {
-                        account: PubKey::from("some_price_account"),
+                        account: Pubkey::from("some_price_account"),
                         price_type: "price".to_string(),
                         price_exponent: 4,
                     },
                     PriceAccountMetadata {
-                        account: PubKey::from("another_price_account"),
+                        account: Pubkey::from("another_price_account"),
                         price_type: "special".to_string(),
                         price_exponent: 6,
                     },
@@ -926,7 +926,7 @@ pub mod rpc {
 
             // Define the data we are working with
             let data = vec![ProductAccount {
-                account: PubKey::from("some_product_account"),
+                account: Pubkey::from("some_product_account"),
                 attr_dict: Attrs::from(
                     [
                         ("symbol", "LTC/USD"),
@@ -938,7 +938,7 @@ pub mod rpc {
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
                 price_accounts: vec![PriceAccount {
-                    account: PubKey::from("some_price_account"),
+                    account: Pubkey::from("some_price_account"),
                     price_type: "price".to_string(),
                     price_exponent: 7463,
                     status: "trading".to_string(),
@@ -953,14 +953,14 @@ pub mod rpc {
                     prev_conf: 9879,
                     publisher_accounts: vec![
                         PublisherAccount {
-                            account: PubKey::from("some_publisher_account"),
+                            account: Pubkey::from("some_publisher_account"),
                             status: "trading".to_string(),
                             price: 756,
                             conf: 8787,
                             slot: 2209,
                         },
                         PublisherAccount {
-                            account: PubKey::from("another_publisher_account"),
+                            account: Pubkey::from("another_publisher_account"),
                             status: "halted".to_string(),
                             price: 0,
                             conf: 0,
@@ -995,7 +995,7 @@ pub mod rpc {
             let (_test_server, mut test_client, mut test_adapter) = start_server().await;
 
             // Make a SubscribePrice request
-            let price_account = PubKey::from("some_price_account");
+            let price_account = Pubkey::from("some_price_account");
             test_client
                 .send(Request::with_params(
                     Id::from(13),
@@ -1054,7 +1054,7 @@ pub mod rpc {
             let (_test_server, mut test_client, mut test_adapter) = start_server().await;
 
             // Make a SubscribePriceSched request
-            let price_account = PubKey::from("some_price_account");
+            let price_account = Pubkey::from("some_price_account");
             test_client
                 .send(Request::with_params(
                     Id::from(19),
