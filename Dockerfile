@@ -1,4 +1,4 @@
-FROM rust:1.58.1-slim-bullseye
+FROM rust:1.61.0-slim-bullseye
 
 ADD . /agent
 WORKDIR /agent
