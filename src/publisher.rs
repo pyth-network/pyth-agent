@@ -24,6 +24,8 @@ use self::{
 
 pub struct Publisher {}
 
+// TODO: structure this better, possibly with some more abstractions (e.g. grouping all components needed for each "network" together)
+// TODO: create config structs for all components (some already exist), with sensible defaults, and use config crate to populate these
 impl Publisher {
     pub fn new() -> Self {
         Publisher {}

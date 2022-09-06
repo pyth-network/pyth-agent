@@ -152,6 +152,7 @@ pub mod rpc {
         WebsocketConnectionClosed,
     }
 
+    // TODO: split this up so that this struct has less reponsibility
     struct Connection {
         // Channel for communicating with the adapter
         adapter_tx: mpsc::Sender<adapter::Message>,

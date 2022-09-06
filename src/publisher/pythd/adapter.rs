@@ -23,6 +23,7 @@ pub type PriceUpdate = super::api::PriceUpdate;
 // Adapter is the adapter between the pythd websocket API, and the stores.
 // It is responsible for implementing the business logic for responding to
 // the pythd websocket API calls.
+// TODO: better name than Adapter
 pub struct Adapter {
     // Channel on which messages are received
     message_rx: mpsc::Receiver<Message>,
