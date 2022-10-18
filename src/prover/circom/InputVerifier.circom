@@ -1,6 +1,5 @@
 pragma circom 2.0.0;
-
-// TODO: use poseidon hash function instead (eddsaposeidon)
+ 
 include "node_modules/circomlib/circuits/eddsa.circom";
 
 // InputVerifier receives a list of signatures, prices, and components, and
@@ -28,8 +27,7 @@ template InputVerifier() {
     //
     // Therefore we must also create a verifier that can verify the signature
     // of these 256 bit messages.
-    component verifier;
-    // TODO: confirm what alias checking achieves.
+    component verifier  
     // WARNING: n should reflect the size of the message payload, if not then the signature
     // verification could throw false negatives.
     verifier = EdDSAVerifier(192);
