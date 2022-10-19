@@ -1,38 +1,51 @@
-pragma circom 2.0.0;
+pragma circom 2.0.0; 
 
-// Tricks&Notes on Circom:
-// - Scalar size errors happen when not providing all signals.
-// - Power of Tau ceremony must choose an exponent e such that 2**e > constraint count.
-// - C++ errors will fail constraints even before proof is produced. Asserts.
-// - At least one quadratic output seems to be needed, so a squared input is used here.
-// - TODO: Security; understand constraining outputs and when needed. See operators page on Circom.
-//
-// Goals
-// - Faster Proving Times
-// - Dig more into Curve support and what our limitations are (currently BN254).
-// - Proof of concept P2P Protocol (even without P2P is fine).
-
-// - [x] Timestamp oracle as a median.
-// - [x] Fee for proving.
-// - [x] Staleness threshold on price inputs.
-// - [x] Publishers commit to timestamps.
-// - [x] Check the signatures are from different publishers 
-// - [x] refactor code to template / functions
-// - [x] checks for subgroup order 
-// - [x] Contract with N prices must work for <N. Dynamic N.
-// - [x] Min pub, required.
-// - [x] Generate and deploy verfication contract
-// - [x] Make simulator generate proof
-// - [x] Make simulator submit proof to verification contract 
-
-//TODOS:
-// - [ ] Constraint assignment when calling templates, through the whole circuit
+//TODOS: 
 // - [ ] BinSum output length
-// - [ ] Publishers need to sign the price identifier
-// - [ ] Output timestamp median to use as timestamp for aggregate
-// - [ ] Unit tests for each logic block
-// - [ ] Check that the hash of the A values match the input hash of the public keys 
-// - [ ] Switch the Pedersen Hash for the Poseidon Hash for efficiency (may have to rehash for hash compatibility)
+  
+/**  
+    Enforces and computes Pyth aggregation logic for a single product 
+    
+    max - maximum number of possible data sources that can be included in the aggregation
+    N - number of data components (price || confs || timestamps) prover includes 
+    timestampThreshold - staleness threshold for data feed aggregation
+ 
+    * @input  price_model[max*3][2] {Array(Array(Uint64))}
+        // 2-D array. Tuple of (index and op) for each vote. These represent the provers
+        // input to the aggregation for each data feed. A single data feed's (index, conf) is
+        // converted to a tuple of (price-conf, price, price+conf) representing the 3 votes.
+        // Each vote is represented in the price model as a tuple of (index, op) where
+        // that x is the index into prices and confs arrays and op represents the operation
+        // (+-NOP) calc_price uses to reconstruct the values.
+    
+    * @input  prices[max] {Array(Uint64)} - price from publishers 
+    * @input  confs[max] {Array(Uint64)} - confidences 
+    * @input  timestamps[max] {Array(Uint64)} - timestamps of prices + confs 
+    
+    // A/R/S components are part of the ed25519 signature scheme. 
+    * @input  A[max][256] {Array(Array(Uint64))} 
+    * @input  R[max][256] {Array(Array(Uint64))}
+    * @input  S[max][256] {Array(Array(Uint64))}
+    
+    * @input  hashpubkeys {Field} {Array(Field)} - hash of public keys of publishers included in aggregation
+    * @input  fee  {Uint64} - // Return fee input as output for verification contracts to charge users 
+    
+    // NOTE: The hash used in ed25519 in this contract uses the MiMC hash
+    //       function rather than SHA256 as in standard ed25519. You can use
+    //       circomlibjs to produce signatures that match this algorithm.
+
+    // Publisher Controlled Inputs:
+    // WARNING! 
+    // Changing the order of these signals will break the Solidity parsing logic.
+    //
+    // Requirements:
+    //  (1) Check all array elements are sorted.
+    //  (2) Check all array elements are non-zero up to N. (0 indicates NULL).
+    //  (3) Check all array elements are zero (NULL) >= N.
+    //
+    // These requirements allow us to prove aggregations for a variable number
+    // of elements. 
+**/ 
 
 
 include "node_modules/circomlib/circuits/comparators.circom";
@@ -41,12 +54,14 @@ include "node_modules/circomlib/circuits/binsum.circom";
 include "node_modules/circomlib/circuits/binsub.circom";
 include "node_modules/circomlib/circuits/bitify.circom";
 include "node_modules/circomlib/circuits/mux1.circom";
+include "node_modules/circomlib/circuits/poseidon.circom";
 
 include "SortedArray.circom";
 include "Median.circom";
 include "InputVerifier.circom";
 include "PriceModel.circom"; 
 include "ElementAt.circom";
+
 
 // Reconstruct price from vote
 function calc_price(price_model, prices, confs, i) {
@@ -65,40 +80,19 @@ function calc_price(price_model, prices, confs, i) {
 
 // Proof is per-price
 template Pyth(max, timestampThreshold, minPublishers) {
+     
 
-    /*
-        Template Inputs 
-        max - maximum number of components included in the proof
-        timestampThreshold - staleness threshold for data feed aggregation
-        // callers public key is equal to the pubkey passed into the template 
-    */
+    /**  circuit inputs  **/ 
 
-    // Publisher Controlled Inputs:
-    // WARNING! 
-    //  Changing the order of these signals will break the Solidity parsing logic.
-    //
-    // Requirements:
-    // Check all array elements are sorted.
-    // Check all array elements are non-zero up to N. (0 indicates NULL).
-    // Check all array elements are zero (NULL) >= N.
-    //
-    // These requirements allow us to prove aggregations for a variable number
-    // of elements. 
-    signal input N;
 
-    // TODO: better name than vote
-    // price_model:
-    // 2-D array. Tuple of (index and op) for each vote. These represent the provers
-    // input to the aggregation for each data feed. A single data feed's (index, conf) is
-    // converted to a tuple of (price-conf, price, price+conf) representing the 3 votes.
-    // Each vote is represented in the price model as a tuple of (index, op) where
-    // that x is the index into prices and confs arrays and op represents the operation
-    // (+-NOP) calc_price uses to reconstruct the values.
+    signal input N; 
+
     signal input  price_model[max*3][2];
     signal input  prices[max];
     signal input  confs[max];
     signal input  timestamps[max];
 
+    // Poseidon hashed public keys off chain using a javascript library:
     signal input hashpubkeys; 
 
     // Signatures: A/R/S components are part of the ed25519 signature scheme.
@@ -122,22 +116,28 @@ template Pyth(max, timestampThreshold, minPublishers) {
     signal output confidence; 
     
     // Check that we have the minimum amount of publishers
-    // TODO: double-check size of input
     component enoughPublishers = GreaterThan(64);
     enoughPublishers.in[0] <== N;
     enoughPublishers.in[1] <== minPublishers;
     enoughPublishers.out === 1;
+    
+    component poseidonHashPubKeys = Poseidon(N);  
+    for (var i = 0; i < max; i++) {
+        poseidonHash.in[i] <== A[i];     
+    }
 
+    // ensure poseidon hash of the A components is equal to the poseidon 
+    // hash of the pub keys  
+    poseidonHash.out === hashpubkeys; 
 
-    // In order to prevent the prover from choosing 
+    // All timestamps must be within a certain range of the median. 
     component timestamp_median = Median(max);
     timestamp_median.n <== N;
     for(var i = 0; i < max; i++) {
         timestamp_median.list[i] <== timestamps[i];
     }
 
-    // All timestamps must be within a certain range of the median.
-    // TODO: Does it have to be bits?
+    
     component timestamp_gt[max];
     component timestamp_lt[max];
     for(var i = 0; i < max; i++) timestamp_lt[i] = LessThan(64);
@@ -321,5 +321,5 @@ template Pyth(max, timestampThreshold, minPublishers) {
     p75        <== price_calc.agg_p75;
  }
 
-//                                                                                max, timestampThreshold, minPublishers
+// max, timestampThreshold, minPublishers
 component main{public[hashpubkeys, fee]} = Pyth(50, 10, 45);

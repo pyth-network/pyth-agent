@@ -23,7 +23,7 @@ template InputVerifier() {
 
     // Publishers sign price and confidence with the following code:
     //
-    //   `signature = ed25519::sign(price || confidence || timestamp || online || secret_key)`
+    //   `signature = ed25519::sign(price || confidence || timestamp || secret_key)`
     //
     // Therefore we must also create a verifier that can verify the signature
     // of these 256 bit messages.

@@ -14,7 +14,7 @@ template SortedArray(max) {
     signal input a[max];
     signal input n;
 
-    // TODO: output signal
+    // TODO: output signal 
 
     component valid[max];
     for(var i=1; i<max; i++) {

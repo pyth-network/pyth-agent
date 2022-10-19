@@ -6,18 +6,6 @@ const { randomBytes } = require("crypto");
 const { buildEddsa } = require("circomlibjs");
 const assert = require("assert");
 
-/*
-Test cases:
-
-- Valid signature
-    - Good case
-
-- Invalid signature
-    - Private and public key mismatch
-    - Data included in signature is the wrong size
-
-
-*/
 
 // Utility Functions
         const toBinString = (bytes) =>
@@ -67,7 +55,6 @@ describe("Test Input Verifier", function () {
     prices: signed prices
     confs: signed confs
     timestamps: signed timestamps
-    observed_online: signed observed online
     A/R/S: ed25519 signature components
     fee: fee prover recieves when this proof is verified
     */
@@ -153,8 +140,7 @@ it ('there should fail if public key is invalid', async() => {
     A/R/S: one set of ed25519 signature components
     price: 64-bit signed binary price input
     confidence: 64-bit signed binary confidence input
-    timestamp: 64-bit signed binary timestamp input
-    online: 64-bit signed binary online input
+    timestamp: 64-bit signed binary timestamp input 
     */
 
     // Generate signature

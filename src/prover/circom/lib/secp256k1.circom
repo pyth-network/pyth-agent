@@ -9,7 +9,7 @@ include "secp256k1_func.circom";
 include "secp256k1_utils.circom";
 
 // Implements:
-// x_1 + x_2 + x_3 - lambda^2 = 0 mod p
+// x_1 + x_2 + x_3 -  lambda^2 = 0 mod p
 // where p is the secp256k1 field size
 // and lambda is the slope of the line between (x_1, y_1) and (x_2, y_2)
 // this equation is equivalent to:
