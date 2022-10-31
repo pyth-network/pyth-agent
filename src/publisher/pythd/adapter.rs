@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use super::api::{
-    Conf, NotifyPrice, NotifyPriceSched, Price, ProductAccount, ProductAccountMetadata, Pubkey,
+    self, Conf, NotifyPrice, NotifyPriceSched, Price, ProductAccount, ProductAccountMetadata,
     SubscriptionID,
 };
 use anyhow::Result;
@@ -34,24 +34,24 @@ pub enum Message {
         result_tx: oneshot::Sender<Result<Vec<ProductAccountMetadata>>>,
     },
     GetProduct {
-        account: Pubkey,
+        account: api::Pubkey,
         result_tx: oneshot::Sender<Result<ProductAccount>>,
     },
     GetAllProducts {
         result_tx: oneshot::Sender<Result<Vec<ProductAccount>>>,
     },
     SubscribePrice {
-        account: Pubkey,
+        account: api::Pubkey,
         notify_price_tx: mpsc::Sender<NotifyPrice>,
         result_tx: oneshot::Sender<Result<SubscriptionID>>,
     },
     SubscribePriceSched {
-        account: Pubkey,
+        account: api::Pubkey,
         notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
         result_tx: oneshot::Sender<Result<SubscriptionID>>,
     },
     UpdatePrice {
-        account: Pubkey,
+        account: api::Pubkey,
         price: Price,
         conf: Conf,
         status: String,
