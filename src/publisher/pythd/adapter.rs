@@ -80,7 +80,7 @@ impl Adapter {
                     self.handle_message(message).await
                 }
                 _ = self.shutdown_rx.recv() => {
-                    info!(self.logger, "shutting down");
+                    info!(self.logger, "shutdown signal received");
                     return Ok(());
                 }
                 _ = self.notify_price_sched_interval.tick() => {
