@@ -7,7 +7,7 @@ use super::api::{
 use anyhow::Result;
 use slog::Logger;
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     time::{self, Interval},
 };
 
@@ -21,7 +21,10 @@ pub struct Adapter {
     /// The fixed interval at which Notify Price Sched notifications are sent
     notify_price_sched_interval: Interval,
 
-    // The logger
+    /// Channel on which the shutdown is broadcast
+    shutdown_rx: broadcast::Receiver<()>,
+
+    /// The logger
     logger: Logger,
 }
 
@@ -59,31 +62,31 @@ impl Adapter {
     pub fn new(
         message_rx: mpsc::Receiver<Message>,
         notify_price_sched_interval: Duration,
+        shutdown_rx: broadcast::Receiver<()>,
         logger: Logger,
     ) -> Self {
         Adapter {
             message_rx,
             notify_price_sched_interval: time::interval(notify_price_sched_interval),
+            shutdown_rx,
             logger,
         }
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self) -> Result<()> {
         loop {
-            if let Err(err) = self.handle_next().await {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
-            }
-        }
-    }
-
-    async fn handle_next(&mut self) -> Result<()> {
-        tokio::select! {
-            Some(message) = self.message_rx.recv() => {
-                self.handle_message(message).await
-            }
-            _ = self.notify_price_sched_interval.tick() => {
-                todo!();
-            }
+            tokio::select! {
+                Some(message) = self.message_rx.recv() => {
+                    self.handle_message(message).await
+                }
+                _ = self.shutdown_rx.recv() => {
+                    info!(self.logger, "shutting down");
+                    return Ok(());
+                }
+                _ = self.notify_price_sched_interval.tick() => {
+                    todo!()
+                }
+            }?;
         }
     }
 
