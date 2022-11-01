@@ -103,7 +103,7 @@ impl Adapter {
                     return;
                 }
                 _ = self.notify_price_sched_interval.tick() => {
-                    if let Err(err) = self.send_subscribe_price_sched().await {
+                    if let Err(err) = self.send_notify_price_sched().await {
                         error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
                     }
                 }
@@ -166,7 +166,7 @@ impl Adapter {
         self.subscription_id_count
     }
 
-    async fn send_subscribe_price_sched(&self) -> Result<()> {
+    async fn send_notify_price_sched(&self) -> Result<()> {
         for subscription in self.notify_price_sched_subscriptions.values().flatten() {
             subscription
                 .notify_price_sched_tx
