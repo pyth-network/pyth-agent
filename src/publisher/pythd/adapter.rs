@@ -73,20 +73,22 @@ impl Adapter {
         }
     }
 
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self) {
         loop {
             tokio::select! {
                 Some(message) = self.message_rx.recv() => {
-                    self.handle_message(message).await
+                    if let Err(err) = self.handle_message(message).await {
+                        error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+                    }
                 }
                 _ = self.shutdown_rx.recv() => {
                     info!(self.logger, "shutdown signal received");
-                    return Ok(());
+                    return;
                 }
                 _ = self.notify_price_sched_interval.tick() => {
                     todo!()
                 }
-            }?;
+            };
         }
     }
 
