@@ -180,4 +180,79 @@ impl Adapter {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use iobuffer::IoBuffer;
+    use slog_extlog::slog_test;
+    use std::time::Duration;
+    use tokio::{
+        sync::{broadcast, mpsc, oneshot},
+        task::JoinHandle,
+    };
+
+    use crate::publisher::pythd::api::NotifyPriceSched;
+
+    use super::{Adapter, Message};
+
+    struct TestAdapter {
+        message_tx: mpsc::Sender<Message>,
+        shutdown_tx: broadcast::Sender<()>,
+        jh: JoinHandle<()>,
+    }
+
+    impl Drop for TestAdapter {
+        fn drop(&mut self) {
+            let _ = self.shutdown_tx.send(());
+            self.jh.abort();
+        }
+    }
+
+    async fn setup() -> TestAdapter {
+        // Create and spawn an adapter
+        let (adapter_tx, adapter_rx) = mpsc::channel(100);
+        let notify_price_sched_interval = Duration::from_nanos(10);
+        let logger = slog_test::new_test_logger(IoBuffer::new());
+        let (shutdown_tx, shutdown_rx) = broadcast::channel(10);
+        let mut adapter =
+            Adapter::new(adapter_rx, notify_price_sched_interval, shutdown_rx, logger);
+        let jh = tokio::spawn(async move { adapter.run().await });
+
+        TestAdapter {
+            message_tx: adapter_tx,
+            shutdown_tx,
+            jh,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_subscribe_price_sched() {
+        let test_adapter = setup().await;
+
+        // Send a Subscribe Price Sched message
+        let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF".to_string();
+        let (notify_price_sched_tx, mut notify_price_sched_rx) = mpsc::channel(1000);
+        let (result_tx, result_rx) = oneshot::channel();
+        test_adapter
+            .message_tx
+            .send(Message::SubscribePriceSched {
+                account,
+                notify_price_sched_tx,
+                result_tx,
+            })
+            .await
+            .unwrap();
+
+        let subscription_id = result_rx.await.unwrap().unwrap();
+        assert_eq!(subscription_id, 1);
+
+        // Expect that we recieve several Notify Price Sched notifications
+        for _ in 0..10 {
+            assert_eq!(
+                notify_price_sched_rx.recv().await.unwrap(),
+                NotifyPriceSched {
+                    subscription: subscription_id
+                }
+            )
+        }
+    }
 }
