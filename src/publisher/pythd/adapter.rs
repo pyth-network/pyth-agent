@@ -243,7 +243,6 @@ mod tests {
             .unwrap();
 
         let subscription_id = result_rx.await.unwrap().unwrap();
-        assert_eq!(subscription_id, 1);
 
         // Expect that we recieve several Notify Price Sched notifications
         for _ in 0..10 {
