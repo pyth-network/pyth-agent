@@ -4,7 +4,8 @@ use super::api::{
     self, Conf, NotifyPrice, NotifyPriceSched, Price, ProductAccount, ProductAccountMetadata,
     SubscriptionID,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use pyth_sdk::{Identifier, PriceIdentifier};
 use slog::Logger;
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
@@ -18,6 +19,12 @@ pub struct Adapter {
     /// Channel on which messages are received
     message_rx: mpsc::Receiver<Message>,
 
+    /// Subscription ID counter
+    subscription_id_count: SubscriptionID,
+
+    /// Notify Price Sched subscriptions
+    notify_price_sched_subscriptions: HashMap<PriceIdentifier, Vec<NotifyPriceSchedSubscription>>,
+
     /// The fixed interval at which Notify Price Sched notifications are sent
     notify_price_sched_interval: Interval,
 
@@ -26,6 +33,14 @@ pub struct Adapter {
 
     /// The logger
     logger: Logger,
+}
+
+/// Represents a single Notify Price Sched subscription
+struct NotifyPriceSchedSubscription {
+    /// ID of this subscription
+    subscription_id: SubscriptionID,
+    /// Channel notifications are sent on
+    notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
 }
 
 #[derive(Debug)]
@@ -67,6 +82,8 @@ impl Adapter {
     ) -> Self {
         Adapter {
             message_rx,
+            subscription_id_count: 0,
+            notify_price_sched_subscriptions: HashMap::new(),
             notify_price_sched_interval: time::interval(notify_price_sched_interval),
             shutdown_rx,
             logger,
@@ -86,9 +103,11 @@ impl Adapter {
                     return;
                 }
                 _ = self.notify_price_sched_interval.tick() => {
-                    todo!()
+                    if let Err(err) = self.send_subscribe_price_sched().await {
+                        error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+                    }
                 }
-            };
+            }
         }
     }
 
@@ -106,7 +125,13 @@ impl Adapter {
                 account,
                 notify_price_sched_tx,
                 result_tx,
-            } => todo!(),
+            } => {
+                let subscription_id = self
+                    .handle_subscribe_price_sched(&account.parse()?, notify_price_sched_tx)
+                    .await;
+                let res = self.send(result_tx, Ok(subscription_id));
+                res
+            }
             Message::UpdatePrice {
                 account,
                 price,
@@ -115,4 +140,44 @@ impl Adapter {
             } => todo!(),
         }
     }
+
+    fn send<T>(&self, tx: oneshot::Sender<T>, item: T) -> Result<()> {
+        tx.send(item).map_err(|_| anyhow!("sending channel full"))
+    }
+
+    async fn handle_subscribe_price_sched(
+        &mut self,
+        account_pubkey: &solana_sdk::pubkey::Pubkey,
+        notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
+    ) -> SubscriptionID {
+        let subscription_id = self.next_subscription_id();
+        self.notify_price_sched_subscriptions
+            .entry(Identifier::new(account_pubkey.to_bytes()))
+            .or_default()
+            .push(NotifyPriceSchedSubscription {
+                subscription_id,
+                notify_price_sched_tx,
+            });
+        subscription_id
+    }
+
+    fn next_subscription_id(&mut self) -> SubscriptionID {
+        self.subscription_id_count += 1;
+        self.subscription_id_count
+    }
+
+    async fn send_subscribe_price_sched(&self) -> Result<()> {
+        for subscription in self.notify_price_sched_subscriptions.values().flatten() {
+            subscription
+                .notify_price_sched_tx
+                .send(NotifyPriceSched {
+                    subscription: subscription.subscription_id,
+                })
+                .await?;
+        }
+
+        Ok(())
+    }
+}
+
 }
