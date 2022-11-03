@@ -7,14 +7,10 @@ use solana_sdk::pubkey::Pubkey;
 
 #[derive(Default, Debug, Clone)]
 pub struct Data {
-    pub mapping_accounts: MappingAccounts,
-    pub product_accounts: ProductAccounts,
-    pub price_accounts: PriceAccounts,
+    pub mapping_accounts: HashMap<Pubkey, MappingAccount>,
+    pub product_accounts: HashMap<Pubkey, ProductAccount>,
+    pub price_accounts: HashMap<Pubkey, PriceAccount>,
 }
-
-pub type MappingAccounts = HashMap<Pubkey, MappingAccount>;
-pub type ProductAccounts = HashMap<Pubkey, ProductAccount>;
-pub type PriceAccounts = HashMap<Pubkey, PriceAccount>;
 
 pub type MappingAccount = pyth_sdk_solana::state::MappingAccount;
 #[derive(Debug, Clone)]
