@@ -1,9 +1,8 @@
-// This module is the "Global Store": storing a copy of all the information
-// held in the global Pyth Network. This enables this data to be easily
-// queried by other components.
-//
-// Note that each Global Store is network-specific: it does not try to combine information
-// from Solana and PythNet.
+// The Global Store stores a copy of all the product and price information held in the Pyth
+// on-chain aggregation contracts, across both the primary and secondary networks.
+// This enables this data to be easily queried by other components.
+
+use std::collections::{BTreeMap, HashMap};
 
 use super::super::solana::oracle::{self, PriceAccount, ProductAccount};
 use anyhow::Result;
@@ -11,6 +10,32 @@ use pyth_sdk::PriceFeed;
 use tokio::sync::oneshot;
 
 use super::PriceIdentifier;
+
+/// AllAccountsMetadata contains the metadata for all the price and product accounts,
+/// merged from both networks.
+///
+/// Crucially, this relies on the metadata for all accounts being consistent across both networks.
+#[derive(Debug)]
+pub struct AllAccountsMetadata {
+    pub product_accounts_metadata: HashMap<solana_sdk::pubkey::Pubkey, ProductAccountMetadata>,
+    pub price_accounts_metadata: HashMap<solana_sdk::pubkey::Pubkey, PriceAccountMetadata>,
+}
+
+/// ProductAccountMetadata contains the metadata for a product account.
+#[derive(Debug)]
+pub struct ProductAccountMetadata {
+    /// Attribute dictionary
+    pub attr_dict: BTreeMap<String, String>,
+    /// Price accounts associated with this product
+    pub price_accounts: Vec<solana_sdk::pubkey::Pubkey>,
+}
+
+/// PriceAccountMetadata contains the metadata for a price account.
+#[derive(Debug)]
+pub struct PriceAccountMetadata {
+    /// Exponent
+    pub expo: i32,
+}
 
 #[derive(Debug)]
 pub enum Message {
@@ -21,6 +46,9 @@ pub enum Message {
     PriceAccountUpdate {
         account_key: solana_sdk::pubkey::Pubkey,
         account: PriceAccount,
+    },
+    LookupAllAccountsMetadata {
+        result_tx: oneshot::Sender<Result<AllAccountsMetadata>>,
     },
     LookupPriceFeed {
         identifier: PriceIdentifier,
