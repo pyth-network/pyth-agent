@@ -4,6 +4,7 @@ use {
             solana,
             store::{
                 global,
+                local,
                 PriceIdentifier,
             },
         },
@@ -62,8 +63,11 @@ pub struct Adapter {
     /// The fixed interval at which Notify Price Sched notifications are sent
     notify_price_sched_interval: Interval,
 
-    /// Channels on which to communicate to the global store
+    /// Channel on which to communicate with the global store
     global_store_tx: mpsc::Sender<global::Message>,
+
+    /// Channel on which to communicate with the local store
+    local_store_tx: mpsc::Sender<local::Message>,
 
     /// Channel on which the shutdown is broadcast
     shutdown_rx: broadcast::Receiver<()>,
@@ -115,6 +119,7 @@ impl Adapter {
         message_rx: mpsc::Receiver<Message>,
         notify_price_sched_interval: Duration,
         global_store_tx: mpsc::Sender<global::Message>,
+        local_store_tx: mpsc::Sender<local::Message>,
         shutdown_rx: broadcast::Receiver<()>,
         logger: Logger,
     ) -> Self {
@@ -124,6 +129,7 @@ impl Adapter {
             notify_price_sched_subscriptions: HashMap::new(),
             notify_price_sched_interval: time::interval(notify_price_sched_interval),
             global_store_tx,
+            local_store_tx,
             shutdown_rx,
             logger,
         }
@@ -413,7 +419,10 @@ mod tests {
                 },
             },
             solana,
-            store::global,
+            store::{
+                global,
+                local,
+            },
         },
         iobuffer::IoBuffer,
         pyth_sdk_solana::state::{
@@ -448,6 +457,7 @@ mod tests {
         message_tx:      mpsc::Sender<Message>,
         shutdown_tx:     broadcast::Sender<()>,
         global_store_rx: mpsc::Receiver<global::Message>,
+        local_store_rx:  mpsc::Receiver<local::Message>,
         jh:              JoinHandle<()>,
     }
 
@@ -462,6 +472,7 @@ mod tests {
         // Create and spawn an adapter
         let (adapter_tx, adapter_rx) = mpsc::channel(100);
         let (global_store_tx, global_store_rx) = mpsc::channel(1000);
+        let (local_store_tx, local_store_rx) = mpsc::channel(1000);
         let notify_price_sched_interval = Duration::from_nanos(10);
         let logger = slog_test::new_test_logger(IoBuffer::new());
         let (shutdown_tx, shutdown_rx) = broadcast::channel(10);
@@ -469,6 +480,7 @@ mod tests {
             adapter_rx,
             notify_price_sched_interval,
             global_store_tx,
+            local_store_tx,
             shutdown_rx,
             logger,
         );
@@ -477,6 +489,7 @@ mod tests {
         TestAdapter {
             message_tx: adapter_tx,
             global_store_rx,
+            local_store_rx,
             shutdown_tx,
             jh,
         }
