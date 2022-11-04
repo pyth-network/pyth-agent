@@ -239,36 +239,14 @@ impl Adapter {
         let solana_data = self.lookup_solana_oracle_data().await?;
 
         let mut result = Vec::new();
-        for (product_account_key, product_account) in solana_data.product_accounts {
-            // Extract all the price accounts from the product account
-            let price_accounts = product_account
-                .price_accounts
-                .iter()
-                .filter_map(|price_account_key| {
-                    solana_data
-                        .price_accounts
-                        .get(price_account_key)
-                        .map(|acc| (price_account_key, acc))
-                })
-                .map(|(price_account_key, price_account)| {
-                    Self::solana_price_account_to_pythd_api_price_account(
-                        price_account_key,
-                        price_account,
-                    )
-                })
-                .collect();
+        for (product_account_key, product_account) in &solana_data.product_accounts {
+            let product_account_api = Self::solana_product_account_to_pythd_api_product_account(
+                product_account,
+                &solana_data,
+                product_account_key,
+            );
 
-            // Create the product account metadata struct
-            result.push(ProductAccount {
-                account: product_account_key.to_string(),
-                attr_dict: product_account
-                    .account_data
-                    .iter()
-                    .filter(|(key, val)| !key.is_empty() && !val.is_empty())
-                    .map(|(key, val)| (key.to_owned(), val.to_owned()))
-                    .collect(),
-                price_accounts,
-            })
+            result.push(product_account_api)
         }
 
         Ok(result)
@@ -280,6 +258,42 @@ impl Adapter {
             .send(global::Message::LookupSolanaOracleData { result_tx })
             .await?;
         result_rx.await?
+    }
+
+    fn solana_product_account_to_pythd_api_product_account(
+        product_account: &solana::oracle::ProductAccount,
+        solana_data: &solana::oracle::Data,
+        product_account_key: &solana_sdk::pubkey::Pubkey,
+    ) -> ProductAccount {
+        // Extract all the price accounts from the product account
+        let price_accounts = product_account
+            .price_accounts
+            .iter()
+            .filter_map(|price_account_key| {
+                solana_data
+                    .price_accounts
+                    .get(price_account_key)
+                    .map(|acc| (price_account_key, acc))
+            })
+            .map(|(price_account_key, price_account)| {
+                Self::solana_price_account_to_pythd_api_price_account(
+                    price_account_key,
+                    price_account,
+                )
+            })
+            .collect();
+
+        // Create the product account metadata struct
+        ProductAccount {
+            account: product_account_key.to_string(),
+            attr_dict: product_account
+                .account_data
+                .iter()
+                .filter(|(key, val)| !key.is_empty() && !val.is_empty())
+                .map(|(key, val)| (key.to_owned(), val.to_owned()))
+                .collect(),
+            price_accounts,
+        }
     }
 
     fn solana_price_account_to_pythd_api_price_account(
@@ -338,34 +352,11 @@ impl Adapter {
             .get(product_account_key)
             .ok_or_else(|| anyhow!("product account not found"))?;
 
-        // Extract all the price accounts from the product account
-        let price_accounts = product_account
-            .price_accounts
-            .iter()
-            .filter_map(|price_account_key| {
-                solana_data
-                    .price_accounts
-                    .get(price_account_key)
-                    .map(|acc| (price_account_key, acc))
-            })
-            .map(|(price_account_key, price_account)| {
-                Self::solana_price_account_to_pythd_api_price_account(
-                    price_account_key,
-                    price_account,
-                )
-            })
-            .collect();
-
-        Ok(ProductAccount {
-            account: product_account_key.to_string(),
-            attr_dict: product_account
-                .account_data
-                .iter()
-                .filter(|(key, val)| !key.is_empty() && !val.is_empty())
-                .map(|(key, val)| (key.to_owned(), val.to_owned()))
-                .collect(),
-            price_accounts,
-        })
+        Ok(Self::solana_product_account_to_pythd_api_product_account(
+            product_account,
+            &solana_data,
+            product_account_key,
+        ))
     }
 
     async fn handle_subscribe_price_sched(
