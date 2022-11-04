@@ -24,6 +24,7 @@ use {
         anyhow,
         Result,
     },
+    chrono::Utc,
     pyth_sdk::{
         Identifier,
         PriceStatus,
@@ -188,7 +189,10 @@ impl Adapter {
                 price,
                 conf,
                 status,
-            } => todo!(),
+            } => {
+                self.handle_update_price(&account.parse()?, price, conf, status)
+                    .await
+            }
         }
     }
 
@@ -398,6 +402,38 @@ impl Adapter {
 
         Ok(())
     }
+
+    async fn handle_update_price(
+        &self,
+        account: &solana_sdk::pubkey::Pubkey,
+        price: Price,
+        conf: Conf,
+        status: String,
+    ) -> Result<()> {
+        self.local_store_tx
+            .send(local::Message::Update {
+                price_identifier: pyth_sdk::Identifier::new(account.to_bytes()),
+                price_info:       local::PriceInfo {
+                    status: Adapter::map_status(&status)?,
+                    price,
+                    conf,
+                    timestamp: Utc::now().timestamp(),
+                },
+            })
+            .await
+            .map_err(|_| anyhow!("failed to send update to local store"))
+    }
+
+    // TODO: implement FromStr method on PriceStatus
+    fn map_status(status: &str) -> Result<PriceStatus> {
+        match status {
+            "unknown" => Ok(PriceStatus::Unknown),
+            "trading" => Ok(PriceStatus::Trading),
+            "halted" => Ok(PriceStatus::Halted),
+            "auction" => Ok(PriceStatus::Auction),
+            _ => Err(anyhow!("invalid price status: {:#?}", status)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -425,6 +461,10 @@ mod tests {
             },
         },
         iobuffer::IoBuffer,
+        pyth_sdk::{
+            Identifier,
+            PriceStatus,
+        },
         pyth_sdk_solana::state::{
             MappingAccount,
             PriceAccount,
@@ -1691,5 +1731,48 @@ mod tests {
 
         let result = result_rx.await.unwrap().unwrap();
         assert_eq!(result, expected);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_update_price() {
+        // Start the test adapter
+        let mut test_adapter = setup().await;
+
+        // Send an Update Price message
+        let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string();
+        let price = 2365;
+        let conf = 98754;
+        test_adapter
+            .message_tx
+            .send(Message::UpdatePrice {
+                account: account.clone(),
+                price,
+                conf,
+                status: "trading".to_string(),
+            })
+            .await
+            .unwrap();
+
+        // Check that the local store indeed received the correct update
+        match test_adapter.local_store_rx.recv().await.unwrap() {
+            local::Message::Update {
+                price_identifier,
+                price_info,
+            } => {
+                assert_eq!(
+                    price_identifier,
+                    Identifier::new(
+                        account
+                            .parse::<solana_sdk::pubkey::Pubkey>()
+                            .unwrap()
+                            .to_bytes()
+                    )
+                );
+                assert_eq!(price_info.price, price);
+                assert_eq!(price_info.conf, conf);
+                assert_eq!(price_info.status, PriceStatus::Trading);
+            }
+            _ => panic!("Uexpected message received by local store from adapter"),
+        };
     }
 }
