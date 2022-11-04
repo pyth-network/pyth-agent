@@ -155,7 +155,9 @@ impl Adapter {
             Message::GetProductList { result_tx } => {
                 self.send(result_tx, self.handle_get_product_list().await)
             }
-            Message::GetProduct { account, result_tx } => todo!(),
+            Message::GetProduct { account, result_tx } => {
+                self.send(result_tx, self.handle_get_product(&account.parse()?).await)
+            }
             Message::GetAllProducts { result_tx } => {
                 self.send(result_tx, self.handle_get_all_products().await)
             }
@@ -324,6 +326,48 @@ impl Adapter {
         .to_string()
     }
 
+    async fn handle_get_product(
+        &self,
+        product_account_key: &solana_sdk::pubkey::Pubkey,
+    ) -> Result<ProductAccount> {
+        let solana_data = self.lookup_solana_oracle_data().await?;
+
+        // Look up the product account
+        let product_account = solana_data
+            .product_accounts
+            .get(product_account_key)
+            .ok_or_else(|| anyhow!("product account not found"))?;
+
+        // Extract all the price accounts from the product account
+        let price_accounts = product_account
+            .price_accounts
+            .iter()
+            .filter_map(|price_account_key| {
+                solana_data
+                    .price_accounts
+                    .get(price_account_key)
+                    .map(|acc| (price_account_key, acc))
+            })
+            .map(|(price_account_key, price_account)| {
+                Self::solana_price_account_to_pythd_api_price_account(
+                    price_account_key,
+                    price_account,
+                )
+            })
+            .collect();
+
+        Ok(ProductAccount {
+            account: product_account_key.to_string(),
+            attr_dict: product_account
+                .account_data
+                .iter()
+                .filter(|(key, val)| !key.is_empty() && !val.is_empty())
+                .map(|(key, val)| (key.to_owned(), val.to_owned()))
+                .collect(),
+            price_accounts,
+        })
+    }
+
     async fn handle_subscribe_price_sched(
         &mut self,
         account_pubkey: &solana_sdk::pubkey::Pubkey,
@@ -372,6 +416,7 @@ mod tests {
                 api::{
                     NotifyPriceSched,
                     PriceAccountMetadata,
+                    ProductAccount,
                     ProductAccountMetadata,
                     PublisherAccount,
                 },
@@ -1525,6 +1570,122 @@ mod tests {
 
         let mut result = result_rx.await.unwrap().unwrap();
         result.sort();
+        assert_eq!(result, expected);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_get_product() {
+        // Start the test adapter
+        let mut test_adapter = setup().await;
+
+        // Send a Get Product message
+        let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string();
+        let (result_tx, result_rx) = oneshot::channel();
+        test_adapter
+            .message_tx
+            .send(Message::GetProduct {
+                account: account.clone(),
+                result_tx,
+            })
+            .await
+            .unwrap();
+
+        // Return the Solana oracle data to the adapter, from the global store
+        match test_adapter.global_store_rx.recv().await.unwrap() {
+            global::Message::LookupSolanaOracleData { result_tx } => {
+                result_tx.send(Ok(get_test_global_oracle_data())).unwrap()
+            }
+            _ => panic!("Uexpected message received from adapter"),
+        };
+
+        // Check that the result of the conversion to the Pythd API format is what we expected
+        let expected = ProductAccount {
+            account,
+            price_accounts: vec![
+                api::PriceAccount {
+                    account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".to_string(),
+                    price_type:         "price".to_string(),
+                    price_exponent:     -8,
+                    status:             "unknown".to_string(),
+                    price:              736382,
+                    conf:               85623946,
+                    twap:               5882210200,
+                    twac:               1422289,
+                    valid_slot:         310,
+                    pub_slot:           7262746,
+                    prev_slot:          172761778,
+                    prev_price:         22691000,
+                    prev_conf:          398674,
+                    publisher_accounts: vec![],
+                },
+                api::PriceAccount {
+                    account:            "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr".to_string(),
+                    price_type:         "price".to_string(),
+                    price_exponent:     -10,
+                    status:             "unknown".to_string(),
+                    price:              8474837,
+                    conf:               27468478,
+                    twap:               84739769,
+                    twac:               987897,
+                    valid_slot:         94728946,
+                    pub_slot:           2736478,
+                    prev_slot:          1727612348,
+                    prev_price:         746383678,
+                    prev_conf:          757368,
+                    publisher_accounts: vec![PublisherAccount {
+                        account: "C9syZ2MoGUwbPyGEgiy8MxesaEEKLdJw8gnwx2jLK1cV".to_string(),
+                        status:  "trading".to_string(),
+                        price:   85698,
+                        conf:    23645,
+                        slot:    14765,
+                    }],
+                },
+                api::PriceAccount {
+                    account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6".to_string(),
+                    price_type:         "price".to_string(),
+                    price_exponent:     -6,
+                    status:             "trading".to_string(),
+                    price:              8254826,
+                    conf:               6385638,
+                    twap:               12895763,
+                    twac:               826493,
+                    valid_slot:         9575847498,
+                    pub_slot:           58462846,
+                    prev_slot:          86484638,
+                    prev_price:         28463947,
+                    prev_conf:          83628234,
+                    publisher_accounts: vec![
+                        PublisherAccount {
+                            account: "DaMuPaW5dhGfRJaX7TzLWXd8hDCMJ5WA2XibJ12hjBNQ".to_string(),
+                            status:  "trading".to_string(),
+                            price:   8251,
+                            conf:    7653,
+                            slot:    365545,
+                        },
+                        PublisherAccount {
+                            account: "FHuAg9vpDGeyhZn4W4FRcCzx6MC18r4bF9fTVJqeMijU".to_string(),
+                            status:  "unknown".to_string(),
+                            price:   39865,
+                            conf:    7456,
+                            slot:    865,
+                        },
+                    ],
+                },
+            ],
+            attr_dict: BTreeMap::from(
+                [
+                    ("symbol", "Crypto.LTC/USD"),
+                    ("asset_type", "Crypto"),
+                    ("quote_currency", "USD"),
+                    ("description", "LTC/USD"),
+                    ("generic_symbol", "LTCUSD"),
+                    ("base", "LTC"),
+                ]
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+            ),
+        };
+
+        let result = result_rx.await.unwrap().unwrap();
         assert_eq!(result, expected);
     }
 }
