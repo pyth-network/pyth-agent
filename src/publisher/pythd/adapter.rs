@@ -15,6 +15,7 @@ use {
             NotifyPriceSched,
             Price,
             PriceAccountMetadata,
+            PriceUpdate,
             ProductAccount,
             ProductAccountMetadata,
             SubscriptionID,
@@ -98,6 +99,14 @@ struct NotifyPriceSubscription {
 
 #[derive(Debug)]
 pub enum Message {
+    GlobalStoreUpdate {
+        price_identifier: PriceIdentifier,
+        price:            i64,
+        conf:             u64,
+        status:           PriceStatus,
+        valid_slot:       u64,
+        pub_slot:         u64,
+    },
     GetProductList {
         result_tx: oneshot::Sender<Result<Vec<ProductAccountMetadata>>>,
     },
@@ -209,6 +218,24 @@ impl Adapter {
             } => {
                 self.handle_update_price(&account.parse()?, price, conf, status)
                     .await
+            }
+            Message::GlobalStoreUpdate {
+                price_identifier,
+                price,
+                conf,
+                status,
+                valid_slot,
+                pub_slot,
+            } => {
+                self.handle_global_store_update(
+                    price_identifier,
+                    price,
+                    conf,
+                    status,
+                    valid_slot,
+                    pub_slot,
+                )
+                .await
             }
         }
     }
@@ -467,6 +494,42 @@ impl Adapter {
             _ => Err(anyhow!("invalid price status: {:#?}", status)),
         }
     }
+
+    async fn handle_global_store_update(
+        &self,
+        price_identifier: PriceIdentifier,
+        price: i64,
+        conf: u64,
+        status: PriceStatus,
+        valid_slot: u64,
+        pub_slot: u64,
+    ) -> Result<()> {
+        // Look up any subcriptions associated with the price identifier
+        let empty = Vec::new();
+        let subscriptions = self
+            .notify_price_subscriptions
+            .get(&price_identifier)
+            .unwrap_or(&empty);
+
+        // Send the Notify Price update to each subscription
+        for subscription in subscriptions {
+            subscription
+                .notify_price_tx
+                .send(NotifyPrice {
+                    subscription: subscription.subscription_id,
+                    result:       PriceUpdate {
+                        price,
+                        conf,
+                        status: Self::price_status_to_str(status),
+                        valid_slot,
+                        pub_slot,
+                    },
+                })
+                .await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -480,8 +543,10 @@ mod tests {
             pythd::{
                 api,
                 api::{
+                    NotifyPrice,
                     NotifyPriceSched,
                     PriceAccountMetadata,
+                    PriceUpdate,
                     ProductAccount,
                     ProductAccountMetadata,
                     PublisherAccount,
@@ -1807,5 +1872,66 @@ mod tests {
             }
             _ => panic!("Uexpected message received by local store from adapter"),
         };
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_subscribe_notify_price() {
+        // Start the test adapter
+        let test_adapter = setup().await;
+
+        // Send a Subscribe Price message
+        let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF".to_string();
+        let (notify_price_tx, mut notify_price_rx) = mpsc::channel(1000);
+        let (result_tx, result_rx) = oneshot::channel();
+        test_adapter
+            .message_tx
+            .send(Message::SubscribePrice {
+                account: account.clone(),
+                notify_price_tx,
+                result_tx,
+            })
+            .await
+            .unwrap();
+
+        let subscription_id = result_rx.await.unwrap().unwrap();
+
+        // Send an update from the global store to the adapter
+        let price = 52162;
+        let conf = 1646;
+        let valid_slot = 75684;
+        let pub_slot = 32565;
+        test_adapter
+            .message_tx
+            .send(Message::GlobalStoreUpdate {
+                price_identifier: Identifier::new(
+                    account
+                        .parse::<solana_sdk::pubkey::Pubkey>()
+                        .unwrap()
+                        .to_bytes(),
+                ),
+                price,
+                conf,
+                status: PriceStatus::Trading,
+                valid_slot,
+                pub_slot,
+            })
+            .await
+            .unwrap();
+
+        // Check that the adapter sends a notify price message with the corresponding subscription id
+        // to the expected channel.
+        assert_eq!(
+            notify_price_rx.recv().await.unwrap(),
+            NotifyPrice {
+                subscription: subscription_id,
+                result:       PriceUpdate {
+                    price,
+                    conf,
+                    status: "trading".to_string(),
+                    valid_slot,
+                    pub_slot
+                },
+            }
+        )
     }
 }
