@@ -4,9 +4,13 @@
 // It does not implement the business logic, only exposes a websocket server which
 // accepts messages and can return responses in the expected format.
 
-use std::collections::BTreeMap;
-
-use serde::{Deserialize, Serialize};
+use {
+    serde::{
+        Deserialize,
+        Serialize,
+    },
+    std::collections::BTreeMap,
+};
 
 pub type Pubkey = String;
 pub type Attrs = BTreeMap<String, String>;
@@ -18,56 +22,56 @@ pub type Slot = u64;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
 pub struct ProductAccountMetadata {
-    pub account: Pubkey,
+    pub account:   Pubkey,
     pub attr_dict: Attrs,
-    pub prices: Vec<PriceAccountMetadata>,
+    pub prices:    Vec<PriceAccountMetadata>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
 pub struct PriceAccountMetadata {
-    pub account: Pubkey,
-    pub price_type: String,
+    pub account:        Pubkey,
+    pub price_type:     String,
     pub price_exponent: Exponent,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
 pub struct ProductAccount {
-    pub account: Pubkey,
-    pub attr_dict: Attrs,
+    pub account:        Pubkey,
+    pub attr_dict:      Attrs,
     pub price_accounts: Vec<PriceAccount>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
 pub struct PriceAccount {
-    pub account: Pubkey,
-    pub price_type: String,
-    pub price_exponent: Exponent,
-    pub status: String,
-    pub price: Price,
-    pub conf: Conf,
-    pub twap: Price,
-    pub twac: Price,
-    pub valid_slot: Slot,
-    pub pub_slot: Slot,
-    pub prev_slot: Slot,
-    pub prev_price: Price,
-    pub prev_conf: Conf,
+    pub account:            Pubkey,
+    pub price_type:         String,
+    pub price_exponent:     Exponent,
+    pub status:             String,
+    pub price:              Price,
+    pub conf:               Conf,
+    pub twap:               Price,
+    pub twac:               Price,
+    pub valid_slot:         Slot,
+    pub pub_slot:           Slot,
+    pub prev_slot:          Slot,
+    pub prev_price:         Price,
+    pub prev_conf:          Conf,
     pub publisher_accounts: Vec<PublisherAccount>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
 pub struct PublisherAccount {
     pub account: Pubkey,
-    pub status: String,
-    pub price: Price,
-    pub conf: Conf,
-    pub slot: Slot,
+    pub status:  String,
+    pub price:   Price,
+    pub conf:    Conf,
+    pub slot:    Slot,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
 pub struct NotifyPrice {
     pub subscription: SubscriptionID,
-    pub result: PriceUpdate,
+    pub result:       PriceUpdate,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
@@ -79,32 +83,70 @@ pub type SubscriptionID = i64;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
 pub struct PriceUpdate {
-    pub price: Price,
-    pub conf: Conf,
-    pub status: String,
+    pub price:      Price,
+    pub conf:       Conf,
+    pub status:     String,
     pub valid_slot: Slot,
-    pub pub_slot: Slot,
+    pub pub_slot:   Slot,
 }
 
 pub mod rpc {
 
-    use std::fmt::Debug;
-    use std::net::SocketAddr;
-
-    use anyhow::{anyhow, Result};
-    use futures_util::stream::{SplitSink, SplitStream, StreamExt};
-    use futures_util::SinkExt;
-    use jrpc::{parse_request, ErrorCode, Id, IdReq, Request, Response, Value};
-    use serde::de::DeserializeOwned;
-    use serde::{Deserialize, Serialize};
-
-    use slog::Logger;
-    use tokio::sync::{broadcast, mpsc, oneshot};
-    use warp::ws::{Message, WebSocket, Ws};
-    use warp::Filter;
-
-    use super::super::adapter;
-    use super::{Conf, NotifyPrice, NotifyPriceSched, Price, Pubkey, SubscriptionID};
+    use {
+        super::{
+            super::adapter,
+            Conf,
+            NotifyPrice,
+            NotifyPriceSched,
+            Price,
+            Pubkey,
+            SubscriptionID,
+        },
+        anyhow::{
+            anyhow,
+            Result,
+        },
+        futures_util::{
+            stream::{
+                SplitSink,
+                SplitStream,
+                StreamExt,
+            },
+            SinkExt,
+        },
+        jrpc::{
+            parse_request,
+            ErrorCode,
+            Id,
+            IdReq,
+            Request,
+            Response,
+            Value,
+        },
+        serde::{
+            de::DeserializeOwned,
+            Deserialize,
+            Serialize,
+        },
+        slog::Logger,
+        std::{
+            fmt::Debug,
+            net::SocketAddr,
+        },
+        tokio::sync::{
+            broadcast,
+            mpsc,
+            oneshot,
+        },
+        warp::{
+            ws::{
+                Message,
+                WebSocket,
+                Ws,
+            },
+            Filter,
+        },
+    };
 
     #[derive(Serialize, Deserialize, Debug)]
     #[serde(rename_all = "snake_case")]
@@ -137,9 +179,9 @@ pub mod rpc {
     #[derive(Serialize, Deserialize, Debug, Clone)]
     struct UpdatePriceParams {
         account: Pubkey,
-        price: Price,
-        conf: Conf,
-        status: String,
+        price:   Price,
+        conf:    Conf,
+        status:  String,
     }
 
     #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -384,9 +426,9 @@ pub mod rpc {
             self.adapter_tx
                 .send(adapter::Message::UpdatePrice {
                     account: params.account,
-                    price: params.price,
-                    conf: params.conf,
-                    status: params.status,
+                    price:   params.price,
+                    conf:    params.conf,
+                    status:  params.status,
                 })
                 .await?;
 
@@ -469,10 +511,10 @@ pub mod rpc {
     #[derive(Clone, Debug, Deserialize)]
     pub struct Config {
         /// The address which the websocket API server will listen on.
-        listen_address: String,
+        listen_address:               String,
         /// Size of the buffer of each Server's channel on which `notify_price` events are
         /// received from the Adapter.
-        notify_price_tx_buffer: usize,
+        notify_price_tx_buffer:       usize,
         /// Size of the buffer of each Server's channel on which `notify_price_sched` events are
         /// received from the Adapter.
         notify_price_sched_tx_buffer: usize,
@@ -481,8 +523,8 @@ pub mod rpc {
     impl Default for Config {
         fn default() -> Self {
             Self {
-                listen_address: "127.0.0.1:8910".to_string(),
-                notify_price_tx_buffer: 1000,
+                listen_address:               "127.0.0.1:8910".to_string(),
+                notify_price_tx_buffer:       1000,
                 notify_price_sched_tx_buffer: 1000,
             }
         }
@@ -490,8 +532,8 @@ pub mod rpc {
 
     pub struct Server {
         adapter_tx: mpsc::Sender<adapter::Message>,
-        config: Config,
-        logger: Logger,
+        config:     Config,
+        logger:     Logger,
     }
 
     impl Server {
@@ -557,34 +599,69 @@ pub mod rpc {
 
     #[cfg(test)]
     mod tests {
-        use anyhow::anyhow;
-        use iobuffer::IoBuffer;
-        use jrpc::{Id, Request};
-        use rand::Rng;
-        use serde::de::DeserializeOwned;
-        use serde::Serialize;
-        use slog_extlog::slog_test;
-        use soketto::handshake::{Client, ServerResponse};
-        use std::str::from_utf8;
-        use tokio::net::TcpStream;
-        use tokio::sync::{broadcast, mpsc};
-        use tokio::task::JoinHandle;
-        use tokio_retry::strategy::FixedInterval;
-        use tokio_retry::Retry;
-        use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
-
-        use crate::publisher::pythd::adapter;
-        use crate::publisher::pythd::api::rpc::{
-            SubscribePriceParams, SubscribePriceSchedParams, UpdatePriceParams,
+        use {
+            super::{
+                super::{
+                    rpc::GetProductParams,
+                    Attrs,
+                    PriceAccount,
+                    PriceAccountMetadata,
+                    ProductAccount,
+                    ProductAccountMetadata,
+                    Pubkey,
+                    PublisherAccount,
+                    SubscriptionID,
+                },
+                Config,
+                Server,
+            },
+            crate::publisher::pythd::{
+                adapter,
+                api::{
+                    rpc::{
+                        SubscribePriceParams,
+                        SubscribePriceSchedParams,
+                        UpdatePriceParams,
+                    },
+                    NotifyPrice,
+                    NotifyPriceSched,
+                    PriceUpdate,
+                },
+            },
+            anyhow::anyhow,
+            iobuffer::IoBuffer,
+            jrpc::{
+                Id,
+                Request,
+            },
+            rand::Rng,
+            serde::{
+                de::DeserializeOwned,
+                Serialize,
+            },
+            slog_extlog::slog_test,
+            soketto::handshake::{
+                Client,
+                ServerResponse,
+            },
+            std::str::from_utf8,
+            tokio::{
+                net::TcpStream,
+                sync::{
+                    broadcast,
+                    mpsc,
+                },
+                task::JoinHandle,
+            },
+            tokio_retry::{
+                strategy::FixedInterval,
+                Retry,
+            },
+            tokio_util::compat::{
+                Compat,
+                TokioAsyncReadCompatExt,
+            },
         };
-        use crate::publisher::pythd::api::{NotifyPrice, NotifyPriceSched, PriceUpdate};
-
-        use super::super::rpc::GetProductParams;
-        use super::super::{
-            Attrs, PriceAccount, PriceAccountMetadata, ProductAccount, ProductAccountMetadata,
-            Pubkey, PublisherAccount, SubscriptionID,
-        };
-        use super::{Config, Server};
 
         struct TestAdapter {
             rx: mpsc::Receiver<adapter::Message>,
@@ -598,7 +675,7 @@ pub mod rpc {
 
         struct TestServer {
             shutdown_tx: broadcast::Sender<()>,
-            jh: JoinHandle<()>,
+            jh:          JoinHandle<()>,
         }
 
         impl Drop for TestServer {
@@ -609,7 +686,7 @@ pub mod rpc {
         }
 
         struct TestClient {
-            sender: soketto::Sender<Compat<TcpStream>>,
+            sender:   soketto::Sender<Compat<TcpStream>>,
             receiver: soketto::Receiver<Compat<TcpStream>>,
         }
 
@@ -688,8 +765,8 @@ pub mod rpc {
             // Define the product account we expect to receive back
             let product_account_key = "some_product_account".to_string();
             let product_account = ProductAccount {
-                account: product_account_key.clone(),
-                attr_dict: Attrs::from(
+                account:        product_account_key.clone(),
+                attr_dict:      Attrs::from(
                     [
                         ("symbol", "BTC/USD"),
                         ("asset_type", "Crypto"),
@@ -700,33 +777,33 @@ pub mod rpc {
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
                 price_accounts: vec![PriceAccount {
-                    account: "some_price_account".to_string(),
-                    price_type: "price".to_string(),
-                    price_exponent: 8,
-                    status: "trading".to_string(),
-                    price: 536,
-                    conf: 67,
-                    twap: 276,
-                    twac: 463,
-                    valid_slot: 4628,
-                    pub_slot: 4736,
-                    prev_slot: 3856,
-                    prev_price: 400,
-                    prev_conf: 45,
+                    account:            "some_price_account".to_string(),
+                    price_type:         "price".to_string(),
+                    price_exponent:     8,
+                    status:             "trading".to_string(),
+                    price:              536,
+                    conf:               67,
+                    twap:               276,
+                    twac:               463,
+                    valid_slot:         4628,
+                    pub_slot:           4736,
+                    prev_slot:          3856,
+                    prev_price:         400,
+                    prev_conf:          45,
                     publisher_accounts: vec![
                         PublisherAccount {
                             account: "some_publisher_account".to_string(),
-                            status: "trading".to_string(),
-                            price: 500,
-                            conf: 24,
-                            slot: 3563,
+                            status:  "trading".to_string(),
+                            price:   500,
+                            conf:    24,
+                            slot:    3563,
                         },
                         PublisherAccount {
                             account: "another_publisher_account".to_string(),
-                            status: "halted".to_string(),
-                            price: 300,
-                            conf: 683,
-                            slot: 5834,
+                            status:  "halted".to_string(),
+                            price:   300,
+                            conf:    683,
+                            slot:    5834,
                         },
                     ],
                 }],
@@ -836,9 +913,9 @@ pub mod rpc {
             let status = "trading";
             let params = UpdatePriceParams {
                 account: Pubkey::from("some_price_account"),
-                price: 7467,
-                conf: 892,
-                status: status.to_string(),
+                price:   7467,
+                conf:    892,
+                status:  status.to_string(),
             };
             test_client
                 .send(Request::with_params(
@@ -875,7 +952,7 @@ pub mod rpc {
             // Define the data we are working with
             let product_account = Pubkey::from("some_product_account");
             let data = vec![ProductAccountMetadata {
-                account: product_account.clone(),
+                account:   product_account.clone(),
                 attr_dict: Attrs::from(
                     [
                         ("symbol", "BTC/USD"),
@@ -886,15 +963,15 @@ pub mod rpc {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                prices: vec![
+                prices:    vec![
                     PriceAccountMetadata {
-                        account: Pubkey::from("some_price_account"),
-                        price_type: "price".to_string(),
+                        account:        Pubkey::from("some_price_account"),
+                        price_type:     "price".to_string(),
                         price_exponent: 4,
                     },
                     PriceAccountMetadata {
-                        account: Pubkey::from("another_price_account"),
-                        price_type: "special".to_string(),
+                        account:        Pubkey::from("another_price_account"),
+                        price_type:     "special".to_string(),
                         price_exponent: 6,
                     },
                 ],
@@ -926,8 +1003,8 @@ pub mod rpc {
 
             // Define the data we are working with
             let data = vec![ProductAccount {
-                account: Pubkey::from("some_product_account"),
-                attr_dict: Attrs::from(
+                account:        Pubkey::from("some_product_account"),
+                attr_dict:      Attrs::from(
                     [
                         ("symbol", "LTC/USD"),
                         ("asset_type", "Crypto"),
@@ -938,33 +1015,33 @@ pub mod rpc {
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
                 price_accounts: vec![PriceAccount {
-                    account: Pubkey::from("some_price_account"),
-                    price_type: "price".to_string(),
-                    price_exponent: 7463,
-                    status: "trading".to_string(),
-                    price: 6453,
-                    conf: 3434,
-                    twap: 6454,
-                    twac: 365,
-                    valid_slot: 3646,
-                    pub_slot: 2857,
-                    prev_slot: 7463,
-                    prev_price: 3784,
-                    prev_conf: 9879,
+                    account:            Pubkey::from("some_price_account"),
+                    price_type:         "price".to_string(),
+                    price_exponent:     7463,
+                    status:             "trading".to_string(),
+                    price:              6453,
+                    conf:               3434,
+                    twap:               6454,
+                    twac:               365,
+                    valid_slot:         3646,
+                    pub_slot:           2857,
+                    prev_slot:          7463,
+                    prev_price:         3784,
+                    prev_conf:          9879,
                     publisher_accounts: vec![
                         PublisherAccount {
                             account: Pubkey::from("some_publisher_account"),
-                            status: "trading".to_string(),
-                            price: 756,
-                            conf: 8787,
-                            slot: 2209,
+                            status:  "trading".to_string(),
+                            price:   756,
+                            conf:    8787,
+                            slot:    2209,
                         },
                         PublisherAccount {
                             account: Pubkey::from("another_publisher_account"),
-                            status: "halted".to_string(),
-                            price: 0,
-                            conf: 0,
-                            slot: 6676,
+                            status:  "halted".to_string(),
+                            price:   0,
+                            conf:    0,
+                            slot:    6676,
                         },
                     ],
                 }],
@@ -1027,12 +1104,12 @@ pub mod rpc {
                     // Send a Notify Price event from the adapter to the server, with the corresponding subscription id
                     let notify_price_update = NotifyPrice {
                         subscription: subscription_id,
-                        result: PriceUpdate {
-                            price: 74,
-                            conf: 24,
-                            status: "trading".to_string(),
+                        result:       PriceUpdate {
+                            price:      74,
+                            conf:       24,
+                            status:     "trading".to_string(),
                             valid_slot: 6786,
-                            pub_slot: 9897,
+                            pub_slot:   9897,
                         },
                     };
                     notify_price_tx.send(notify_price_update).await.unwrap();

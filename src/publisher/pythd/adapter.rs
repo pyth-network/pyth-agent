@@ -1,16 +1,42 @@
-use std::{collections::HashMap, time::Duration};
-
-use super::super::store::{global, PriceIdentifier};
-use super::api::{
-    self, Conf, NotifyPrice, NotifyPriceSched, Price, PriceAccountMetadata, ProductAccount,
-    ProductAccountMetadata, SubscriptionID,
-};
-use anyhow::{anyhow, Result};
-use pyth_sdk::Identifier;
-use slog::Logger;
-use tokio::{
-    sync::{broadcast, mpsc, oneshot},
-    time::{self, Interval},
+use {
+    super::{
+        super::store::{
+            global,
+            PriceIdentifier,
+        },
+        api::{
+            self,
+            Conf,
+            NotifyPrice,
+            NotifyPriceSched,
+            Price,
+            PriceAccountMetadata,
+            ProductAccount,
+            ProductAccountMetadata,
+            SubscriptionID,
+        },
+    },
+    anyhow::{
+        anyhow,
+        Result,
+    },
+    pyth_sdk::Identifier,
+    slog::Logger,
+    std::{
+        collections::HashMap,
+        time::Duration,
+    },
+    tokio::{
+        sync::{
+            broadcast,
+            mpsc,
+            oneshot,
+        },
+        time::{
+            self,
+            Interval,
+        },
+    },
 };
 
 /// Adapter is the adapter between the pythd websocket API, and the stores.
@@ -42,7 +68,7 @@ pub struct Adapter {
 /// Represents a single Notify Price Sched subscription
 struct NotifyPriceSchedSubscription {
     /// ID of this subscription
-    subscription_id: SubscriptionID,
+    subscription_id:       SubscriptionID,
     /// Channel notifications are sent on
     notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
 }
@@ -53,27 +79,27 @@ pub enum Message {
         result_tx: oneshot::Sender<Result<Vec<ProductAccountMetadata>>>,
     },
     GetProduct {
-        account: api::Pubkey,
+        account:   api::Pubkey,
         result_tx: oneshot::Sender<Result<ProductAccount>>,
     },
     GetAllProducts {
         result_tx: oneshot::Sender<Result<Vec<ProductAccount>>>,
     },
     SubscribePrice {
-        account: api::Pubkey,
+        account:         api::Pubkey,
         notify_price_tx: mpsc::Sender<NotifyPrice>,
-        result_tx: oneshot::Sender<Result<SubscriptionID>>,
+        result_tx:       oneshot::Sender<Result<SubscriptionID>>,
     },
     SubscribePriceSched {
-        account: api::Pubkey,
+        account:               api::Pubkey,
         notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
-        result_tx: oneshot::Sender<Result<SubscriptionID>>,
+        result_tx:             oneshot::Sender<Result<SubscriptionID>>,
     },
     UpdatePrice {
         account: api::Pubkey,
-        price: Price,
-        conf: Conf,
-        status: String,
+        price:   Price,
+        conf:    Conf,
+        status:  String,
     },
 }
 
@@ -172,17 +198,17 @@ impl Adapter {
                         .map(|acc| (price_account_key, acc))
                 })
                 .map(|(price_account_key, price_account)| PriceAccountMetadata {
-                    account: price_account_key.to_string(),
-                    price_type: "price".to_owned(),
+                    account:        price_account_key.to_string(),
+                    price_type:     "price".to_owned(),
                     price_exponent: price_account.expo as i64,
                 })
                 .collect();
 
             // Create the product account metadata struct
             result.push(ProductAccountMetadata {
-                account: product_account_key.to_string(),
+                account:   product_account_key.to_string(),
                 attr_dict: product_account.attr_dict,
-                prices: price_accounts_metadata,
+                prices:    price_accounts_metadata,
             })
         }
 
@@ -235,30 +261,44 @@ impl Adapter {
 
 #[cfg(test)]
 mod tests {
-    use iobuffer::IoBuffer;
-    use slog_extlog::slog_test;
-    use std::{
-        collections::{BTreeMap, HashMap},
-        str::FromStr,
-        time::Duration,
+    use {
+        super::{
+            Adapter,
+            Message,
+        },
+        crate::publisher::{
+            pythd::api::{
+                NotifyPriceSched,
+                PriceAccountMetadata,
+                ProductAccountMetadata,
+            },
+            store::global,
+        },
+        iobuffer::IoBuffer,
+        slog_extlog::slog_test,
+        std::{
+            collections::{
+                BTreeMap,
+                HashMap,
+            },
+            str::FromStr,
+            time::Duration,
+        },
+        tokio::{
+            sync::{
+                broadcast,
+                mpsc,
+                oneshot,
+            },
+            task::JoinHandle,
+        },
     };
-    use tokio::{
-        sync::{broadcast, mpsc, oneshot},
-        task::JoinHandle,
-    };
-
-    use crate::publisher::{
-        pythd::api::{NotifyPriceSched, PriceAccountMetadata, ProductAccountMetadata},
-        store::global,
-    };
-
-    use super::{Adapter, Message};
 
     struct TestAdapter {
-        message_tx: mpsc::Sender<Message>,
-        shutdown_tx: broadcast::Sender<()>,
+        message_tx:      mpsc::Sender<Message>,
+        shutdown_tx:     broadcast::Sender<()>,
         global_store_rx: mpsc::Receiver<global::Message>,
-        jh: JoinHandle<()>,
+        jh:              JoinHandle<()>,
     }
 
     impl Drop for TestAdapter {
@@ -317,7 +357,7 @@ mod tests {
             assert_eq!(
                 notify_price_sched_rx.recv().await.unwrap(),
                 NotifyPriceSched {
-                    subscription: subscription_id
+                    subscription: subscription_id,
                 }
             )
         }
@@ -332,7 +372,7 @@ mod tests {
                     )
                     .unwrap(),
                     global::ProductAccountMetadata {
-                        attr_dict: BTreeMap::from(
+                        attr_dict:      BTreeMap::from(
                             [
                                 ("symbol", "Crypto.LTC/USD"),
                                 ("asset_type", "Crypto"),
@@ -365,7 +405,7 @@ mod tests {
                     )
                     .unwrap(),
                     global::ProductAccountMetadata {
-                        attr_dict: BTreeMap::from(
+                        attr_dict:      BTreeMap::from(
                             [
                                 ("symbol", "Crypto.ETH/USD"),
                                 ("asset_type", "Crypto"),
@@ -393,7 +433,7 @@ mod tests {
                     },
                 ),
             ]),
-            price_accounts_metadata: HashMap::from([
+            price_accounts_metadata:   HashMap::from([
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU",
@@ -464,7 +504,7 @@ mod tests {
         // Check that the result is what we expected
         let expected = vec![
             ProductAccountMetadata {
-                account: "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc".to_string(),
+                account:   "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc".to_string(),
                 attr_dict: BTreeMap::from(
                     [
                         ("symbol", "Crypto.ETH/USD"),
@@ -476,26 +516,26 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                prices: vec![
+                prices:    vec![
                     PriceAccountMetadata {
-                        account: "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD".to_string(),
-                        price_type: "price".to_string(),
+                        account:        "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD".to_string(),
+                        price_type:     "price".to_string(),
                         price_exponent: -9,
                     },
                     PriceAccountMetadata {
-                        account: "fTNjSfj5uW9e4CAMHzUcm65ftRNBxCN1gG5GS1mYfid".to_string(),
-                        price_type: "price".to_string(),
+                        account:        "fTNjSfj5uW9e4CAMHzUcm65ftRNBxCN1gG5GS1mYfid".to_string(),
+                        price_type:     "price".to_string(),
                         price_exponent: -6,
                     },
                     PriceAccountMetadata {
-                        account: "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ".to_string(),
-                        price_type: "price".to_string(),
+                        account:        "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ".to_string(),
+                        price_type:     "price".to_string(),
                         price_exponent: 2,
                     },
                 ],
             },
             ProductAccountMetadata {
-                account: "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string(),
+                account:   "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string(),
                 attr_dict: BTreeMap::from(
                     [
                         ("symbol", "Crypto.LTC/USD"),
@@ -507,20 +547,20 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                prices: vec![
+                prices:    vec![
                     PriceAccountMetadata {
-                        account: "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".to_string(),
-                        price_type: "price".to_string(),
+                        account:        "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".to_string(),
+                        price_type:     "price".to_string(),
                         price_exponent: -8,
                     },
                     PriceAccountMetadata {
-                        account: "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr".to_string(),
-                        price_type: "price".to_string(),
+                        account:        "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr".to_string(),
+                        price_type:     "price".to_string(),
                         price_exponent: -10,
                     },
                     PriceAccountMetadata {
-                        account: "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6".to_string(),
-                        price_type: "price".to_string(),
+                        account:        "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6".to_string(),
+                        price_type:     "price".to_string(),
                         price_exponent: -6,
                     },
                 ],
