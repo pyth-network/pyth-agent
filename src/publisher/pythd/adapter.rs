@@ -29,7 +29,7 @@ pub struct Adapter {
     /// The fixed interval at which Notify Price Sched notifications are sent
     notify_price_sched_interval: Interval,
 
-    /// Channels on which to communicate to the global stores
+    /// Channels on which to communicate to the global store
     global_store_tx: mpsc::Sender<global::Message>,
 
     /// Channel on which the shutdown is broadcast
@@ -154,9 +154,7 @@ impl Adapter {
     }
 
     async fn handle_get_product_list(&self) -> Result<Vec<ProductAccountMetadata>> {
-        let all_accounts_metadata = self
-            .lookup_all_account_metadata(&self.global_store_tx)
-            .await?;
+        let all_accounts_metadata = self.lookup_all_accounts_metadata().await?;
 
         let mut result = Vec::new();
         for (product_account_key, product_account) in
@@ -191,13 +189,11 @@ impl Adapter {
         Ok(result)
     }
 
-    // Fetches the Solana-specific Oracle data from the given global store
-    async fn lookup_all_account_metadata(
-        &self,
-        tx: &mpsc::Sender<global::Message>,
-    ) -> Result<global::AllAccountsMetadata> {
+    // Fetches the Solana-specific Oracle data from the global store
+    async fn lookup_all_accounts_metadata(&self) -> Result<global::AllAccountsMetadata> {
         let (result_tx, result_rx) = oneshot::channel();
-        tx.send(global::Message::LookupAllAccountsMetadata { result_tx })
+        self.global_store_tx
+            .send(global::Message::LookupAllAccountsMetadata { result_tx })
             .await?;
         result_rx.await?
     }
@@ -445,7 +441,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_get_product_list_primary() {
+    async fn test_get_product_list() {
         // Start the test adapter
         let mut test_adapter = setup().await;
 
@@ -457,7 +453,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Return the product list to the adapter, from the primary global store
+        // Return the product list to the adapter, from the global store
         match test_adapter.global_store_rx.recv().await.unwrap() {
             global::Message::LookupAllAccountsMetadata { result_tx } => result_tx
                 .send(Ok(get_test_all_accounts_metadata()))
