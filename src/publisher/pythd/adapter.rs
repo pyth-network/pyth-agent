@@ -61,6 +61,9 @@ pub struct Adapter {
     /// Notify Price Sched subscriptions
     notify_price_sched_subscriptions: HashMap<PriceIdentifier, Vec<NotifyPriceSchedSubscription>>,
 
+    // Notify Price Subscriptions
+    notify_price_subscriptions: HashMap<PriceIdentifier, Vec<NotifyPriceSubscription>>,
+
     /// The fixed interval at which Notify Price Sched notifications are sent
     notify_price_sched_interval: Interval,
 
@@ -83,6 +86,14 @@ struct NotifyPriceSchedSubscription {
     subscription_id:       SubscriptionID,
     /// Channel notifications are sent on
     notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
+}
+
+/// Represents a single Notify Price subscription
+struct NotifyPriceSubscription {
+    /// ID of this subscription
+    subscription_id: SubscriptionID,
+    /// Channel notifications are sent on
+    notify_price_tx: mpsc::Sender<NotifyPrice>,
 }
 
 #[derive(Debug)]
@@ -128,6 +139,7 @@ impl Adapter {
             message_rx,
             subscription_id_count: 0,
             notify_price_sched_subscriptions: HashMap::new(),
+            notify_price_subscriptions: HashMap::new(),
             notify_price_sched_interval: time::interval(notify_price_sched_interval),
             global_store_tx,
             local_store_tx,
@@ -172,7 +184,12 @@ impl Adapter {
                 account,
                 notify_price_tx,
                 result_tx,
-            } => todo!(),
+            } => {
+                let subscription_id = self
+                    .handle_subscribe_price(&account.parse()?, notify_price_tx)
+                    .await;
+                self.send(result_tx, Ok(subscription_id))
+            }
             Message::SubscribePriceSched {
                 account,
                 notify_price_sched_tx,
@@ -388,6 +405,22 @@ impl Adapter {
     fn next_subscription_id(&mut self) -> SubscriptionID {
         self.subscription_id_count += 1;
         self.subscription_id_count
+    }
+
+    async fn handle_subscribe_price(
+        &mut self,
+        account: &solana_sdk::pubkey::Pubkey,
+        notify_price_tx: mpsc::Sender<NotifyPrice>,
+    ) -> SubscriptionID {
+        let subscription_id = self.next_subscription_id();
+        self.notify_price_subscriptions
+            .entry(Identifier::new(account.to_bytes()))
+            .or_default()
+            .push(NotifyPriceSubscription {
+                subscription_id,
+                notify_price_tx,
+            });
+        subscription_id
     }
 
     async fn send_notify_price_sched(&self) -> Result<()> {
