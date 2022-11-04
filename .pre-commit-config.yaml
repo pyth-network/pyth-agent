@@ -6,7 +6,6 @@ repos:
       - id: end-of-file-fixer
       - id: check-added-large-files
   - repo: local
-
     hooks:
       - id: cargo-fmt-nightly
         name: rustfmt
