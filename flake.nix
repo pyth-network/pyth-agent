@@ -30,12 +30,12 @@
     { self
     , nixpkgs
     , fenix
-    , flake-utils 
+    , flake-utils
     }:
 
     # Generate a Flake Configuration for each supported system.
-    flake-utils.lib.eachDefaultSystem (system: 
-      let 
+    flake-utils.lib.eachDefaultSystem (system:
+      let
       pkgs  = nixpkgs.legacyPackages.${system};
       shell = import ./shell.nix { inherit pkgs; };
       rust  = pkgs.makeRustPlatform {

@@ -3,5 +3,5 @@ channel    = "stable"
 profile    = "minimal"
 components = [
     "rustfmt",
-    "clippy" 
+    "clippy"
 ]
