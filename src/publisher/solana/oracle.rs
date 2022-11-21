@@ -95,17 +95,26 @@ impl Oracle {
     }
 
     async fn poll(&mut self) -> Result<()> {
-        self.data.mapping_accounts = self.fetch_mapping_accounts().await?;
-        self.data.product_accounts = self.fetch_product_accounts().await?;
-        self.data.price_accounts = self.fetch_price_accounts().await?;
+        self.data.mapping_accounts = self
+            .fetch_mapping_accounts(self.config.mapping_account_key)
+            .await?;
+        self.data.product_accounts = self
+            .fetch_product_accounts(self.data.mapping_accounts.values())
+            .await?;
+        self.data.price_accounts = self
+            .fetch_price_accounts(self.data.product_accounts.values())
+            .await?;
 
         Ok(())
     }
 
-    async fn fetch_mapping_accounts(&self) -> Result<HashMap<Pubkey, MappingAccount>> {
+    async fn fetch_mapping_accounts(
+        &self,
+        mapping_account_key: Pubkey,
+    ) -> Result<HashMap<Pubkey, MappingAccount>> {
         let mut accounts = HashMap::new();
 
-        let mut account_key = self.config.mapping_account_key;
+        let mut account_key = mapping_account_key;
         while account_key != Pubkey::default() {
             let account =
                 *load_mapping_account(&self.rpc_client.get_account_data(&account_key).await?)?;
@@ -117,10 +126,16 @@ impl Oracle {
         Ok(accounts)
     }
 
-    async fn fetch_product_accounts(&self) -> Result<HashMap<Pubkey, ProductAccount>> {
+    async fn fetch_product_accounts<'a, A>(
+        &self,
+        mapping_accounts: A,
+    ) -> Result<HashMap<Pubkey, ProductAccount>>
+    where
+        A: IntoIterator<Item = &'a MappingAccount>,
+    {
         let mut product_accounts = HashMap::new();
 
-        for mapping_account in self.data.mapping_accounts.values() {
+        for mapping_account in mapping_accounts {
             product_accounts.extend(
                 self.fetch_product_accounts_from_mapping_account(mapping_account)
                     .await?,
@@ -130,10 +145,16 @@ impl Oracle {
         Ok(product_accounts)
     }
 
-    async fn fetch_price_accounts(&self) -> Result<HashMap<Pubkey, PriceAccount>> {
+    async fn fetch_price_accounts<'a, P>(
+        &self,
+        product_accounts: P,
+    ) -> Result<HashMap<Pubkey, PriceAccount>>
+    where
+        P: IntoIterator<Item = &'a ProductAccount>,
+    {
         let mut price_accounts = HashMap::new();
 
-        for product_account in self.data.product_accounts.values() {
+        for product_account in product_accounts {
             for price_account_key in &product_account.price_accounts {
                 let price_account = self.fetch_price_account(price_account_key).await?;
                 price_accounts.insert(*price_account_key, price_account);
