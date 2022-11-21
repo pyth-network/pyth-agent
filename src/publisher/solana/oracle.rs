@@ -188,10 +188,15 @@ impl Oracle {
                 .await?,
         )?;
 
-        // Fetch the price accounts
-        let price_accounts = self
-            .fetch_price_accounts_from_product_account(product_account.px_acc)
-            .await?;
+        // Fetch the price accounts associated with this product account
+        let mut price_accounts = HashMap::new();
+        let mut price_account_key = product_account.px_acc;
+        while price_account_key != Pubkey::default() {
+            let price_account = self.fetch_price_account(&price_account_key).await?;
+            price_accounts.insert(price_account_key, price_account);
+
+            price_account_key = price_account.next;
+        }
 
         // Create the product account object
         let product_account = ProductAccount {
@@ -200,23 +205,6 @@ impl Oracle {
         };
 
         Ok(product_account)
-    }
-
-    async fn fetch_price_accounts_from_product_account(
-        &self,
-        first_price_account_key: Pubkey,
-    ) -> Result<HashMap<Pubkey, PriceAccount>> {
-        let mut price_accounts = HashMap::new();
-
-        let mut price_account_key = first_price_account_key;
-        while price_account_key != Pubkey::default() {
-            let price_account = self.fetch_price_account(&price_account_key).await?;
-            price_accounts.insert(price_account_key, price_account);
-
-            price_account_key = price_account.next;
-        }
-
-        Ok(price_accounts)
     }
 
     async fn fetch_price_account(&self, price_account_key: &Pubkey) -> Result<PriceAccount> {
