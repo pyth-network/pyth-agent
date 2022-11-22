@@ -30,6 +30,7 @@ rand = "0.8.5"
 slog-async = "2.7.0"
 config = "0.13.2"
 thiserror = "1.0.32"
+solana-shadow = "0.2.4"
 
 [dev-dependencies]
 tokio-util = { version = "0.7.0", features = ["full"] }
