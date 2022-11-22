@@ -214,3 +214,105 @@ impl Oracle {
         Ok(price_account)
     }
 }
+
+mod subscriber {
+    use {
+        anyhow::{
+            anyhow,
+            Result,
+        },
+        slog::Logger,
+        solana_sdk::{
+            account::Account,
+            commitment_config::CommitmentLevel,
+            pubkey::Pubkey,
+        },
+        solana_shadow::{
+            BlockchainShadow,
+            SyncOptions,
+        },
+        tokio::sync::{
+            broadcast,
+            mpsc,
+        },
+    };
+
+    /// Subscriber subscribes to all changes on the given account, and sends those changes
+    /// on updates_tx. This is a convenience wrapper around the Blockchain Shadow crate.
+    pub struct Subscriber {
+        // Configuration
+        commitment:  CommitmentLevel,
+        account_key: Pubkey,
+        rpc_url:     String,
+        wss_url:     String,
+
+        // Channel on which updates are sent
+        updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
+
+        logger: Logger,
+    }
+
+    impl Subscriber {
+        pub fn new(
+            commitment: CommitmentLevel,
+            account_key: Pubkey,
+            rpc_url: &str,
+            wss_url: &str,
+            updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
+            logger: Logger,
+        ) -> Self {
+            Subscriber {
+                commitment,
+                account_key,
+                rpc_url: rpc_url.to_string(),
+                wss_url: wss_url.to_string(),
+                updates_tx,
+                logger,
+            }
+        }
+
+        pub async fn run(&self) {
+            match self.start_shadow().await {
+                Ok(mut shadow_rx) => self.forward_updates(&mut shadow_rx).await,
+                Err(err) => error!(self.logger, "{:#}", err; "error" => format!("{:?}", err)),
+            }
+        }
+
+        async fn forward_updates(&self, shadow_rx: &mut broadcast::Receiver<(Pubkey, Account)>) {
+            loop {
+                if let Err(err) = self.forward_update(shadow_rx).await {
+                    error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+                }
+            }
+        }
+
+        async fn forward_update(
+            &self,
+            shadow_rx: &mut broadcast::Receiver<(Pubkey, Account)>,
+        ) -> Result<()> {
+            self.updates_tx
+                .send(shadow_rx.recv().await?)
+                .await
+                .map_err(|_| anyhow!("failed to forward update"))
+        }
+
+        pub async fn start_shadow(
+            &self,
+        ) -> Result<broadcast::Receiver<(Pubkey, solana_sdk::account::Account)>> {
+            let shadow = BlockchainShadow::new_for_program(
+                &self.account_key,
+                SyncOptions {
+                    network: solana_shadow::Network::Custom(
+                        self.rpc_url.clone(),
+                        self.wss_url.clone(),
+                    ),
+                    commitment: self.commitment,
+                    ..SyncOptions::default()
+                },
+            )
+            .await?;
+
+            Ok(shadow.updates_channel())
+        }
+    }
+}
