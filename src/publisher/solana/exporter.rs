@@ -23,7 +23,6 @@ mod key_store {
         /// and parses this into a solana_sdk Keypair object.
         fn parse_keypair(&self, contents: &str) -> Result<Keypair> {
             // Drop the leading and trailing "[" "]" characters.
-
             // Using a char iterator to avoid panicking if given multi-byte characters.
             let mut chars = contents.chars();
             chars.next();
