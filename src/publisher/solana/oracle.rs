@@ -11,6 +11,7 @@ use {
     slog::Logger,
     solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
+        account::Account,
         commitment_config::{
             CommitmentConfig,
             CommitmentLevel,
@@ -21,7 +22,10 @@ use {
         collections::HashMap,
         time::Duration,
     },
-    tokio::time::Interval,
+    tokio::{
+        sync::mpsc,
+        time::Interval,
+    },
 };
 
 #[derive(Default, Debug, Clone)]
@@ -54,6 +58,9 @@ pub struct Oracle {
     // The interval with which to poll for data
     poll_interval: Interval,
 
+    // Channel on which account updates are received from the subscriber
+    updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
+
     logger: Logger,
 }
 
@@ -66,7 +73,11 @@ pub struct Config {
 }
 
 impl Oracle {
-    pub fn new(config: Config, logger: Logger) -> Self {
+    pub fn new(
+        config: Config,
+        updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
+        logger: Logger,
+    ) -> Self {
         let rpc_client = RpcClient::new_with_commitment(
             config.rpc_url.clone(),
             CommitmentConfig {
@@ -80,16 +91,26 @@ impl Oracle {
             data: Default::default(),
             rpc_client,
             poll_interval,
+            updates_rx,
             logger,
         }
     }
 
     pub async fn run(&mut self) {
         loop {
-            self.poll_interval.tick().await;
-
-            if let Err(err) = self.poll().await {
+            if let Err(err) = self.handle_next().await {
                 error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+            }
+        }
+    }
+
+    async fn handle_next(&mut self) -> Result<()> {
+        tokio::select! {
+            Some((account_key, account)) = self.updates_rx.recv() => {
+                self.handle_account_update(&account_key, &account).await
+            }
+            _ = self.poll_interval.tick() => {
+                self.poll().await
             }
         }
     }
@@ -212,6 +233,31 @@ impl Oracle {
         let price_account = *load_price_account(&data)?;
 
         Ok(price_account)
+    }
+
+    async fn handle_account_update(
+        &mut self,
+        account_key: &Pubkey,
+        account: &Account,
+    ) -> Result<()> {
+        // We are only interested in price account updates, all other types of updates
+        // will be fetched using polling.
+        if !self.data.price_accounts.contains_key(account_key) {
+            return Ok(());
+        }
+
+        self.handle_price_account_update(account_key, account).await
+    }
+
+    async fn handle_price_account_update(
+        &mut self,
+        account_key: &Pubkey,
+        account: &Account,
+    ) -> Result<()> {
+        let price_account = *load_price_account(&account.data)?;
+        self.data.price_accounts.insert(*account_key, price_account);
+
+        Ok(())
     }
 }
 
