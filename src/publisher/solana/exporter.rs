@@ -83,8 +83,8 @@ struct UpdPriceCmd {
 
 struct Config {
     /// Interval at which to refresh the cached network state (current slot and blockhash).
-    /// It is recommended to set this to around 40 seconds, as Solana requires that the
-    /// blockhash be within 150 slots of the current block.
+    /// It is recommended to set this to slightly less than the network's block time,
+    /// as the slot fetched will be used as the time of the price update.
     refresh_network_state_interval: Interval,
     /// Interval at which to publish updates
     publish_interval:               Interval,
