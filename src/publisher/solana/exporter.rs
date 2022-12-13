@@ -43,7 +43,11 @@ use {
     },
     tokio::{
         sync::{
-            mpsc::Sender,
+            mpsc,
+            mpsc::{
+                Receiver,
+                Sender,
+            },
             oneshot,
         },
         time::{
@@ -106,9 +110,11 @@ pub struct Exporter {
     /// The last time an update was published for each price identifier
     last_published_at: HashMap<PriceIdentifier, UnixTimestamp>,
 
+    /// Channel on which updates about the networks current state are received
+    network_state_rx: Receiver<NetworkState>,
+
     /// Information about the current state of the network
-    latest_blockhash: Hash,
-    current_slot:     u64,
+    network_state: NetworkState,
 
     logger: Logger,
 }
@@ -124,30 +130,14 @@ impl Exporter {
 
     async fn handle_next(&mut self) -> Result<()> {
         tokio::select! {
-            _ = self.config.refresh_network_state_interval.tick() => {
-                self.refresh_network_state().await
+            Some(network_state) = self.network_state_rx.recv() => {
+                self.network_state = network_state;
+                Ok(())
             }
             _ = self.config.publish_interval.tick() => {
                 self.publish_updates().await
             }
         }
-    }
-
-    /// This function updates the cached current slot and blockhash value (in parallel),
-    /// which can be used to craft transactions.
-    async fn refresh_network_state(&mut self) -> Result<()> {
-        let current_slot_future = self
-            .rpc_client
-            .get_slot_with_commitment(CommitmentConfig::confirmed());
-        let latest_blockhash_future = self.rpc_client.get_latest_blockhash();
-
-        let (current_slot_result, latest_blockhash_result) =
-            future::join(current_slot_future, latest_blockhash_future).await;
-
-        self.current_slot = current_slot_result?;
-        self.latest_blockhash = latest_blockhash_result?;
-
-        Ok(())
     }
 
     /// Publishes any price updates in the local store that we haven't sent to this network.
@@ -253,7 +243,7 @@ impl Exporter {
                     status:   price_info.status,
                     price:    price_info.price,
                     conf:     price_info.conf,
-                    pub_slot: self.current_slot,
+                    pub_slot: self.network_state.current_slot,
                 })?,
             };
 
@@ -265,7 +255,7 @@ impl Exporter {
             &instructions,
             Some(&self.key_store.publish_keypair.pubkey()),
             &vec![&self.key_store.publish_keypair],
-            self.latest_blockhash,
+            self.network_state.blockhash,
         );
 
         let _signature = self
@@ -285,6 +275,59 @@ impl Exporter {
     }
 }
 
+#[derive(Debug)]
+struct NetworkState {
+    blockhash:    Hash,
+    current_slot: u64,
+}
+
+/// NetworkStateQuerier periodically queries the current state of the network,
+/// fetching the blockhash and slot number.
+struct NetworkStateQuerier {
+    /// The RPC client
+    rpc_client: RpcClient,
+
+    /// The interval with which to query the network state
+    query_interval: Interval,
+
+    /// Channel the current network state is sent on
+    network_state_tx: mpsc::Sender<NetworkState>,
+
+    /// Logger
+    logger: Logger,
+}
+
+impl NetworkStateQuerier {
+    pub async fn run(&mut self) {
+        loop {
+            self.query_interval.tick().await;
+            if let Err(err) = self.query_network_state().await {
+                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+            }
+        }
+    }
+
+    async fn query_network_state(&mut self) -> Result<()> {
+        // Fetch the blockhash and current slot in parallel
+        let current_slot_future = self
+            .rpc_client
+            .get_slot_with_commitment(CommitmentConfig::confirmed());
+        let latest_blockhash_future = self.rpc_client.get_latest_blockhash();
+
+        let (current_slot_result, latest_blockhash_result) =
+            future::join(current_slot_future, latest_blockhash_future).await;
+
+        // Send the result on the channel
+        self.network_state_tx
+            .send(NetworkState {
+                blockhash:    latest_blockhash_result?,
+                current_slot: current_slot_result?,
+            })
+            .await?;
+
+        Ok(())
+    }
+}
 
 /// The key_store module is responsible for parsing the pythd key store.
 mod key_store {
