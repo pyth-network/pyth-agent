@@ -22,19 +22,7 @@ mod key_store {
         /// where the first 64 bytes represent the private key and the last 64 bytes represent the public key,
         /// and parses this into a solana_sdk Keypair object.
         fn parse_keypair(&self, contents: &str) -> Result<Keypair> {
-            // Drop the leading and trailing "[" "]" characters.
-            // Using a char iterator to avoid panicking if given multi-byte characters.
-            let mut chars = contents.chars();
-            chars.next();
-            chars.next_back();
-            let trimmed = chars.as_str();
-
-            // Parse the string into a vector of integers representing each byte
-            let byte_vec: Vec<u8> = trimmed
-                .split(',')
-                .map(|s| s.parse().map_err(Error::msg))
-                .collect::<Result<_>>()?;
-
+            let byte_vec: Vec<u8> = serde_json::from_str(contents)?;
             Keypair::from_bytes(&byte_vec[..]).map_err(|e| e.into())
         }
     }
