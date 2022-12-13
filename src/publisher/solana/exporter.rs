@@ -6,6 +6,7 @@ use {
     },
     anyhow::{
         anyhow,
+        Context,
         Result,
     },
     chrono::Utc,
@@ -217,7 +218,27 @@ impl Exporter {
     async fn publish_batch(&self, batch: &[(&Identifier, &PriceInfo)]) -> Result<()> {
         let mut instructions = Vec::new();
 
-        for (identifier, price_info) in batch {
+        // Refresh the data in the batch
+        let local_store_contents = self.fetch_local_store_contents().await?;
+        let refreshed_batch = batch.iter().map(|(identifier, _)| {
+            (
+                identifier,
+                local_store_contents
+                    .get(identifier)
+                    .ok_or_else(|| anyhow!("price identifier not found in local store"))
+                    .with_context(|| identifier.to_string()),
+            )
+        });
+
+        for (identifier, price_info_result) in refreshed_batch {
+            let price_info = price_info_result?;
+
+            let stale_price = (Utc::now().timestamp() - price_info.timestamp)
+                < self.config.staleness_threshold.as_secs() as i64;
+            if stale_price {
+                continue;
+            }
+
             let instruction = Instruction {
                 program_id: self.key_store.program_key,
                 accounts:   vec![
