@@ -155,11 +155,6 @@ impl Exporter {
             })
             .collect::<Vec<_>>();
 
-        // Update the last time we sent each price info
-        for (identifier, info) in &fresh_updates {
-            self.last_published_at.insert(**identifier, info.timestamp);
-        }
-
         // Split the updates up into batches
         let batches = fresh_updates.chunks(self.config.max_batch_size);
 
@@ -171,9 +166,15 @@ impl Exporter {
                 .period()
                 .div_f64(num_batches as f64),
         );
+        let mut batch_timestamps = HashMap::new();
         let mut batch_futures = vec![];
         for batch in batches {
             batch_futures.push(self.publish_batch(batch));
+
+            for (identifier, info) in batch {
+                batch_timestamps.insert(**identifier, info.timestamp);
+            }
+
             batch_send_interval.tick().await;
         }
 
@@ -183,6 +184,8 @@ impl Exporter {
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
+
+        self.last_published_at.extend(batch_timestamps);
 
         Ok(())
     }
