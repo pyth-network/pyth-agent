@@ -34,6 +34,7 @@ use {
             Instruction,
         },
         pubkey::Pubkey,
+        signature::Signature,
         signer::Signer,
         sysvar::clock,
         transaction::Transaction,
@@ -44,6 +45,7 @@ use {
     },
     tokio::{
         sync::{
+            mpsc,
             mpsc::Sender,
             oneshot,
             watch,
@@ -110,6 +112,9 @@ pub struct Exporter {
 
     /// Watch receiver channel to access the current network state
     network_state_rx: watch::Receiver<NetworkState>,
+
+    // Channel on which to send inflight transactions to the transaction monitor
+    inflight_transactions_tx: Sender<Signature>,
 
     logger: Logger,
 }
@@ -266,7 +271,7 @@ impl Exporter {
             network_state.blockhash,
         );
 
-        let _signature = self
+        let signature = self
             .rpc_client
             .send_transaction_with_config(
                 &transaction,
@@ -277,7 +282,7 @@ impl Exporter {
             )
             .await?;
 
-        // TODO: monitor transaction confirmation rate
+        self.inflight_transactions_tx.send(signature).await?;
 
         Ok(())
     }
@@ -332,6 +337,112 @@ impl NetworkStateQuerier {
         })?;
 
         Ok(())
+    }
+}
+
+/// TransactionMonitor monitors the transactions which have yet to be confirmed,
+/// and warns if this number grows too large.
+// TODO: more sophisticated metrics and heuristics to track transaction hit rates. This is a starting point.
+pub struct TransactionMonitor {
+    /// The RPC client
+    rpc_client: RpcClient,
+
+    /// Interval with which to poll the status of outstanding transactions
+    poll_interval: Interval,
+
+    /// Vector storing the signatures of outstanding transactions
+    outstanding_transactions: Vec<Signature>,
+
+    /// Maximum number of outstanding transactions to monitor: a warning is logged
+    /// if this is exceeded.
+    max_outstanding_transactions: usize,
+
+    /// Channel the signatures of outstanding transactions are sent on
+    signatures_rx: mpsc::Receiver<Signature>,
+
+    logger: Logger,
+}
+
+impl TransactionMonitor {
+    pub fn new(
+        rpc_url: &str,
+        poll_interval: Duration,
+        max_outstanding_transactions: usize,
+        signatures_rx: mpsc::Receiver<Signature>,
+        logger: Logger,
+    ) -> Self {
+        TransactionMonitor {
+            rpc_client: RpcClient::new(rpc_url.to_string()),
+            poll_interval: time::interval(poll_interval),
+            outstanding_transactions: Vec::new(),
+            max_outstanding_transactions,
+            signatures_rx,
+            logger,
+        }
+    }
+
+    pub async fn run(&mut self) {
+        loop {
+            if let Err(err) = self.handle_next().await {
+                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+            }
+        }
+    }
+
+    async fn handle_next(&mut self) -> Result<()> {
+        tokio::select! {
+            Some(signature) = self.signatures_rx.recv() => {
+                self.add_outstanding_transaction(signature);
+                Ok(())
+            }
+            _ = self.poll_interval.tick() => {
+                self.poll_outstanding_transactions_status().await
+            }
+        }
+    }
+
+    fn add_outstanding_transaction(&mut self, signature: Signature) {
+        // Add the new outstanding transaction to the list
+        self.outstanding_transactions.push(signature);
+
+        // Keep the amount of outstanding transactions we monitor at a reasonable size
+        if self.outstanding_transactions.len() > self.max_outstanding_transactions {
+            warn!(self.logger, "many unacked transactions"; "count" => self.outstanding_transactions.len(), "max" => self.max_outstanding_transactions);
+            self.outstanding_transactions
+                .drain(0..(self.max_outstanding_transactions / 2));
+        }
+    }
+
+    async fn poll_outstanding_transactions_status(&mut self) -> Result<()> {
+        // Poll the status of each outstanding transaction, in parallel
+        let confirmed = join_all(
+            self.outstanding_transactions
+                .iter()
+                .map(|signature| self.poll_transaction(signature)),
+        )
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+
+        // Keep only those transactions which are not yet confirmed
+        self.outstanding_transactions = self
+            .outstanding_transactions
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !confirmed[*i])
+            .map(|(_, signature)| signature)
+            .cloned()
+            .collect();
+
+        Ok(())
+    }
+
+    async fn poll_transaction(&self, signature: &Signature) -> Result<bool> {
+        Ok(self
+            .rpc_client
+            .confirm_transaction_with_commitment(signature, CommitmentConfig::confirmed())
+            .await?
+            .value)
     }
 }
 
