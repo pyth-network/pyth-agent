@@ -21,6 +21,7 @@ use {
             SubscriptionID,
         },
     },
+    crate::publisher::store::global::AllAccountsData,
     anyhow::{
         anyhow,
         Result,
@@ -69,7 +70,7 @@ pub struct Adapter {
     notify_price_sched_interval: Interval,
 
     /// Channel on which to communicate with the global store
-    global_store_tx: mpsc::Sender<global::Message>,
+    global_store_lookup_tx: mpsc::Sender<global::Lookup>,
 
     /// Channel on which to communicate with the local store
     local_store_tx: mpsc::Sender<local::Message>,
@@ -139,7 +140,7 @@ impl Adapter {
     pub fn new(
         message_rx: mpsc::Receiver<Message>,
         notify_price_sched_interval: Duration,
-        global_store_tx: mpsc::Sender<global::Message>,
+        global_store_lookup_tx: mpsc::Sender<global::Lookup>,
         local_store_tx: mpsc::Sender<local::Message>,
         shutdown_rx: broadcast::Receiver<()>,
         logger: Logger,
@@ -150,7 +151,7 @@ impl Adapter {
             notify_price_sched_subscriptions: HashMap::new(),
             notify_price_subscriptions: HashMap::new(),
             notify_price_sched_interval: time::interval(notify_price_sched_interval),
-            global_store_tx,
+            global_store_lookup_tx,
             local_store_tx,
             shutdown_rx,
             logger,
@@ -283,14 +284,14 @@ impl Adapter {
     // Fetches the Solana-specific Oracle data from the global store
     async fn lookup_all_accounts_metadata(&self) -> Result<global::AllAccountsMetadata> {
         let (result_tx, result_rx) = oneshot::channel();
-        self.global_store_tx
-            .send(global::Message::LookupAllAccountsMetadata { result_tx })
+        self.global_store_lookup_tx
+            .send(global::Lookup::LookupAllAccountsMetadata { result_tx })
             .await?;
         result_rx.await?
     }
 
     async fn handle_get_all_products(&self) -> Result<Vec<ProductAccount>> {
-        let solana_data = self.lookup_solana_oracle_data().await?;
+        let solana_data = self.lookup_all_accounts_data().await?;
 
         let mut result = Vec::new();
         for (product_account_key, product_account) in &solana_data.product_accounts {
@@ -306,17 +307,17 @@ impl Adapter {
         Ok(result)
     }
 
-    async fn lookup_solana_oracle_data(&self) -> Result<solana::oracle::Data> {
+    async fn lookup_all_accounts_data(&self) -> Result<AllAccountsData> {
         let (result_tx, result_rx) = oneshot::channel();
-        self.global_store_tx
-            .send(global::Message::LookupSolanaOracleData { result_tx })
+        self.global_store_lookup_tx
+            .send(global::Lookup::LookupAllAccountsData { result_tx })
             .await?;
         result_rx.await?
     }
 
     fn solana_product_account_to_pythd_api_product_account(
         product_account: &solana::oracle::ProductAccount,
-        solana_data: &solana::oracle::Data,
+        all_accounts_data: &AllAccountsData,
         product_account_key: &solana_sdk::pubkey::Pubkey,
     ) -> ProductAccount {
         // Extract all the price accounts from the product account
@@ -324,7 +325,7 @@ impl Adapter {
             .price_accounts
             .iter()
             .filter_map(|price_account_key| {
-                solana_data
+                all_accounts_data
                     .price_accounts
                     .get(price_account_key)
                     .map(|acc| (price_account_key, acc))
@@ -398,17 +399,17 @@ impl Adapter {
         &self,
         product_account_key: &solana_sdk::pubkey::Pubkey,
     ) -> Result<ProductAccount> {
-        let solana_data = self.lookup_solana_oracle_data().await?;
+        let all_accounts_data = self.lookup_all_accounts_data().await?;
 
         // Look up the product account
-        let product_account = solana_data
+        let product_account = all_accounts_data
             .product_accounts
             .get(product_account_key)
             .ok_or_else(|| anyhow!("product account not found"))?;
 
         Ok(Self::solana_product_account_to_pythd_api_product_account(
             product_account,
-            &solana_data,
+            &all_accounts_data,
             product_account_key,
         ))
     }
@@ -555,6 +556,7 @@ mod tests {
             solana,
             store::{
                 global,
+                global::AllAccountsData,
                 local,
             },
         },
@@ -564,13 +566,11 @@ mod tests {
             PriceStatus,
         },
         pyth_sdk_solana::state::{
-            MappingAccount,
             PriceAccount,
             PriceComp,
             PriceInfo,
             PriceType,
             Rational,
-            MAP_TABLE_SIZE,
         },
         slog_extlog::slog_test,
         std::{
@@ -592,11 +592,11 @@ mod tests {
     };
 
     struct TestAdapter {
-        message_tx:      mpsc::Sender<Message>,
-        shutdown_tx:     broadcast::Sender<()>,
-        global_store_rx: mpsc::Receiver<global::Message>,
-        local_store_rx:  mpsc::Receiver<local::Message>,
-        jh:              JoinHandle<()>,
+        message_tx:             mpsc::Sender<Message>,
+        shutdown_tx:            broadcast::Sender<()>,
+        global_store_lookup_rx: mpsc::Receiver<global::Lookup>,
+        local_store_rx:         mpsc::Receiver<local::Message>,
+        jh:                     JoinHandle<()>,
     }
 
     impl Drop for TestAdapter {
@@ -609,7 +609,7 @@ mod tests {
     async fn setup() -> TestAdapter {
         // Create and spawn an adapter
         let (adapter_tx, adapter_rx) = mpsc::channel(100);
-        let (global_store_tx, global_store_rx) = mpsc::channel(1000);
+        let (global_store_lookup_tx, global_store_lookup_rx) = mpsc::channel(1000);
         let (local_store_tx, local_store_rx) = mpsc::channel(1000);
         let notify_price_sched_interval = Duration::from_nanos(10);
         let logger = slog_test::new_test_logger(IoBuffer::new());
@@ -617,7 +617,7 @@ mod tests {
         let mut adapter = Adapter::new(
             adapter_rx,
             notify_price_sched_interval,
-            global_store_tx,
+            global_store_lookup_tx,
             local_store_tx,
             shutdown_rx,
             logger,
@@ -626,7 +626,7 @@ mod tests {
 
         TestAdapter {
             message_tx: adapter_tx,
-            global_store_rx,
+            global_store_lookup_rx,
             local_store_rx,
             shutdown_tx,
             jh,
@@ -795,8 +795,8 @@ mod tests {
             .unwrap();
 
         // Return the product list to the adapter, from the global store
-        match test_adapter.global_store_rx.recv().await.unwrap() {
-            global::Message::LookupAllAccountsMetadata { result_tx } => result_tx
+        match test_adapter.global_store_lookup_rx.recv().await.unwrap() {
+            global::Lookup::LookupAllAccountsMetadata { result_tx } => result_tx
                 .send(Ok(get_test_all_accounts_metadata()))
                 .unwrap(),
             _ => panic!("Uexpected message received from adapter"),
@@ -878,24 +878,8 @@ mod tests {
         inputs.try_into().unwrap()
     }
 
-    fn get_test_global_oracle_data() -> solana::oracle::Data {
-        solana::oracle::Data {
-            mapping_accounts: HashMap::from([(
-                solana_sdk::pubkey::Pubkey::from_str(
-                    "7ycfa1ENNT5dVVoMtiMjsgVbkWKFJbu6nF2h1UVT18Cf",
-                )
-                .unwrap(),
-                MappingAccount {
-                    magic:    0xa1b2c3d4,
-                    ver:      4,
-                    atype:    3,
-                    size:     500,
-                    num:      3,
-                    unused:   0,
-                    next:     solana_sdk::pubkey::Pubkey::default(),
-                    products: [solana_sdk::pubkey::Pubkey::default(); MAP_TABLE_SIZE],
-                },
-            )]),
+    fn get_all_accounts_data() -> AllAccountsData {
+        AllAccountsData {
             product_accounts: HashMap::from([
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
@@ -1507,10 +1491,10 @@ mod tests {
             .await
             .unwrap();
 
-        // Return the Solana oracle data to the adapter, from the global store
-        match test_adapter.global_store_rx.recv().await.unwrap() {
-            global::Message::LookupSolanaOracleData { result_tx } => {
-                result_tx.send(Ok(get_test_global_oracle_data())).unwrap()
+        // Return the account data to the adapter, from the global store
+        match test_adapter.global_store_lookup_rx.recv().await.unwrap() {
+            global::Lookup::LookupAllAccountsData { result_tx } => {
+                result_tx.send(Ok(get_all_accounts_data())).unwrap()
             }
             _ => panic!("Uexpected message received from adapter"),
         };
@@ -1732,10 +1716,10 @@ mod tests {
             .await
             .unwrap();
 
-        // Return the Solana oracle data to the adapter, from the global store
-        match test_adapter.global_store_rx.recv().await.unwrap() {
-            global::Message::LookupSolanaOracleData { result_tx } => {
-                result_tx.send(Ok(get_test_global_oracle_data())).unwrap()
+        // Return the account data to the adapter, from the global store
+        match test_adapter.global_store_lookup_rx.recv().await.unwrap() {
+            global::Lookup::LookupAllAccountsData { result_tx } => {
+                result_tx.send(Ok(get_all_accounts_data())).unwrap()
             }
             _ => panic!("Uexpected message received from adapter"),
         };
