@@ -100,3 +100,135 @@ pub enum Lookup {
         result_tx: oneshot::Sender<Result<AllAccountsData>>,
     },
 }
+
+pub struct Store {
+    /// The actual data
+    account_data:     AllAccountsData,
+    account_metadata: AllAccountsMetadata,
+
+    /// Channel on which lookup requests are received
+    lookup_rx: mpsc::Receiver<Lookup>,
+
+    /// Channel on which account updates are received from the primary network
+    primary_updates_rx: mpsc::Receiver<Update>,
+
+    /// Channel on which account updates are received from the secondary network
+    secondary_updates_rx: mpsc::Receiver<Update>,
+
+    /// Channel on which to communicate with the pythd API adapter
+    pythd_adapter_tx: mpsc::Sender<adapter::Message>,
+
+    logger: Logger,
+}
+
+impl Store {
+    pub async fn run(&mut self) {
+        loop {
+            if let Err(err) = self.handle_next().await {
+                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+            }
+        }
+    }
+
+    async fn handle_next(&mut self) -> Result<()> {
+        tokio::select! {
+            Some(update) = self.primary_updates_rx.recv() => {
+                self.update_data(&update).await;
+                self.update_metadata(&update).await;
+            }
+            Some(update) = self.secondary_updates_rx.recv() => {
+                // We only use the secondary store to update the metadata, which is
+                // the same between both networks. This is so that if one network is offline
+                // we still have the metadata available to us. We don't update the data
+                // itself, because the aggregate prices may diverge slightly between
+                // the two networks.
+                self.update_metadata(&update).await;
+            }
+            Some(lookup) = self.lookup_rx.recv() => {
+                self.handle_lookup(lookup).await?
+            }
+        };
+
+        Ok(())
+    }
+
+    async fn update_data(&mut self, update: &Update) -> Result<()> {
+        match update {
+            Update::ProductAccountUpdate {
+                account_key,
+                account,
+            } => {
+                self.account_data
+                    .product_accounts
+                    .insert(*account_key, account.clone());
+            }
+            Update::PriceAccountUpdate {
+                account_key,
+                account,
+            } => {
+                // Sanity-check that we are updating with more recent data
+                if self
+                    .account_data
+                    .price_accounts
+                    .get(account_key)
+                    .map(|cur| cur.timestamp > account.timestamp)
+                    .unwrap_or_default()
+                {
+                    return Ok(());
+                }
+
+                // Update the stored data
+                self.account_data
+                    .price_accounts
+                    .insert(*account_key, *account);
+
+                // Notify the Pythd API adapter that this account has changed
+                self.pythd_adapter_tx
+                    .send(adapter::Message::GlobalStoreUpdate {
+                        price_identifier: Identifier::new(account_key.to_bytes()),
+                        price:            account.agg.price,
+                        conf:             account.agg.conf,
+                        status:           account.agg.status,
+                        valid_slot:       account.valid_slot,
+                        pub_slot:         account.agg.pub_slot,
+                    })
+                    .await
+                    .map_err(|_| anyhow!("failed to notify pythd adapter of account update"))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn update_metadata(&mut self, update: &Update) {
+        match update {
+            Update::ProductAccountUpdate {
+                account_key,
+                account,
+            } => {
+                self.account_metadata
+                    .product_accounts_metadata
+                    .insert(*account_key, account.clone().into());
+            }
+            Update::PriceAccountUpdate {
+                account_key,
+                account,
+            } => {
+                self.account_metadata
+                    .price_accounts_metadata
+                    .insert(*account_key, (*account).into());
+            }
+        }
+    }
+
+    async fn handle_lookup(&self, lookup: Lookup) -> Result<()> {
+        match lookup {
+            Lookup::LookupAllAccountsMetadata { result_tx } => result_tx
+                .send(Ok(self.account_metadata.clone()))
+                .map_err(|_| anyhow!("failed to send metadata to pythd adapter")),
+            Lookup::LookupAllAccountsData { result_tx } => result_tx
+                .send(Ok(self.account_data.clone()))
+                .map_err(|_| anyhow!("failed to send data to pythd adapter")),
+        }
+    }
+}
