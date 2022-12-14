@@ -44,12 +44,9 @@ use {
     },
     tokio::{
         sync::{
-            mpsc,
-            mpsc::{
-                Receiver,
-                Sender,
-            },
+            mpsc::Sender,
             oneshot,
+            watch,
         },
         time::{
             self,
@@ -111,11 +108,8 @@ pub struct Exporter {
     /// The last time an update was published for each price identifier
     last_published_at: HashMap<PriceIdentifier, UnixTimestamp>,
 
-    /// Channel on which updates about the networks current state are received
-    network_state_rx: Receiver<NetworkState>,
-
-    /// Information about the current state of the network
-    network_state: NetworkState,
+    /// Watch receiver channel to access the current network state
+    network_state_rx: watch::Receiver<NetworkState>,
 
     logger: Logger,
 }
@@ -123,20 +117,9 @@ pub struct Exporter {
 impl Exporter {
     pub async fn run(&mut self) {
         loop {
-            if let Err(err) = self.handle_next().await {
+            self.config.publish_interval.tick().await;
+            if let Err(err) = self.publish_updates().await {
                 error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
-            }
-        }
-    }
-
-    async fn handle_next(&mut self) -> Result<()> {
-        tokio::select! {
-            Some(network_state) = self.network_state_rx.recv() => {
-                self.network_state = network_state;
-                Ok(())
-            }
-            _ = self.config.publish_interval.tick() => {
-                self.publish_updates().await
             }
         }
     }
@@ -230,6 +213,7 @@ impl Exporter {
             )
         });
 
+        let network_state = *self.network_state_rx.borrow();
         for (identifier, price_info_result) in refreshed_batch {
             let price_info = price_info_result?;
 
@@ -264,7 +248,7 @@ impl Exporter {
                     status:   price_info.status,
                     price:    price_info.price,
                     conf:     price_info.conf,
-                    pub_slot: self.network_state.current_slot,
+                    pub_slot: network_state.current_slot,
                 })?,
             };
 
@@ -276,7 +260,7 @@ impl Exporter {
             &instructions,
             Some(&self.key_store.publish_keypair.pubkey()),
             &vec![&self.key_store.publish_keypair],
-            self.network_state.blockhash,
+            network_state.blockhash,
         );
 
         let _signature = self
@@ -296,7 +280,7 @@ impl Exporter {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct NetworkState {
     blockhash:    Hash,
     current_slot: u64,
@@ -312,7 +296,7 @@ struct NetworkStateQuerier {
     query_interval: Interval,
 
     /// Channel the current network state is sent on
-    network_state_tx: mpsc::Sender<NetworkState>,
+    network_state_tx: watch::Sender<NetworkState>,
 
     /// Logger
     logger: Logger,
@@ -339,12 +323,10 @@ impl NetworkStateQuerier {
             future::join(current_slot_future, latest_blockhash_future).await;
 
         // Send the result on the channel
-        self.network_state_tx
-            .send(NetworkState {
-                blockhash:    latest_blockhash_result?,
-                current_slot: current_slot_result?,
-            })
-            .await?;
+        self.network_state_tx.send(NetworkState {
+            blockhash:    latest_blockhash_result?,
+            current_slot: current_slot_result?,
+        })?;
 
         Ok(())
     }
