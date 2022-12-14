@@ -4,12 +4,20 @@
 
 use {
     super::PriceIdentifier,
+    anyhow::{
+        anyhow,
+        Result,
+    },
     pyth_sdk::{
         PriceStatus,
         UnixTimestamp,
     },
+    slog::Logger,
     std::collections::HashMap,
-    tokio::sync::oneshot,
+    tokio::sync::{
+        mpsc,
+        oneshot,
+    },
 };
 
 #[derive(Clone)]
@@ -28,4 +36,58 @@ pub enum Message {
     LookupAllPriceInfo {
         result_tx: oneshot::Sender<HashMap<PriceIdentifier, PriceInfo>>,
     },
+}
+
+pub struct Store {
+    prices: HashMap<PriceIdentifier, PriceInfo>,
+    rx:     mpsc::Receiver<Message>,
+    logger: Logger,
+}
+
+impl Store {
+    pub fn new(rx: mpsc::Receiver<Message>, logger: Logger) -> Self {
+        Store {
+            prices: HashMap::new(),
+            rx,
+            logger,
+        }
+    }
+
+    pub async fn run(&mut self) {
+        while let Some(message) = self.rx.recv().await {
+            if let Err(err) = self.handle(message) {
+                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+            }
+        }
+    }
+
+    fn handle(&mut self, message: Message) -> Result<()> {
+        match message {
+            Message::Update {
+                price_identifier,
+                price_info,
+            } => {
+                self.update(price_identifier, price_info);
+                Ok(())
+            }
+            Message::LookupAllPriceInfo { result_tx } => result_tx
+                .send(self.get_all_price_infos())
+                .map_err(|_| anyhow!("failed to send LookupAllPriceInfo result")),
+        }
+    }
+
+    pub fn update(&mut self, price_identifier: PriceIdentifier, price_info: PriceInfo) {
+        // Drop the update if it is older than the current one stored for the price
+        if let Some(current_price_info) = self.prices.get(&price_identifier) {
+            if current_price_info.timestamp > price_info.timestamp {
+                return;
+            }
+        }
+
+        self.prices.insert(price_identifier, price_info);
+    }
+
+    pub fn get_all_price_infos(&self) -> HashMap<PriceIdentifier, PriceInfo> {
+        self.prices.clone()
+    }
 }
