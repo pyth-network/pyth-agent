@@ -2,7 +2,11 @@
 // on-chain Oracle program accounts from Solana.
 
 use {
-    anyhow::Result,
+    crate::publisher::store::global,
+    anyhow::{
+        anyhow,
+        Result,
+    },
     pyth_sdk_solana::state::{
         load_mapping_account,
         load_price_account,
@@ -60,6 +64,9 @@ pub struct Oracle {
 
     // Channel on which account updates are received from the subscriber
     updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
+
+    // Channel on which updates are sent to the global store
+    global_store_tx: mpsc::Sender<global::Update>,
 
     logger: Logger,
 }
@@ -125,6 +132,8 @@ impl Oracle {
         self.data.price_accounts = self
             .fetch_price_accounts(self.data.product_accounts.values())
             .await?;
+
+        self.send_all_data_to_global_store().await?;
 
         Ok(())
     }
@@ -257,7 +266,52 @@ impl Oracle {
         let price_account = *load_price_account(&account.data)?;
         self.data.price_accounts.insert(*account_key, price_account);
 
+        self.notify_price_account_update(account_key, &price_account)
+            .await?;
+
         Ok(())
+    }
+
+    async fn send_all_data_to_global_store(&self) -> Result<()> {
+        for (product_account_key, product_account) in &self.data.product_accounts {
+            self.notify_product_account_update(product_account_key, product_account)
+                .await?;
+        }
+
+        for (price_account_key, price_account) in &self.data.price_accounts {
+            self.notify_price_account_update(price_account_key, price_account)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn notify_product_account_update(
+        &self,
+        account_key: &Pubkey,
+        account: &ProductAccount,
+    ) -> Result<()> {
+        self.global_store_tx
+            .send(global::Update::ProductAccountUpdate {
+                account_key: account_key.clone(),
+                account:     account.clone(),
+            })
+            .await
+            .map_err(|_| anyhow!("failed to notify product account update"))
+    }
+
+    async fn notify_price_account_update(
+        &self,
+        account_key: &Pubkey,
+        account: &PriceAccount,
+    ) -> Result<()> {
+        self.global_store_tx
+            .send(global::Update::PriceAccountUpdate {
+                account_key: account_key.clone(),
+                account:     account.clone(),
+            })
+            .await
+            .map_err(|_| anyhow!("failed to notify price account update"))
     }
 }
 
