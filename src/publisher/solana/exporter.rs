@@ -343,97 +343,118 @@ impl NetworkStateQuerier {
     }
 }
 
-/// TransactionMonitor monitors the percentage of recently sent transactions that
-/// have been successfully confirmed.
-pub struct TransactionMonitor {
-    /// The RPC client
-    rpc_client: RpcClient,
+mod transaction_monitor {
+    use {
+        anyhow::Result,
+        slog::Logger,
+        solana_client::nonblocking::rpc_client::RpcClient,
+        solana_sdk::{
+            commitment_config::CommitmentConfig,
+            signature::Signature,
+        },
+        std::collections::VecDeque,
+        tokio::{
+            sync::mpsc,
+            time::{
+                self,
+                Interval,
+            },
+        },
+    };
+    pub struct Config {
+        /// HTTP endpoint of the Solana RPC node
+        rpc_endpoint:     String,
+        /// Interval with which to poll the status of transactions.
+        /// It is recommended to set this to a value close to the Exporter's publish_interval.
+        poll_interval:    Interval,
+        /// Maximum number of recent transactions to monitor. When this number is exceeded,
+        /// the oldest transactions are no longer monitored. It is recommended to set this to
+        /// a value close to (number of products published / number of products in a batch).
+        max_transactions: usize,
+    }
 
-    /// Channel the signatures of transactions we have sent are received.
-    transactions_rx: mpsc::Receiver<Signature>,
+    /// TransactionMonitor monitors the percentage of recently sent transactions that
+    /// have been successfully confirmed.
+    pub struct TransactionMonitor {
+        config: Config,
 
-    /// Vector storing the signatures of transactions we have sent
-    sent_transactions: VecDeque<Signature>,
+        /// The RPC client
+        rpc_client: RpcClient,
 
-    /// Interval with which to poll the status of transactions.
-    /// It is recommended to set this to a value close to the Exporter's publish_interval.
-    poll_interval: Interval,
-
-    /// Maximum number of recent transactions to monitor. When this number is exceeded,
-    /// the oldest transactions are no longer monitored. It is recommended to set this to
-    /// a value close to (number of products published / number of products in a batch).
-    max_transactions: usize,
-
-    logger: Logger,
-}
-
-impl TransactionMonitor {
-    pub fn new(
-        rpc_url: &str,
-        poll_interval: Duration,
-        max_outstanding_transactions: usize,
+        /// Channel the signatures of transactions we have sent are received.
         transactions_rx: mpsc::Receiver<Signature>,
+
+        /// Vector storing the signatures of transactions we have sent
+        sent_transactions: VecDeque<Signature>,
+
         logger: Logger,
-    ) -> Self {
-        TransactionMonitor {
-            rpc_client: RpcClient::new(rpc_url.to_string()),
-            poll_interval: time::interval(poll_interval),
-            sent_transactions: VecDeque::new(),
-            max_transactions: max_outstanding_transactions,
-            transactions_rx,
-            logger,
-        }
     }
 
-    pub async fn run(&mut self) {
-        loop {
-            if let Err(err) = self.handle_next().await {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+    impl TransactionMonitor {
+        pub fn new(
+            config: Config,
+            transactions_rx: mpsc::Receiver<Signature>,
+            logger: Logger,
+        ) -> Self {
+            TransactionMonitor {
+                config,
+                rpc_client: RpcClient::new(config.rpc_endpoint.to_string()),
+                sent_transactions: VecDeque::new(),
+                transactions_rx,
+                logger,
             }
         }
-    }
 
-    async fn handle_next(&mut self) -> Result<()> {
-        tokio::select! {
-            Some(signature) = self.transactions_rx.recv() => {
-                self.add_transaction(signature);
-                Ok(())
-            }
-            _ = self.poll_interval.tick() => {
-                self.poll_transactions_status().await
+        pub async fn run(&mut self) {
+            loop {
+                if let Err(err) = self.handle_next().await {
+                    error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+                }
             }
         }
-    }
 
-    fn add_transaction(&mut self, signature: Signature) {
-        // Add the new transaction to the list
-        self.sent_transactions.push_back(signature);
-
-        // Pop off the oldest transaction if necessary
-        if self.sent_transactions.len() > self.max_transactions {
-            self.sent_transactions.pop_front();
+        async fn handle_next(&mut self) -> Result<()> {
+            tokio::select! {
+                Some(signature) = self.transactions_rx.recv() => {
+                    self.add_transaction(signature);
+                    Ok(())
+                }
+                _ = self.config.poll_interval.tick() => {
+                    self.poll_transactions_status().await
+                }
+            }
         }
-    }
 
-    async fn poll_transactions_status(&mut self) -> Result<()> {
-        // Poll the status of each transaction, in a single RPC request
-        let statuses = self
-            .rpc_client
-            .get_signature_statuses(self.sent_transactions.make_contiguous())
-            .await?
-            .value;
+        fn add_transaction(&mut self, signature: Signature) {
+            // Add the new transaction to the list
+            self.sent_transactions.push_back(signature);
 
-        // Determine the percentage of the recently sent transactions that have successfully been committed
-        // TODO: expose as metric
-        let confirmed = statuses
-            .into_iter()
-            .flatten()
-            .filter(|s| s.satisfies_commitment(CommitmentConfig::confirmed()))
-            .count();
-        let percentage_confirmed = (confirmed as f64) / (self.sent_transactions.len() as f64);
-        info!(self.logger, "monitoring transaction hit rate"; "rate" => percentage_confirmed);
+            // Pop off the oldest transaction if necessary
+            if self.sent_transactions.len() > self.config.max_transactions {
+                self.sent_transactions.pop_front();
+            }
+        }
 
-        Ok(())
+        async fn poll_transactions_status(&mut self) -> Result<()> {
+            // Poll the status of each transaction, in a single RPC request
+            let statuses = self
+                .rpc_client
+                .get_signature_statuses(self.sent_transactions.make_contiguous())
+                .await?
+                .value;
+
+            // Determine the percentage of the recently sent transactions that have successfully been committed
+            // TODO: expose as metric
+            let confirmed = statuses
+                .into_iter()
+                .flatten()
+                .filter(|s| s.satisfies_commitment(CommitmentConfig::confirmed()))
+                .count();
+            let percentage_confirmed = (confirmed as f64) / (self.sent_transactions.len() as f64);
+            info!(self.logger, "monitoring transaction hit rate"; "rate" => percentage_confirmed);
+
+            Ok(())
+        }
     }
 }
 
