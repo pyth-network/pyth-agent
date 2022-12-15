@@ -40,7 +40,10 @@ use {
         transaction::Transaction,
     },
     std::{
-        collections::HashMap,
+        collections::{
+            HashMap,
+            VecDeque,
+        },
         time::Duration,
     },
     tokio::{
@@ -340,25 +343,26 @@ impl NetworkStateQuerier {
     }
 }
 
-/// TransactionMonitor monitors the transactions which have yet to be confirmed,
-/// and warns if this number grows too large.
-// TODO: more sophisticated metrics and heuristics to track transaction hit rates. This is a starting point.
+/// TransactionMonitor monitors the percentage of recently sent transactions that
+/// have been successfully confirmed.
 pub struct TransactionMonitor {
     /// The RPC client
     rpc_client: RpcClient,
 
-    /// Interval with which to poll the status of outstanding transactions
+    /// Channel the signatures of transactions we have sent are received.
+    transactions_rx: mpsc::Receiver<Signature>,
+
+    /// Vector storing the signatures of transactions we have sent
+    sent_transactions: VecDeque<Signature>,
+
+    /// Interval with which to poll the status of transactions.
+    /// It is recommended to set this to a value close to the Exporter's publish_interval.
     poll_interval: Interval,
 
-    /// Vector storing the signatures of outstanding transactions
-    outstanding_transactions: Vec<Signature>,
-
-    /// Maximum number of outstanding transactions to monitor: a warning is logged
-    /// if this is exceeded.
-    max_outstanding_transactions: usize,
-
-    /// Channel the signatures of outstanding transactions are sent on
-    signatures_rx: mpsc::Receiver<Signature>,
+    /// Maximum number of recent transactions to monitor. When this number is exceeded,
+    /// the oldest transactions are no longer monitored. It is recommended to set this to
+    /// a value close to (number of products published / number of products in a batch).
+    max_transactions: usize,
 
     logger: Logger,
 }
@@ -368,15 +372,15 @@ impl TransactionMonitor {
         rpc_url: &str,
         poll_interval: Duration,
         max_outstanding_transactions: usize,
-        signatures_rx: mpsc::Receiver<Signature>,
+        transactions_rx: mpsc::Receiver<Signature>,
         logger: Logger,
     ) -> Self {
         TransactionMonitor {
             rpc_client: RpcClient::new(rpc_url.to_string()),
             poll_interval: time::interval(poll_interval),
-            outstanding_transactions: Vec::new(),
-            max_outstanding_transactions,
-            signatures_rx,
+            sent_transactions: VecDeque::new(),
+            max_transactions: max_outstanding_transactions,
+            transactions_rx,
             logger,
         }
     }
@@ -391,58 +395,45 @@ impl TransactionMonitor {
 
     async fn handle_next(&mut self) -> Result<()> {
         tokio::select! {
-            Some(signature) = self.signatures_rx.recv() => {
-                self.add_outstanding_transaction(signature);
+            Some(signature) = self.transactions_rx.recv() => {
+                self.add_transaction(signature);
                 Ok(())
             }
             _ = self.poll_interval.tick() => {
-                self.poll_outstanding_transactions_status().await
+                self.poll_transactions_status().await
             }
         }
     }
 
-    fn add_outstanding_transaction(&mut self, signature: Signature) {
-        // Add the new outstanding transaction to the list
-        self.outstanding_transactions.push(signature);
+    fn add_transaction(&mut self, signature: Signature) {
+        // Add the new transaction to the list
+        self.sent_transactions.push_back(signature);
 
-        // Keep the amount of outstanding transactions we monitor at a reasonable size
-        if self.outstanding_transactions.len() > self.max_outstanding_transactions {
-            warn!(self.logger, "many unacked transactions"; "count" => self.outstanding_transactions.len(), "max" => self.max_outstanding_transactions);
-            self.outstanding_transactions
-                .drain(0..(self.max_outstanding_transactions / 2));
+        // Pop off the oldest transaction if necessary
+        if self.sent_transactions.len() > self.max_transactions {
+            self.sent_transactions.pop_front();
         }
     }
 
-    async fn poll_outstanding_transactions_status(&mut self) -> Result<()> {
-        // Poll the status of each outstanding transaction, in parallel
-        let confirmed = join_all(
-            self.outstanding_transactions
-                .iter()
-                .map(|signature| self.poll_transaction(signature)),
-        )
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>>>()?;
+    async fn poll_transactions_status(&mut self) -> Result<()> {
+        // Poll the status of each transaction, in a single RPC request
+        let statuses = self
+            .rpc_client
+            .get_signature_statuses(self.sent_transactions.make_contiguous())
+            .await?
+            .value;
 
-        // Keep only those transactions which are not yet confirmed
-        self.outstanding_transactions = self
-            .outstanding_transactions
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !confirmed[*i])
-            .map(|(_, signature)| signature)
-            .cloned()
-            .collect();
+        // Determine the percentage of the recently sent transactions that have successfully been committed
+        // TODO: expose as metric
+        let confirmed = statuses
+            .into_iter()
+            .flatten()
+            .filter(|s| s.satisfies_commitment(CommitmentConfig::confirmed()))
+            .count();
+        let percentage_confirmed = (confirmed as f64) / (self.sent_transactions.len() as f64);
+        info!(self.logger, "monitoring transaction hit rate"; "rate" => percentage_confirmed);
 
         Ok(())
-    }
-
-    async fn poll_transaction(&self, signature: &Signature) -> Result<bool> {
-        Ok(self
-            .rpc_client
-            .confirm_transaction_with_commitment(signature, CommitmentConfig::confirmed())
-            .await?
-            .value)
     }
 }
 
