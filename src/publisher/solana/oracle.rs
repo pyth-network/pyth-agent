@@ -83,6 +83,7 @@ impl Oracle {
     pub fn new(
         config: Config,
         updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
+        global_store_tx: mpsc::Sender<global::Update>,
         logger: Logger,
     ) -> Self {
         let rpc_client = RpcClient::new_with_commitment(
@@ -99,6 +100,7 @@ impl Oracle {
             rpc_client,
             poll_interval,
             updates_rx,
+            global_store_tx,
             logger,
         }
     }
