@@ -14,9 +14,12 @@ use {
     },
     slog::Logger,
     std::collections::HashMap,
-    tokio::sync::{
-        mpsc,
-        oneshot,
+    tokio::{
+        sync::{
+            mpsc,
+            oneshot,
+        },
+        task::JoinHandle,
     },
 };
 
@@ -36,6 +39,10 @@ pub enum Message {
     LookupAllPriceInfo {
         result_tx: oneshot::Sender<HashMap<PriceIdentifier, PriceInfo>>,
     },
+}
+
+pub fn spawn_store(rx: mpsc::Receiver<Message>, logger: Logger) -> JoinHandle<()> {
+    tokio::spawn(async move { Store::new(rx, logger).run().await })
 }
 
 pub struct Store {
