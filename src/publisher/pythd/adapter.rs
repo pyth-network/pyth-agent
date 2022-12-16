@@ -43,12 +43,20 @@ use {
             mpsc,
             oneshot,
         },
+        task::JoinHandle,
         time::{
             self,
             Interval,
         },
     },
 };
+
+#[derive(Default)]
+pub struct Config {
+    /// The duration of the interval at which `notify_price_sched` notifications
+    /// will be sent.
+    notify_price_sched_interval_duration: Duration,
+}
 
 /// Adapter is the adapter between the pythd websocket API, and the stores.
 /// It is responsible for implementing the business logic for responding to
@@ -136,10 +144,32 @@ pub enum Message {
     },
 }
 
+pub fn spawn_adapter(
+    config: Config,
+    message_rx: mpsc::Receiver<Message>,
+    global_store_lookup_tx: mpsc::Sender<global::Lookup>,
+    local_store_tx: mpsc::Sender<local::Message>,
+    shutdown_rx: broadcast::Receiver<()>,
+    logger: Logger,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        Adapter::new(
+            config,
+            message_rx,
+            global_store_lookup_tx,
+            local_store_tx,
+            shutdown_rx,
+            logger,
+        )
+        .run()
+        .await
+    })
+}
+
 impl Adapter {
     pub fn new(
+        config: Config,
         message_rx: mpsc::Receiver<Message>,
-        notify_price_sched_interval: Duration,
         global_store_lookup_tx: mpsc::Sender<global::Lookup>,
         local_store_tx: mpsc::Sender<local::Message>,
         shutdown_rx: broadcast::Receiver<()>,
@@ -150,7 +180,9 @@ impl Adapter {
             subscription_id_count: 0,
             notify_price_sched_subscriptions: HashMap::new(),
             notify_price_subscriptions: HashMap::new(),
-            notify_price_sched_interval: time::interval(notify_price_sched_interval),
+            notify_price_sched_interval: time::interval(
+                config.notify_price_sched_interval_duration,
+            ),
             global_store_lookup_tx,
             local_store_tx,
             shutdown_rx,
@@ -538,6 +570,7 @@ mod tests {
     use {
         super::{
             Adapter,
+            Config,
             Message,
         },
         crate::publisher::{
@@ -611,12 +644,15 @@ mod tests {
         let (adapter_tx, adapter_rx) = mpsc::channel(100);
         let (global_store_lookup_tx, global_store_lookup_rx) = mpsc::channel(1000);
         let (local_store_tx, local_store_rx) = mpsc::channel(1000);
-        let notify_price_sched_interval = Duration::from_nanos(10);
+        let notify_price_sched_interval_duration = Duration::from_nanos(10);
         let logger = slog_test::new_test_logger(IoBuffer::new());
         let (shutdown_tx, shutdown_rx) = broadcast::channel(10);
+        let config = Config {
+            notify_price_sched_interval_duration,
+        };
         let mut adapter = Adapter::new(
+            config,
             adapter_rx,
-            notify_price_sched_interval,
             global_store_lookup_tx,
             local_store_tx,
             shutdown_rx,
