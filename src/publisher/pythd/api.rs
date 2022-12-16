@@ -91,7 +91,6 @@ pub struct PriceUpdate {
 }
 
 pub mod rpc {
-
     use {
         super::{
             super::adapter,
@@ -133,10 +132,13 @@ pub mod rpc {
             fmt::Debug,
             net::SocketAddr,
         },
-        tokio::sync::{
-            broadcast,
-            mpsc,
-            oneshot,
+        tokio::{
+            sync::{
+                broadcast,
+                mpsc,
+                oneshot,
+            },
+            task::JoinHandle,
         },
         warp::{
             ws::{
@@ -528,6 +530,19 @@ pub mod rpc {
                 notify_price_sched_tx_buffer: 1000,
             }
         }
+    }
+
+    pub fn spawn_server(
+        config: Config,
+        adapter_tx: mpsc::Sender<adapter::Message>,
+        shutdown_rx: broadcast::Receiver<()>,
+        logger: Logger,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            Server::new(adapter_tx, config, logger)
+                .run(shutdown_rx)
+                .await
+        })
     }
 
     pub struct Server {
