@@ -2,6 +2,7 @@
 // on-chain Oracle program accounts from Solana.
 
 use {
+    self::subscriber::Subscriber,
     crate::publisher::store::global,
     anyhow::{
         anyhow,
@@ -28,6 +29,7 @@ use {
     },
     tokio::{
         sync::mpsc,
+        task::JoinHandle,
         time::Interval,
     },
 };
@@ -71,12 +73,41 @@ pub struct Oracle {
     logger: Logger,
 }
 
+#[derive(Default)]
 pub struct Config {
-    pub commitment:             CommitmentLevel,
-    pub oracle_account_key:     Pubkey,
-    pub mapping_account_key:    Pubkey,
-    pub rpc_url:                String,
-    pub poll_interval_duration: Duration,
+    /// The commitment level to use when reading data from the RPC node.
+    pub commitment:               CommitmentLevel,
+    /// Public key of the Oracle program.
+    pub oracle_account_key:       Pubkey,
+    /// Public key of the root mapping account.
+    pub mapping_account_key:      Pubkey,
+    /// RPC endpoint to send requests to.
+    pub rpc_url:                  String,
+    /// The interval with which to poll account information.
+    pub poll_interval_duration:   Duration,
+    /// Whether subscribing to account updates over websocket is enabled
+    pub subscriber_enabled:       bool,
+    /// Configuration for account Subscriber
+    pub subscriber:               subscriber::Config,
+    /// Capacity of the channel over which the Subscriber sends updates to the Exporter
+    pub updates_channel_capacity: usize,
+}
+
+pub fn spawn_oracle(
+    config: Config,
+    global_store_update_tx: mpsc::Sender<global::Update>,
+    logger: Logger,
+) -> Vec<JoinHandle<()>> {
+    // Create and spawn the account subscriber
+    let (updates_tx, updates_rx) = mpsc::channel(config.updates_channel_capacity);
+    let subscriber = Subscriber::new(config.subscriber.clone(), updates_tx, logger.clone());
+    let subscriber_jh = tokio::spawn(async move { subscriber.run().await });
+
+    // Create and spawn the Oracle
+    let mut oracle = Oracle::new(config, updates_rx, global_store_update_tx, logger);
+    let oracle_jh = tokio::spawn(async move { oracle.run().await });
+
+    vec![subscriber_jh, oracle_jh]
 }
 
 impl Oracle {
@@ -339,14 +370,23 @@ mod subscriber {
         },
     };
 
+    #[derive(Clone, Default)]
+    pub struct Config {
+        /// Commitment level used to read account data
+        commitment:  CommitmentLevel,
+        /// Public key of the root account to monitor. Note that all
+        /// accounts owned by this account are also monitored.
+        account_key: Pubkey,
+        /// HTTP RPC endpoint
+        rpc_url:     String,
+        /// WSS RPC endpoint
+        wss_url:     String,
+    }
+
     /// Subscriber subscribes to all changes on the given account, and sends those changes
     /// on updates_tx. This is a convenience wrapper around the Blockchain Shadow crate.
     pub struct Subscriber {
-        // Configuration
-        commitment:  CommitmentLevel,
-        account_key: Pubkey,
-        rpc_url:     String,
-        wss_url:     String,
+        config: Config,
 
         // Channel on which updates are sent
         updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
@@ -356,18 +396,12 @@ mod subscriber {
 
     impl Subscriber {
         pub fn new(
-            commitment: CommitmentLevel,
-            account_key: Pubkey,
-            rpc_url: &str,
-            wss_url: &str,
+            config: Config,
             updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
             logger: Logger,
         ) -> Self {
             Subscriber {
-                commitment,
-                account_key,
-                rpc_url: rpc_url.to_string(),
-                wss_url: wss_url.to_string(),
+                config,
                 updates_tx,
                 logger,
             }
@@ -402,13 +436,13 @@ mod subscriber {
             &self,
         ) -> Result<broadcast::Receiver<(Pubkey, solana_sdk::account::Account)>> {
             let shadow = BlockchainShadow::new_for_program(
-                &self.account_key,
+                &self.config.account_key,
                 SyncOptions {
                     network: solana_shadow::Network::Custom(
-                        self.rpc_url.clone(),
-                        self.wss_url.clone(),
+                        self.config.rpc_url.clone(),
+                        self.config.wss_url.clone(),
                     ),
-                    commitment: self.commitment,
+                    commitment: self.config.commitment,
                     ..SyncOptions::default()
                 },
             )
