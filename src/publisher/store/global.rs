@@ -1,3 +1,4 @@
+use tokio::task::JoinHandle;
 // The Global Store stores a copy of all the product and price information held in the Pyth
 // on-chain aggregation contracts, across both the primary and secondary networks.
 // This enables this data to be easily queried by other components.
@@ -27,7 +28,7 @@ use {
 
 /// AllAccountsData contains the full data for the price and product accounts, sourced
 /// from the primary network.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AllAccountsData {
     pub product_accounts: HashMap<Pubkey, oracle::ProductAccount>,
     pub price_accounts:   HashMap<Pubkey, oracle::PriceAccount>,
@@ -36,14 +37,14 @@ pub struct AllAccountsData {
 /// AllAccountsMetadata contains the metadata for all the price and product accounts.
 ///
 /// Important: this relies on the metadata for all accounts being consistent across both networks.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AllAccountsMetadata {
     pub product_accounts_metadata: HashMap<Pubkey, ProductAccountMetadata>,
     pub price_accounts_metadata:   HashMap<Pubkey, PriceAccountMetadata>,
 }
 
 /// ProductAccountMetadata contains the metadata for a product account.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ProductAccountMetadata {
     /// Attribute dictionary
     pub attr_dict:      BTreeMap<String, String>,
@@ -121,7 +122,45 @@ pub struct Store {
     logger: Logger,
 }
 
+pub fn spawn_store(
+    lookup_rx: mpsc::Receiver<Lookup>,
+    primary_updates_rx: mpsc::Receiver<Update>,
+    secondary_updates_rx: mpsc::Receiver<Update>,
+    pythd_adapter_tx: mpsc::Sender<adapter::Message>,
+    logger: Logger,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        Store::new(
+            lookup_rx,
+            primary_updates_rx,
+            secondary_updates_rx,
+            pythd_adapter_tx,
+            logger,
+        )
+        .run()
+        .await
+    })
+}
+
 impl Store {
+    pub fn new(
+        lookup_rx: mpsc::Receiver<Lookup>,
+        primary_updates_rx: mpsc::Receiver<Update>,
+        secondary_updates_rx: mpsc::Receiver<Update>,
+        pythd_adapter_tx: mpsc::Sender<adapter::Message>,
+        logger: Logger,
+    ) -> Self {
+        Store {
+            account_data: Default::default(),
+            account_metadata: Default::default(),
+            lookup_rx,
+            primary_updates_rx,
+            secondary_updates_rx,
+            pythd_adapter_tx,
+            logger,
+        }
+    }
+
     pub async fn run(&mut self) {
         loop {
             if let Err(err) = self.handle_next().await {
