@@ -1,4 +1,5 @@
 use {
+    self::transaction_monitor::TransactionMonitor,
     super::super::store::{
         self,
         local::PriceInfo,
@@ -40,10 +41,7 @@ use {
         transaction::Transaction,
     },
     std::{
-        collections::{
-            HashMap,
-            VecDeque,
-        },
+        collections::HashMap,
         time::Duration,
     },
     tokio::{
@@ -53,6 +51,7 @@ use {
             oneshot,
             watch,
         },
+        task::JoinHandle,
         time::{
             self,
             Interval,
@@ -84,17 +83,70 @@ struct UpdPriceCmd {
     pub_slot: u64,
 }
 
-struct Config {
-    /// Interval at which to refresh the cached network state (current slot and blockhash).
+#[derive(Default)]
+pub struct Config {
+    /// HTTP endpoint of the Solana RPC node
+    pub rpc_endpoint:                            String,
+    /// Duration of the interval at which to refresh the cached network state (current slot and blockhash).
     /// It is recommended to set this to slightly less than the network's block time,
     /// as the slot fetched will be used as the time of the price update.
-    refresh_network_state_interval: Interval,
-    /// Interval at which to publish updates
-    publish_interval:               Interval,
+    pub refresh_network_state_interval_duration: Duration,
+    /// Duration of the interval at which to publish updates
+    pub publish_interval_duration:               Duration,
     /// Age after which a price update is considered stale and not published
-    staleness_threshold:            Duration,
+    pub staleness_threshold:                     Duration,
     /// Maximum size of a batch
-    max_batch_size:                 usize,
+    pub max_batch_size:                          usize,
+    /// Configuration for the Key Store
+    pub key_store:                               key_store::Config,
+    /// Capacity of the channel between the Exporter and the Transaction Monitor
+    pub inflight_transactions_channel_capacity:  usize,
+    /// Configuration for the Transaction Monitor
+    pub transaction_monitor:                     transaction_monitor::Config,
+}
+
+pub fn spawn_exporter(
+    config: Config,
+    local_store_tx: Sender<store::local::Message>,
+    logger: Logger,
+) -> Result<Vec<JoinHandle<()>>> {
+    // Create and spawn the network state querier
+    let (network_state_tx, network_state_rx) = watch::channel(Default::default());
+    let mut network_state_querier = NetworkStateQuerier::new(
+        &config.rpc_endpoint,
+        time::interval(config.refresh_network_state_interval_duration),
+        network_state_tx,
+        logger.clone(),
+    );
+    let network_state_querier_jh = tokio::spawn(async move { network_state_querier.run().await });
+
+    // Create and spawn the transaction monitor
+    let (transactions_tx, transactions_rx) =
+        mpsc::channel(config.inflight_transactions_channel_capacity);
+    let mut transaction_monitor = TransactionMonitor::new(
+        config.transaction_monitor.clone(),
+        transactions_rx,
+        logger.clone(),
+    );
+    let transaction_monitor_jh = tokio::spawn(async move { transaction_monitor.run().await });
+
+    // Create and spawn the exporter
+    let key_store = KeyStore::new(config.key_store.clone())?;
+    let mut exporter = Exporter::new(
+        config,
+        key_store,
+        local_store_tx,
+        network_state_rx,
+        transactions_tx,
+        logger,
+    );
+    let exporter_jh = tokio::spawn(async move { exporter.run().await });
+
+    Ok(vec![
+        network_state_querier_jh,
+        transaction_monitor_jh,
+        exporter_jh,
+    ])
 }
 
 /// Exporter is responsible for exporting data held in the local store
@@ -103,6 +155,9 @@ pub struct Exporter {
     rpc_client: RpcClient,
 
     config: Config,
+
+    /// Interval at which to publish updates
+    publish_interval: Interval,
 
     /// The Key Store
     key_store: KeyStore,
@@ -123,9 +178,31 @@ pub struct Exporter {
 }
 
 impl Exporter {
+    pub fn new(
+        config: Config,
+        key_store: KeyStore,
+        local_store_tx: Sender<store::local::Message>,
+        network_state_rx: watch::Receiver<NetworkState>,
+        inflight_transactions_tx: Sender<Signature>,
+        logger: Logger,
+    ) -> Self {
+        let publish_interval = time::interval(config.publish_interval_duration);
+        Exporter {
+            rpc_client: RpcClient::new(config.rpc_endpoint.to_string()),
+            config,
+            publish_interval,
+            key_store,
+            local_store_tx,
+            last_published_at: HashMap::new(),
+            network_state_rx,
+            inflight_transactions_tx,
+            logger,
+        }
+    }
+
     pub async fn run(&mut self) {
         loop {
-            self.config.publish_interval.tick().await;
+            self.publish_interval.tick().await;
             if let Err(err) = self.publish_updates().await {
                 error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
             }
@@ -170,8 +247,7 @@ impl Exporter {
         let num_batches = batches.len();
         let mut batch_send_interval = time::interval(
             self.config
-                .publish_interval
-                .period()
+                .publish_interval_duration
                 .div_f64(num_batches as f64),
         );
         let mut batch_timestamps = HashMap::new();
@@ -291,8 +367,8 @@ impl Exporter {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct NetworkState {
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NetworkState {
     blockhash:    Hash,
     current_slot: u64,
 }
@@ -314,6 +390,20 @@ struct NetworkStateQuerier {
 }
 
 impl NetworkStateQuerier {
+    pub fn new(
+        rpc_endpoint: &str,
+        query_interval: Interval,
+        network_state_tx: watch::Sender<NetworkState>,
+        logger: Logger,
+    ) -> Self {
+        NetworkStateQuerier {
+            rpc_client: RpcClient::new(rpc_endpoint.to_string()),
+            query_interval,
+            network_state_tx,
+            logger,
+        }
+    }
+
     pub async fn run(&mut self) {
         loop {
             self.query_interval.tick().await;
@@ -352,7 +442,10 @@ mod transaction_monitor {
             commitment_config::CommitmentConfig,
             signature::Signature,
         },
-        std::collections::VecDeque,
+        std::{
+            collections::VecDeque,
+            time::Duration,
+        },
         tokio::{
             sync::mpsc,
             time::{
@@ -361,16 +454,18 @@ mod transaction_monitor {
             },
         },
     };
+
+    #[derive(Clone, Default)]
     pub struct Config {
         /// HTTP endpoint of the Solana RPC node
-        rpc_endpoint:     String,
-        /// Interval with which to poll the status of transactions.
+        pub rpc_endpoint:           String,
+        /// Duration of the interval with which to poll the status of transactions.
         /// It is recommended to set this to a value close to the Exporter's publish_interval.
-        poll_interval:    Interval,
+        pub poll_interval_duration: Duration,
         /// Maximum number of recent transactions to monitor. When this number is exceeded,
         /// the oldest transactions are no longer monitored. It is recommended to set this to
         /// a value close to (number of products published / number of products in a batch).
-        max_transactions: usize,
+        pub max_transactions:       usize,
     }
 
     /// TransactionMonitor monitors the percentage of recently sent transactions that
@@ -387,6 +482,9 @@ mod transaction_monitor {
         /// Vector storing the signatures of transactions we have sent
         sent_transactions: VecDeque<Signature>,
 
+        /// Interval with which to poll the status of transactions
+        poll_interval: Interval,
+
         logger: Logger,
     }
 
@@ -396,11 +494,14 @@ mod transaction_monitor {
             transactions_rx: mpsc::Receiver<Signature>,
             logger: Logger,
         ) -> Self {
+            let poll_interval = time::interval(config.poll_interval_duration);
+            let rpc_client = RpcClient::new(config.rpc_endpoint.to_string());
             TransactionMonitor {
                 config,
-                rpc_client: RpcClient::new(config.rpc_endpoint.to_string()),
+                rpc_client,
                 sent_transactions: VecDeque::new(),
                 transactions_rx,
+                poll_interval,
                 logger,
             }
         }
@@ -419,7 +520,7 @@ mod transaction_monitor {
                     self.add_transaction(signature);
                     Ok(())
                 }
-                _ = self.config.poll_interval.tick() => {
+                _ = self.poll_interval.tick() => {
                     self.poll_transactions_status().await
                 }
             }
@@ -481,6 +582,8 @@ mod key_store {
         },
     };
 
+
+    #[derive(Clone, Default)]
     pub struct Config {
         /// Root directory of the KeyStore
         pub root_path:            PathBuf,
