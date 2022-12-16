@@ -69,9 +69,9 @@ use {
     },
 };
 
-pub struct Publisher {}
+pub struct Agent {}
 
-impl Publisher {
+impl Agent {
     pub async fn start(&self) {
         let logger = slog::Logger::root(
             slog_async::Async::new(

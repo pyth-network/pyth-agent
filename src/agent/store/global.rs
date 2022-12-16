@@ -1,4 +1,3 @@
-use tokio::task::JoinHandle;
 // The Global Store stores a copy of all the product and price information held in the Pyth
 // on-chain aggregation contracts, across both the primary and secondary networks.
 // This enables this data to be easily queried by other components.
@@ -8,7 +7,7 @@ use {
         PriceAccount,
         ProductAccount,
     },
-    crate::publisher::pythd::adapter,
+    crate::agent::pythd::adapter,
     anyhow::{
         anyhow,
         Result,
@@ -20,9 +19,12 @@ use {
         BTreeMap,
         HashMap,
     },
-    tokio::sync::{
-        mpsc,
-        oneshot,
+    tokio::{
+        sync::{
+            mpsc,
+            oneshot,
+        },
+        task::JoinHandle,
     },
 };
 

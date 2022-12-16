@@ -630,7 +630,7 @@ pub mod rpc {
                 Config,
                 Server,
             },
-            crate::publisher::pythd::{
+            crate::agent::pythd::{
                 adapter,
                 api::{
                     rpc::{
