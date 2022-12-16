@@ -1,3 +1,51 @@
+/* ###################################################### System Architecture #######################################################
+
++-----------------------------+      +----------------------------+
+|         Primary Network     |      |      Secondary Network     |
+|                             |      |                            |
+|    +--------------------+   |      |   +--------------------+   |
+|    |     RPC Node       |   |      |   |     RPC Node       |   |
+|    +--------------------+   |      |   +--------------------+   |
+|       |              ^      |      |      ^              |      |
+|       |              |      |      |      |              |      |
+|       v              |      |      |      |              v      |
+|  +----------+  +----------+ |      | +----------+  +----------+ |
+|  |  Oracle  |  | Exporter | |      | | Exporter |  |  Oracle  | |
+|  +----------+  +----------+ |      | +----------+  +----------+ |         +---------------------------------+
+|       |              ^      |      |      ^              |      |         |                                 |
++-------|--------------|------+      +------|--------------|------+         |       Pythd Websocket API       |       +--------+
+        |              |                    |              |                |                                 |       |        |
+        |        +--------------------------------+        |                |   +---------+    +----------+   |       |        |
+        |        |          Local Store           |<----------------------------|         |<---|          |<----------|        |
+        |        +--------------------------------+        |                |   |         |    |   JRPC   |   |       |        |
+        v                                                  v                |   | Adapter |    |    WS    |   |       |  User  |
+    +------------------------------------------------------------+          |   |         |    |  Server  |   |       |        |
+    |                      Global Store                          |------------->|         |--->|          |---------->|        |
+    +------------------------------------------------------------+          |   +---------+    +----------+   |       |        |
+                                                                            |                                 |       |        |
+                                                                            +---------------------------------+       +--------+
+
+The arrows on the diagram above represent the direction of data flow.
+
+Write path:
+- The user submits fresh price data to the system using the Pythd JRPC Websocket API.
+- The Adapter then transforms this into the Pyth SDK data structures and sends it to the Local Store.
+- The Local Store holds the latest price data the user has submitted for each price feed.
+- The Exporters periodically query the Local Store for the latest user-submitted data,
+  and send it to the RPC node.
+
+Read path:
+- The Oracles continually fetch data from the RPC node, and pass this to the Global Store.
+- The Global Store holds a unified view of the latest observed data from both networks, in the Pyth SDK data structures.
+- When a user queries for this data using the Pythd JRPC Websocket API, the Adapter fetches
+  the latest data from the Global Store. It transforms this from the Pyth SDK data structures into the
+  Pythd JRPC Websocket API data structures.
+- The Pythd JRPC Websocket API then sends this data to the user.
+
+Note that there is an Oracle and Exporter for each network, but only one Local Store and Global Store.
+
+################################################################################################################################## */
+
 pub mod pythd;
 pub mod solana;
 pub mod store;
