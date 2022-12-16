@@ -3,7 +3,7 @@
 
 use {
     self::subscriber::Subscriber,
-    crate::publisher::store::global,
+    crate::agent::store::global,
     anyhow::{
         anyhow,
         Result,

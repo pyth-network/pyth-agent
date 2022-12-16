@@ -21,7 +21,7 @@ use {
             SubscriptionID,
         },
     },
-    crate::publisher::store::global::AllAccountsData,
+    crate::agent::store::global::AllAccountsData,
     anyhow::{
         anyhow,
         Result,
@@ -573,7 +573,7 @@ mod tests {
             Config,
             Message,
         },
-        crate::publisher::{
+        crate::agent::{
             pythd::{
                 api,
                 api::{
