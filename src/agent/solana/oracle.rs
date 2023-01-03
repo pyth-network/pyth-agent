@@ -77,7 +77,7 @@ pub struct Oracle {
     logger: Logger,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The commitment level to use when reading data from the RPC node.
     pub commitment:               CommitmentLevel,

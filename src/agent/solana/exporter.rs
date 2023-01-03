@@ -86,7 +86,7 @@ struct UpdPriceCmd {
     pub_slot: u64,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     /// HTTP endpoint of the Solana RPC node
     pub rpc_endpoint:                            String,
