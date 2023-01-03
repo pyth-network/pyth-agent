@@ -94,8 +94,6 @@ impl Agent {
     }
 
     async fn spawn(&self, logger: Logger) -> Result<()> {
-        // TODO: sane defaults. Currently we just use the derived default values.
-
         // Create the channels
         // TODO: make all components listen to shutdown signal
         let (shutdown_tx, shutdown_rx) =
