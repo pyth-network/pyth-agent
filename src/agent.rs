@@ -241,7 +241,7 @@ mod config {
     }
 
     /// Capacities of the channels top-level components use to communicate
-    #[derive(Default, Deserialize)]
+    #[derive(Deserialize)]
     pub struct ChannelCapacities {
         /// Capacity of the channel used to broadcast shutdown events to all components
         pub shutdown:                 usize,
@@ -257,5 +257,19 @@ mod config {
         pub local_store:              usize,
         /// Capacity of the channel on which the Pythd API Adapter receives messages
         pub pythd_adapter:            usize,
+    }
+
+    impl Default for ChannelCapacities {
+        fn default() -> Self {
+            Self {
+                shutdown:                 10000,
+                primary_oracle_updates:   10000,
+                secondary_oracle_updates: 10000,
+                global_store_lookup:      10000,
+                local_store_lookup:       10000,
+                local_store:              10000,
+                pythd_adapter:            10000,
+            }
+        }
     }
 }

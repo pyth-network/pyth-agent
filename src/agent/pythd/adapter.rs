@@ -55,11 +55,19 @@ use {
     },
 };
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The duration of the interval at which `notify_price_sched` notifications
     /// will be sent.
     pub notify_price_sched_interval_duration: Duration,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            notify_price_sched_interval_duration: Duration::from_secs(1),
+        }
+    }
 }
 
 /// Adapter is the adapter between the pythd websocket API, and the stores.
