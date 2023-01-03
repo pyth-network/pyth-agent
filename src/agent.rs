@@ -61,10 +61,7 @@ use {
     },
     anyhow::Result,
     futures_util::future::join_all,
-    slog::{
-        Drain,
-        Logger,
-    },
+    slog::Logger,
     tokio::sync::{
         broadcast,
         mpsc,
@@ -76,18 +73,11 @@ pub struct Agent {
 }
 
 impl Agent {
-    pub async fn start(&self) {
-        let logger = slog::Logger::root(
-            slog_async::Async::new(
-                slog_term::CompactFormat::new(slog_term::TermDecorator::new().build())
-                    .build()
-                    .fuse(),
-            )
-            .build()
-            .fuse(),
-            o!(),
-        );
+    pub fn new(config: Config) -> Self {
+        Agent { config }
+    }
 
+    pub async fn start(&self, logger: Logger) {
         if let Err(err) = self.spawn(logger.clone()).await {
             error!(logger, "{:#}", err; "error" => format!("{:?}", err));
         };
@@ -187,7 +177,7 @@ impl Agent {
     }
 }
 
-mod config {
+pub mod config {
     use {
         super::{
             exporter,
