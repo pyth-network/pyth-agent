@@ -13,6 +13,7 @@ use {
         load_price_account,
         load_product_account,
     },
+    serde::Deserialize,
     slog::Logger,
     solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
@@ -73,7 +74,7 @@ pub struct Oracle {
     logger: Logger,
 }
 
-#[derive(Default)]
+#[derive(Default, Deserialize)]
 pub struct Config {
     /// The commitment level to use when reading data from the RPC node.
     pub commitment:               CommitmentLevel,
@@ -354,6 +355,7 @@ mod subscriber {
             anyhow,
             Result,
         },
+        serde::Deserialize,
         slog::Logger,
         solana_sdk::{
             account::Account,
@@ -370,17 +372,17 @@ mod subscriber {
         },
     };
 
-    #[derive(Clone, Default)]
+    #[derive(Clone, Default, Deserialize)]
     pub struct Config {
         /// Commitment level used to read account data
-        commitment:  CommitmentLevel,
+        pub commitment:  CommitmentLevel,
         /// Public key of the root account to monitor. Note that all
         /// accounts owned by this account are also monitored.
-        account_key: Pubkey,
+        pub account_key: Pubkey,
         /// HTTP RPC endpoint
-        rpc_url:     String,
+        pub rpc_url:     String,
         /// WSS RPC endpoint
-        wss_url:     String,
+        pub wss_url:     String,
     }
 
     /// Subscriber subscribes to all changes on the given account, and sends those changes

@@ -513,13 +513,13 @@ pub mod rpc {
     #[derive(Clone, Debug, Deserialize)]
     pub struct Config {
         /// The address which the websocket API server will listen on.
-        listen_address:               String,
+        pub listen_address:               String,
         /// Size of the buffer of each Server's channel on which `notify_price` events are
         /// received from the Adapter.
-        notify_price_tx_buffer:       usize,
+        pub notify_price_tx_buffer:       usize,
         /// Size of the buffer of each Server's channel on which `notify_price_sched` events are
         /// received from the Adapter.
-        notify_price_sched_tx_buffer: usize,
+        pub notify_price_sched_tx_buffer: usize,
     }
 
     impl Default for Config {
