@@ -21,7 +21,10 @@ use {
         PriceStatus,
         UnixTimestamp,
     },
-    serde::Serialize,
+    serde::{
+        Deserialize,
+        Serialize,
+    },
     slog::Logger,
     solana_client::{
         nonblocking::rpc_client::RpcClient,
@@ -83,7 +86,7 @@ struct UpdPriceCmd {
     pub_slot: u64,
 }
 
-#[derive(Default)]
+#[derive(Default, Deserialize)]
 pub struct Config {
     /// HTTP endpoint of the Solana RPC node
     pub rpc_endpoint:                            String,
@@ -436,6 +439,7 @@ impl NetworkStateQuerier {
 mod transaction_monitor {
     use {
         anyhow::Result,
+        serde::Deserialize,
         slog::Logger,
         solana_client::nonblocking::rpc_client::RpcClient,
         solana_sdk::{
@@ -455,7 +459,7 @@ mod transaction_monitor {
         },
     };
 
-    #[derive(Clone, Default)]
+    #[derive(Clone, Default, Deserialize)]
     pub struct Config {
         /// HTTP endpoint of the Solana RPC node
         pub rpc_endpoint:           String,
@@ -567,6 +571,7 @@ mod key_store {
             Context,
             Result,
         },
+        serde::Deserialize,
         solana_sdk::{
             pubkey::Pubkey,
             signature::Keypair,
@@ -583,7 +588,7 @@ mod key_store {
     };
 
 
-    #[derive(Clone, Default)]
+    #[derive(Clone, Default, Deserialize)]
     pub struct Config {
         /// Root directory of the KeyStore
         pub root_path:            PathBuf,

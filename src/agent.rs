@@ -169,3 +169,74 @@ impl Agent {
         Ok(())
     }
 }
+
+mod config {
+    use {
+        super::{
+            exporter,
+            oracle,
+            pythd,
+        },
+        anyhow::{
+            anyhow,
+            Result,
+        },
+        config as config_rs,
+        config_rs::{
+            Environment,
+            File,
+        },
+        serde::Deserialize,
+        std::path::Path,
+    };
+
+    /// Configuration for all components of the Agent
+    #[derive(Default, Deserialize)]
+    pub struct Config {
+        pub channel_capacities: ChannelCapacities,
+        pub primary_oracle:     oracle::Config,
+        pub secondary_oracle:   oracle::Config,
+        pub primary_exporter:   exporter::Config,
+        pub secondary_exporter: exporter::Config,
+        pub pythd_adapter:      pythd::adapter::Config,
+        pub pythd_api_server:   pythd::api::rpc::Config,
+    }
+
+    impl Config {
+        pub fn new(config_file: impl AsRef<Path>) -> Result<Self> {
+            // Build a new configuration object, allowing the default values to be
+            // overridden by those in the config_file or "AGENT_"-prefixed environment
+            // variables.
+            config_rs::Config::builder()
+                .add_source(File::with_name(
+                    config_file
+                        .as_ref()
+                        .to_str()
+                        .ok_or_else(|| anyhow!("invalid path to config file"))?,
+                ))
+                .add_source(Environment::with_prefix("agent"))
+                .build()?
+                .try_deserialize()
+                .map_err(|e| e.into())
+        }
+    }
+
+    /// Capacities of the channels top-level components use to communicate
+    #[derive(Default, Deserialize)]
+    pub struct ChannelCapacities {
+        /// Capacity of the channel used to broadcast shutdown events to all components
+        pub shutdown:                 usize,
+        /// Capacity of the channel used to send updates from the primary Oracle to the Global Store
+        pub primary_oracle_updates:   usize,
+        /// Capacity of the channel used to send updates from the secondary Oracle to the Global Store
+        pub secondary_oracle_updates: usize,
+        /// Capacity of the channel the Pythd API Adapter uses to send lookup requests to the Global Store
+        pub global_store_lookup:      usize,
+        /// Capacity of the channel the Pythd API Adapter uses to communicate with the Local Store
+        pub local_store_lookup:       usize,
+        /// Capacity of the channel on which the Local Store receives messages
+        pub local_store:              usize,
+        /// Capacity of the channel on which the Pythd API Adapter receives messages
+        pub pythd_adapter:            usize,
+    }
+}
