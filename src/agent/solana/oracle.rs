@@ -13,7 +13,10 @@ use {
         load_price_account,
         load_product_account,
     },
-    serde::Deserialize,
+    serde::{
+        Deserialize,
+        Serialize,
+    },
     slog::Logger,
     solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
@@ -74,7 +77,7 @@ pub struct Oracle {
     logger: Logger,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Config {
     /// The commitment level to use when reading data from the RPC node.
     pub commitment:               CommitmentLevel,
@@ -355,7 +358,10 @@ mod subscriber {
             anyhow,
             Result,
         },
-        serde::Deserialize,
+        serde::{
+            Deserialize,
+            Serialize,
+        },
         slog::Logger,
         solana_sdk::{
             account::Account,
@@ -372,7 +378,7 @@ mod subscriber {
         },
     };
 
-    #[derive(Clone, Default, Deserialize)]
+    #[derive(Clone, Default, Serialize, Deserialize)]
     pub struct Config {
         /// Commitment level used to read account data
         pub commitment:  CommitmentLevel,

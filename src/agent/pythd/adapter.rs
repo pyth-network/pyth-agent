@@ -32,7 +32,10 @@ use {
         PriceStatus,
     },
     pyth_sdk_solana::state::PriceComp,
-    serde::Deserialize,
+    serde::{
+        Deserialize,
+        Serialize,
+    },
     slog::Logger,
     std::{
         collections::HashMap,
@@ -52,7 +55,7 @@ use {
     },
 };
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Config {
     /// The duration of the interval at which `notify_price_sched` notifications
     /// will be sent.
