@@ -77,7 +77,7 @@ pub struct Oracle {
     logger: Logger,
 }
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The commitment level to use when reading data from the RPC node.
     pub commitment:               CommitmentLevel,
@@ -95,6 +95,21 @@ pub struct Config {
     pub subscriber:               subscriber::Config,
     /// Capacity of the channel over which the Subscriber sends updates to the Exporter
     pub updates_channel_capacity: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            commitment:               CommitmentLevel::Confirmed,
+            oracle_account_key:       Default::default(),
+            mapping_account_key:      Default::default(),
+            rpc_url:                  "http://localhost:8899".to_string(),
+            poll_interval_duration:   Duration::from_secs(30),
+            subscriber_enabled:       true,
+            subscriber:               Default::default(),
+            updates_channel_capacity: 10000,
+        }
+    }
 }
 
 pub fn spawn_oracle(
@@ -378,7 +393,7 @@ mod subscriber {
         },
     };
 
-    #[derive(Clone, Default, Serialize, Deserialize)]
+    #[derive(Clone, Serialize, Deserialize)]
     pub struct Config {
         /// Commitment level used to read account data
         pub commitment:  CommitmentLevel,
@@ -389,6 +404,17 @@ mod subscriber {
         pub rpc_url:     String,
         /// WSS RPC endpoint
         pub wss_url:     String,
+    }
+
+    impl Default for Config {
+        fn default() -> Self {
+            Self {
+                commitment:  CommitmentLevel::Confirmed,
+                account_key: Default::default(),
+                rpc_url:     Default::default(),
+                wss_url:     Default::default(),
+            }
+        }
     }
 
     /// Subscriber subscribes to all changes on the given account, and sends those changes

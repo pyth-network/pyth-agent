@@ -86,7 +86,7 @@ struct UpdPriceCmd {
     pub_slot: u64,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     /// HTTP endpoint of the Solana RPC node
     pub rpc_endpoint:                            String,
@@ -106,6 +106,21 @@ pub struct Config {
     pub inflight_transactions_channel_capacity:  usize,
     /// Configuration for the Transaction Monitor
     pub transaction_monitor:                     transaction_monitor::Config,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            rpc_endpoint:                            Default::default(),
+            refresh_network_state_interval_duration: Duration::from_millis(200),
+            publish_interval_duration:               Duration::from_secs(1),
+            staleness_threshold:                     Duration::from_secs(5),
+            max_batch_size:                          12,
+            key_store:                               Default::default(),
+            inflight_transactions_channel_capacity:  10000,
+            transaction_monitor:                     Default::default(),
+        }
+    }
 }
 
 pub fn spawn_exporter(
@@ -462,7 +477,7 @@ mod transaction_monitor {
         },
     };
 
-    #[derive(Clone, Default, Serialize, Deserialize)]
+    #[derive(Clone, Serialize, Deserialize)]
     pub struct Config {
         /// HTTP endpoint of the Solana RPC node
         pub rpc_endpoint:           String,
@@ -473,6 +488,16 @@ mod transaction_monitor {
         /// the oldest transactions are no longer monitored. It is recommended to set this to
         /// a value close to (number of products published / number of products in a batch).
         pub max_transactions:       usize,
+    }
+
+    impl Default for Config {
+        fn default() -> Self {
+            Self {
+                rpc_endpoint:           Default::default(),
+                poll_interval_duration: Duration::from_secs(4),
+                max_transactions:       100,
+            }
+        }
     }
 
     /// TransactionMonitor monitors the percentage of recently sent transactions that
