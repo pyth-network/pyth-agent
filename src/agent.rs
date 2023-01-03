@@ -63,6 +63,7 @@ use {
         Drain,
         Logger,
     },
+    std::path::Path,
     tokio::sync::{
         broadcast,
         mpsc,
@@ -72,7 +73,7 @@ use {
 pub struct Agent {}
 
 impl Agent {
-    pub async fn start(&self) {
+    pub async fn start(&self, config_file: impl AsRef<Path>) {
         let logger = slog::Logger::root(
             slog_async::Async::new(
                 slog_term::CompactFormat::new(slog_term::TermDecorator::new().build())
@@ -84,42 +85,53 @@ impl Agent {
             o!(),
         );
 
-        if let Err(err) = self.spawn(logger.clone()).await {
+        if let Err(err) = self.spawn(config_file, logger.clone()).await {
             error!(logger, "{:#}", err; "error" => format!("{:?}", err));
         };
     }
 
-    async fn spawn(&self, logger: Logger) -> Result<()> {
-        // TODO: proper configuration. Currently we just use the derived default values.
+    async fn spawn(&self, config_file: impl AsRef<Path>, logger: Logger) -> Result<()> {
+        let config = config::Config::new(config_file)?;
+
+        // TODO: sane defaults. Currently we just use the derived default values.
 
         // Create the channels
-        // TODO: make size of all channels configurable
         // TODO: make all components listen to shutdown signal
-        let (shutdown_tx, shutdown_rx) = broadcast::channel(1000);
-        let (primary_oracle_updates_tx, primary_oracle_updates_rx) = mpsc::channel(1000);
-        let (secondary_oracle_updates_tx, secondary_oracle_updates_rx) = mpsc::channel(1000);
-        let (global_store_lookup_tx, global_store_lookup_rx) = mpsc::channel(1000);
-        let (local_store_tx, local_store_rx) = mpsc::channel(1000);
-        let (pythd_adapter_tx, pythd_adapter_rx) = mpsc::channel(1000);
+        let (shutdown_tx, shutdown_rx) = broadcast::channel(config.channel_capacities.shutdown);
+        let (primary_oracle_updates_tx, primary_oracle_updates_rx) =
+            mpsc::channel(config.channel_capacities.primary_oracle_updates);
+        let (secondary_oracle_updates_tx, secondary_oracle_updates_rx) =
+            mpsc::channel(config.channel_capacities.secondary_oracle_updates);
+        let (global_store_lookup_tx, global_store_lookup_rx) =
+            mpsc::channel(config.channel_capacities.global_store_lookup);
+        let (local_store_tx, local_store_rx) = mpsc::channel(config.channel_capacities.local_store);
+        let (pythd_adapter_tx, pythd_adapter_rx) =
+            mpsc::channel(config.channel_capacities.pythd_adapter);
 
         // Spawn the Oracles
         // TODO: possibly encapsulate each network (group the oracle and exporters together)
         let primary_oracle_jhs = oracle::spawn_oracle(
-            Default::default(),
+            config.primary_oracle,
             primary_oracle_updates_tx,
             logger.clone(),
         );
         let secondary_oracle_jhs = oracle::spawn_oracle(
-            Default::default(),
+            config.secondary_oracle,
             secondary_oracle_updates_tx,
             logger.clone(),
         );
 
         // Spawn the Exporters
-        let primary_exporter_jhs =
-            exporter::spawn_exporter(Default::default(), local_store_tx.clone(), logger.clone())?;
-        let secondary_exporter_jhs =
-            exporter::spawn_exporter(Default::default(), local_store_tx.clone(), logger.clone())?;
+        let primary_exporter_jhs = exporter::spawn_exporter(
+            config.primary_exporter,
+            local_store_tx.clone(),
+            logger.clone(),
+        )?;
+        let secondary_exporter_jhs = exporter::spawn_exporter(
+            config.secondary_exporter,
+            local_store_tx.clone(),
+            logger.clone(),
+        )?;
 
         // Spawn the Global Store
         let global_store_jh = store::global::spawn_store(
@@ -135,7 +147,7 @@ impl Agent {
 
         // Spawn the Pythd Adapter
         let adapter_jh = pythd::adapter::spawn_adapter(
-            Default::default(),
+            config.pythd_adapter,
             pythd_adapter_rx,
             global_store_lookup_tx,
             local_store_tx,
@@ -144,8 +156,12 @@ impl Agent {
         );
 
         // Spawn the Pythd API Server
-        let pythd_api_server_jh =
-            rpc::spawn_server(Default::default(), pythd_adapter_tx, shutdown_rx, logger);
+        let pythd_api_server_jh = rpc::spawn_server(
+            config.pythd_api_server,
+            pythd_adapter_tx,
+            shutdown_rx,
+            logger,
+        );
 
         // Wait for all tasks to complete
         join_all(
