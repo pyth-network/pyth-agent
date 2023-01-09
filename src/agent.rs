@@ -199,6 +199,7 @@ pub mod config {
 
     /// Configuration for all components of the Agent
     #[derive(Default, Deserialize)]
+    #[serde(default)]
     pub struct Config {
         pub channel_capacities: ChannelCapacities,
         pub primary_oracle:     oracle::Config,
