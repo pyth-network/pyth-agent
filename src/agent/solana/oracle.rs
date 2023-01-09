@@ -415,8 +415,8 @@ mod subscriber {
             Self {
                 commitment:  CommitmentLevel::Confirmed,
                 account_key: Default::default(),
-                rpc_url:     Default::default(),
-                wss_url:     Default::default(),
+                rpc_url:     "http://localhost:8899".to_string(),
+                wss_url:     "ws://localhost:8900".to_string(),
             }
         }
     }
