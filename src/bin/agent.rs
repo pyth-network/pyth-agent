@@ -18,7 +18,7 @@ use {
 #[clap(author = "Pyth Data Association", version)]
 /// Pyth Agent - publish data to the Pyth Network
 struct Arguments {
-    #[clap(default_value = "config/config.toml")]
+    #[clap(short, long, default_value = "config/config.toml")]
     /// Path to configuration file
     config: PathBuf,
 }
