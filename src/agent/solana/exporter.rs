@@ -619,7 +619,7 @@ mod key_store {
     };
 
 
-    #[derive(Clone, Default, Serialize, Deserialize, Debug)]
+    #[derive(Clone, Serialize, Deserialize, Debug)]
     pub struct Config {
         /// Root directory of the KeyStore
         pub root_path:            PathBuf,
@@ -629,6 +629,17 @@ mod key_store {
         pub program_key_path:     PathBuf,
         /// Path to the public key of the root mapping account, relative to the root
         pub mapping_key_path:     PathBuf,
+    }
+
+    impl Default for Config {
+        fn default() -> Self {
+            Self {
+                root_path:            Default::default(),
+                publish_keypair_path: "publish_key_pair.json".into(),
+                program_key_path:     "program_key.json".into(),
+                mapping_key_path:     "mapping_key.json".into(),
+            }
+        }
     }
 
     pub struct KeyStore {
