@@ -101,6 +101,7 @@ impl Agent {
 
         // Spawn the Oracles
         // TODO: possibly encapsulate each network (group the oracle and exporters together)
+        // TODO: support only one network connected
         let primary_oracle_jhs = oracle::spawn_oracle(
             self.config.primary_oracle.clone(),
             primary_oracle_updates_tx,
