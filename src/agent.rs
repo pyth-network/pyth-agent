@@ -46,18 +46,14 @@ Note that there is an Oracle and Exporter for each network, but only one Local S
 
 ################################################################################################################################## */
 
-use self::config::Config;
-
 pub mod pythd;
 pub mod solana;
 pub mod store;
 use {
     self::{
+        config::Config,
         pythd::api::rpc,
-        solana::{
-            exporter,
-            oracle,
-        },
+        solana::network,
     },
     anyhow::Result,
     futures_util::future::join_all,
@@ -84,6 +80,8 @@ impl Agent {
     }
 
     async fn spawn(&self, logger: Logger) -> Result<()> {
+        let mut jhs = vec![];
+
         // Create the channels
         // TODO: make all components listen to shutdown signal
         let (shutdown_tx, shutdown_rx) =
@@ -99,80 +97,56 @@ impl Agent {
         let (pythd_adapter_tx, pythd_adapter_rx) =
             mpsc::channel(self.config.channel_capacities.pythd_adapter);
 
-        // Spawn the Oracles
-        // TODO: possibly encapsulate each network (group the oracle and exporters together)
-        // TODO: support only one network connected
-        let primary_oracle_jhs = oracle::spawn_oracle(
-            self.config.primary_oracle.clone(),
+        // Spawn the primary network
+        jhs.extend(network::spawn_network(
+            self.config.primary_network.clone(),
+            local_store_tx.clone(),
             primary_oracle_updates_tx,
             logger.clone(),
-        );
-        let secondary_oracle_jhs = oracle::spawn_oracle(
-            self.config.secondary_oracle.clone(),
-            secondary_oracle_updates_tx,
-            logger.clone(),
-        );
+        )?);
 
-        // Spawn the Exporters
-        let primary_exporter_jhs = exporter::spawn_exporter(
-            self.config.primary_exporter.clone(),
-            local_store_tx.clone(),
-            logger.clone(),
-        )?;
-        let secondary_exporter_jhs = exporter::spawn_exporter(
-            self.config.secondary_exporter.clone(),
-            local_store_tx.clone(),
-            logger.clone(),
-        )?;
+        // Spawn the secondary network, if needed
+        if let Some(config) = &self.config.secondary_network {
+            jhs.extend(network::spawn_network(
+                config.clone(),
+                local_store_tx.clone(),
+                secondary_oracle_updates_tx,
+                logger.clone(),
+            )?);
+        }
 
         // Spawn the Global Store
-        let global_store_jh = store::global::spawn_store(
+        jhs.push(store::global::spawn_store(
             global_store_lookup_rx,
             primary_oracle_updates_rx,
             secondary_oracle_updates_rx,
             pythd_adapter_tx.clone(),
             logger.clone(),
-        );
+        ));
 
         // Spawn the Local Store
-        let local_store_jh = store::local::spawn_store(local_store_rx, logger.clone());
+        jhs.push(store::local::spawn_store(local_store_rx, logger.clone()));
 
         // Spawn the Pythd Adapter
-        let adapter_jh = pythd::adapter::spawn_adapter(
+        jhs.push(pythd::adapter::spawn_adapter(
             self.config.pythd_adapter.clone(),
             pythd_adapter_rx,
             global_store_lookup_tx,
             local_store_tx,
             shutdown_tx.subscribe(),
             logger.clone(),
-        );
+        ));
 
         // Spawn the Pythd API Server
-        let pythd_api_server_jh = rpc::spawn_server(
+        jhs.push(rpc::spawn_server(
             self.config.pythd_api_server.clone(),
             pythd_adapter_tx,
             shutdown_rx,
             logger,
-        );
+        ));
 
         // Wait for all tasks to complete
-        join_all(
-            vec![
-                primary_oracle_jhs,
-                primary_exporter_jhs,
-                secondary_oracle_jhs,
-                secondary_exporter_jhs,
-                vec![
-                    global_store_jh,
-                    local_store_jh,
-                    adapter_jh,
-                    pythd_api_server_jh,
-                ],
-            ]
-            .into_iter()
-            .flatten(),
-        )
-        .await;
+        join_all(jhs).await;
 
         Ok(())
     }
@@ -181,9 +155,8 @@ impl Agent {
 pub mod config {
     use {
         super::{
-            exporter,
-            oracle,
             pythd,
+            solana::network,
         },
         anyhow::{
             anyhow,
@@ -203,10 +176,8 @@ pub mod config {
     #[serde(default)]
     pub struct Config {
         pub channel_capacities: ChannelCapacities,
-        pub primary_oracle:     oracle::Config,
-        pub secondary_oracle:   oracle::Config,
-        pub primary_exporter:   exporter::Config,
-        pub secondary_exporter: exporter::Config,
+        pub primary_network:    network::Config,
+        pub secondary_network:  Option<network::Config>,
         pub pythd_adapter:      pythd::adapter::Config,
         pub pythd_api_server:   pythd::api::rpc::Config,
     }
