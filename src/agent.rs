@@ -198,7 +198,7 @@ pub mod config {
     };
 
     /// Configuration for all components of the Agent
-    #[derive(Default, Deserialize)]
+    #[derive(Default, Deserialize, Debug)]
     #[serde(default)]
     pub struct Config {
         pub channel_capacities: ChannelCapacities,
@@ -230,7 +230,7 @@ pub mod config {
     }
 
     /// Capacities of the channels top-level components use to communicate
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug)]
     pub struct ChannelCapacities {
         /// Capacity of the channel used to broadcast shutdown events to all components
         pub shutdown:                 usize,
