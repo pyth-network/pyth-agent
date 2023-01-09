@@ -111,7 +111,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            rpc_endpoint:                            Default::default(),
+            rpc_endpoint:                            "http://localhost:8899".to_string(),
             refresh_network_state_interval_duration: Duration::from_millis(200),
             publish_interval_duration:               Duration::from_secs(1),
             staleness_threshold:                     Duration::from_secs(5),
@@ -493,7 +493,7 @@ mod transaction_monitor {
     impl Default for Config {
         fn default() -> Self {
             Self {
-                rpc_endpoint:           Default::default(),
+                rpc_endpoint:           "http://localhost:8899".to_string(),
                 poll_interval_duration: Duration::from_secs(4),
                 max_transactions:       100,
             }
