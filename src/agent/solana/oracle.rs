@@ -117,16 +117,20 @@ pub fn spawn_oracle(
     global_store_update_tx: mpsc::Sender<global::Update>,
     logger: Logger,
 ) -> Vec<JoinHandle<()>> {
+    let mut jhs = vec![];
+
     // Create and spawn the account subscriber
     let (updates_tx, updates_rx) = mpsc::channel(config.updates_channel_capacity);
-    let subscriber = Subscriber::new(config.subscriber.clone(), updates_tx, logger.clone());
-    let subscriber_jh = tokio::spawn(async move { subscriber.run().await });
+    if config.subscriber_enabled {
+        let subscriber = Subscriber::new(config.subscriber.clone(), updates_tx, logger.clone());
+        jhs.push(tokio::spawn(async move { subscriber.run().await }));
+    }
 
     // Create and spawn the Oracle
     let mut oracle = Oracle::new(config, updates_rx, global_store_update_tx, logger);
-    let oracle_jh = tokio::spawn(async move { oracle.run().await });
+    jhs.push(tokio::spawn(async move { oracle.run().await }));
 
-    vec![subscriber_jh, oracle_jh]
+    jhs
 }
 
 impl Oracle {
