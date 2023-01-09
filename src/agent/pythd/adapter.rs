@@ -55,7 +55,7 @@ use {
     },
 };
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
     /// The duration of the interval at which `notify_price_sched` notifications
     /// will be sent.
