@@ -17,6 +17,10 @@ use {
         Deserialize,
         Serialize,
     },
+    serde_with::{
+        serde_as,
+        DisplayFromStr,
+    },
     slog::Logger,
     solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
@@ -77,14 +81,17 @@ pub struct Oracle {
     logger: Logger,
 }
 
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct Config {
     /// The commitment level to use when reading data from the RPC node.
     pub commitment:               CommitmentLevel,
     /// Public key of the Oracle program.
+    #[serde_as(as = "DisplayFromStr")]
     pub oracle_account_key:       Pubkey,
     /// Public key of the root mapping account.
+    #[serde_as(as = "DisplayFromStr")]
     pub mapping_account_key:      Pubkey,
     /// RPC endpoint to send requests to.
     pub rpc_url:                  String,
@@ -382,6 +389,10 @@ mod subscriber {
             Deserialize,
             Serialize,
         },
+        serde_with::{
+            serde_as,
+            DisplayFromStr,
+        },
         slog::Logger,
         solana_sdk::{
             account::Account,
@@ -398,6 +409,7 @@ mod subscriber {
         },
     };
 
+    #[serde_as]
     #[derive(Clone, Serialize, Deserialize, Debug)]
     #[serde(default)]
     pub struct Config {
@@ -405,6 +417,7 @@ mod subscriber {
         pub commitment:  CommitmentLevel,
         /// Public key of the root account to monitor. Note that all
         /// accounts owned by this account are also monitored.
+        #[serde_as(as = "DisplayFromStr")]
         pub account_key: Pubkey,
         /// HTTP RPC endpoint
         pub rpc_url:     String,
