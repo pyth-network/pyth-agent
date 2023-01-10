@@ -87,6 +87,7 @@ struct UpdPriceCmd {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
 pub struct Config {
     /// HTTP endpoint of the Solana RPC node
     pub rpc_endpoint:                            String,
@@ -478,6 +479,7 @@ mod transaction_monitor {
     };
 
     #[derive(Clone, Serialize, Deserialize, Debug)]
+    #[serde(default)]
     pub struct Config {
         /// HTTP endpoint of the Solana RPC node
         pub rpc_endpoint:           String,
@@ -620,6 +622,7 @@ mod key_store {
 
 
     #[derive(Clone, Serialize, Deserialize, Debug)]
+    #[serde(default)]
     pub struct Config {
         /// Root directory of the KeyStore
         pub root_path:            PathBuf,

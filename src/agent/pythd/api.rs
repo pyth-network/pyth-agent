@@ -511,6 +511,7 @@ pub mod rpc {
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(default)]
     pub struct Config {
         /// The address which the websocket API server will listen on.
         pub listen_address:               String,
