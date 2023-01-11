@@ -174,7 +174,7 @@ impl Store {
     async fn handle_next(&mut self) -> Result<()> {
         tokio::select! {
             Some(update) = self.primary_updates_rx.recv() => {
-                self.update_data(&update).await;
+                self.update_data(&update).await?;
                 self.update_metadata(&update).await;
             }
             Some(update) = self.secondary_updates_rx.recv() => {
