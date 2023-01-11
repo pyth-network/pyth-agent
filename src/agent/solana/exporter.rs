@@ -575,6 +575,10 @@ mod transaction_monitor {
         }
 
         async fn poll_transactions_status(&mut self) -> Result<()> {
+            if self.sent_transactions.is_empty() {
+                return Ok(());
+            }
+
             // Poll the status of each transaction, in a single RPC request
             let statuses = self
                 .rpc_client
