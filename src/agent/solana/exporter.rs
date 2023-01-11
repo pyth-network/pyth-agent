@@ -259,6 +259,10 @@ impl Exporter {
             })
             .collect::<Vec<_>>();
 
+        if fresh_updates.is_empty() {
+            return Ok(());
+        }
+
         // Split the updates up into batches
         let batches = fresh_updates.chunks(self.config.max_batch_size);
 
