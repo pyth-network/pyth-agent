@@ -675,7 +675,7 @@ mod key_store {
 
         fn pubkey_from_path(path: impl AsRef<Path>) -> Result<Pubkey> {
             let contents = fs::read_to_string(path)?;
-            Pubkey::from_str(&contents).map_err(|e| e.into())
+            Pubkey::from_str(contents.trim()).map_err(|e| e.into())
         }
     }
 }
