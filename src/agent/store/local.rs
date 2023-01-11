@@ -13,6 +13,7 @@ use {
         UnixTimestamp,
     },
     slog::Logger,
+    solana_sdk::bs58,
     std::collections::HashMap,
     tokio::{
         sync::{
@@ -23,7 +24,7 @@ use {
     },
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PriceInfo {
     pub status:    PriceStatus,
     pub price:     i64,
@@ -84,6 +85,8 @@ impl Store {
     }
 
     pub fn update(&mut self, price_identifier: PriceIdentifier, price_info: PriceInfo) {
+        debug!(self.logger, "local store received price update"; "identifier" => bs58::encode(price_identifier.to_bytes()).into_string());
+
         // Drop the update if it is older than the current one stored for the price
         if let Some(current_price_info) = self.prices.get(&price_identifier) {
             if current_price_info.timestamp > price_info.timestamp {
