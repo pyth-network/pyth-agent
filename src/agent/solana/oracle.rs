@@ -6,6 +6,7 @@ use {
     crate::agent::store::global,
     anyhow::{
         anyhow,
+        Context,
         Result,
     },
     pyth_sdk_solana::state::{
@@ -210,8 +211,13 @@ impl Oracle {
 
         let mut account_key = mapping_account_key;
         while account_key != Pubkey::default() {
-            let account =
-                *load_mapping_account(&self.rpc_client.get_account_data(&account_key).await?)?;
+            let account = *load_mapping_account(
+                &self
+                    .rpc_client
+                    .get_account_data(&account_key)
+                    .await
+                    .with_context(|| format!("load mapping account {}", account_key))?,
+            )?;
             accounts.insert(account_key, account);
 
             account_key = account.next;
@@ -280,7 +286,8 @@ impl Oracle {
                 .rpc_client
                 .get_account_data(product_account_key)
                 .await?,
-        )?;
+        )
+        .with_context(|| format!("load product account {}", product_account_key))?;
 
         // Fetch the price accounts associated with this product account
         let mut price_accounts = HashMap::new();
@@ -303,7 +310,8 @@ impl Oracle {
 
     async fn fetch_price_account(&self, price_account_key: &Pubkey) -> Result<PriceAccount> {
         let data = self.rpc_client.get_account_data(price_account_key).await?;
-        let price_account = *load_price_account(&data)?;
+        let price_account = *load_price_account(&data)
+            .with_context(|| format!("load price account {}", price_account_key))?;
 
         Ok(price_account)
     }
@@ -327,7 +335,8 @@ impl Oracle {
         account_key: &Pubkey,
         account: &Account,
     ) -> Result<()> {
-        let price_account = *load_price_account(&account.data)?;
+        let price_account = *load_price_account(&account.data)
+            .with_context(|| format!("load price account {}", account_key))?;
         self.data.price_accounts.insert(*account_key, price_account);
 
         self.notify_price_account_update(account_key, &price_account)
