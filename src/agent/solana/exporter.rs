@@ -62,13 +62,6 @@ use {
     },
 };
 
-struct PriceUpdate {
-    pub_key: Pubkey,
-    price:   i64,
-    conf:    u64,
-    status:  PriceStatus,
-}
-
 const PYTH_ORACLE_VERSION: u32 = 2;
 
 #[derive(Serialize, PartialEq, Debug, Clone)]
