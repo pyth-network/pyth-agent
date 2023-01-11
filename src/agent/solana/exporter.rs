@@ -10,6 +10,7 @@ use {
         Context,
         Result,
     },
+    bincode::Options,
     chrono::Utc,
     futures_util::future::{
         self,
@@ -31,6 +32,7 @@ use {
         rpc_config::RpcSendTransactionConfig,
     },
     solana_sdk::{
+        bs58,
         commitment_config::CommitmentConfig,
         hash::Hash,
         instruction::{
@@ -316,6 +318,10 @@ impl Exporter {
                     .with_context(|| identifier.to_string()),
             )
         });
+        let price_accounts = refreshed_batch
+            .clone()
+            .map(|(identifier, _)| bs58::encode(identifier.to_bytes()).into_string())
+            .collect::<Vec<_>>();
 
         let network_state = *self.network_state_rx.borrow();
         for (identifier, price_info_result) in refreshed_batch {
@@ -384,6 +390,7 @@ impl Exporter {
                 },
             )
             .await?;
+        debug!(self.logger, "sent upd_price transaction"; "signature" => signature.to_string(), "instructions" => instructions.len(), "price_accounts" => format!("{:?}", price_accounts));
 
         self.inflight_transactions_tx.send(signature).await?;
 

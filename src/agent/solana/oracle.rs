@@ -385,6 +385,9 @@ impl Oracle {
     ) -> Result<()> {
         let price_account = *load_price_account(&account.data)
             .with_context(|| format!("load price account {}", account_key))?;
+
+        debug!(self.logger, "observed on-chain price account update"; "pubkey" => account_key.to_string(), "price" => price_account.agg.price, "conf" => price_account.agg.conf, "status" => format!("{:?}", price_account.agg.status));
+
         self.data.price_accounts.insert(*account_key, price_account);
 
         self.notify_price_account_update(account_key, &price_account)
