@@ -526,7 +526,7 @@ pub mod rpc {
     impl Default for Config {
         fn default() -> Self {
             Self {
-                listen_address:               "localhost:8910".to_string(),
+                listen_address:               "127.0.0.1:8910".to_string(),
                 notify_price_tx_buffer:       10000,
                 notify_price_sched_tx_buffer: 10000,
             }
