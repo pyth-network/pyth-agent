@@ -33,7 +33,10 @@ use {
         pubkey::Pubkey,
     },
     std::{
-        collections::HashMap,
+        collections::{
+            HashMap,
+            HashSet,
+        },
         time::Duration,
     },
     tokio::{
@@ -188,15 +191,56 @@ impl Oracle {
     }
 
     async fn poll(&mut self) -> Result<()> {
+        // Fetch mapping accounts
+        let previous_mapping_accounts = self
+            .data
+            .mapping_accounts
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
         self.data.mapping_accounts = self
             .fetch_mapping_accounts(self.config.mapping_account_key)
             .await?;
+        info!(self.logger, "fetched mapping accounts"; "new" => format!("{:?}", self
+            .data
+            .mapping_accounts
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>().difference(&previous_mapping_accounts)), "total" => self.data.mapping_accounts.len());
+
+        // Fetch product accounts
+        let previous_product_accounts = self
+            .data
+            .product_accounts
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
         self.data.product_accounts = self
             .fetch_product_accounts(self.data.mapping_accounts.values())
             .await?;
+        info!(self.logger, "fetched product accounts"; "new" => format!("{:?}", self
+            .data
+            .product_accounts
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>().difference(&previous_product_accounts)), "total" => self.data.product_accounts.len());
+
+        // Fetch price accounts
+        let previous_price_accounts = self
+            .data
+            .price_accounts
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
         self.data.price_accounts = self
             .fetch_price_accounts(self.data.product_accounts.values())
             .await?;
+        info!(self.logger, "fetched price accounts"; "new" => format!("{:?}", self
+            .data
+            .price_accounts
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>().difference(&previous_price_accounts)), "total" => self.data.price_accounts.len());
 
         self.send_all_data_to_global_store().await?;
 
