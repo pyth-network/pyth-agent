@@ -269,8 +269,11 @@ impl Oracle {
         mapping_account: &MappingAccount,
     ) -> Result<HashMap<Pubkey, ProductAccount>> {
         let mut product_accounts = HashMap::new();
-
-        for account_key in &mapping_account.products {
+        for account_key in mapping_account
+            .products
+            .iter()
+            .filter(|pubkey| **pubkey != Pubkey::default())
+        {
             // Update the price accounts
             let product_account = self.fetch_product_account(account_key).await?;
             product_accounts.insert(*account_key, product_account);
