@@ -100,6 +100,7 @@ pub struct Config {
     /// RPC endpoint to send requests to.
     pub rpc_url:                  String,
     /// The interval with which to poll account information.
+    #[serde(with = "humantime_serde")]
     pub poll_interval_duration:   Duration,
     /// Whether subscribing to account updates over websocket is enabled
     pub subscriber_enabled:       bool,

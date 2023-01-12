@@ -60,6 +60,7 @@ use {
 pub struct Config {
     /// The duration of the interval at which `notify_price_sched` notifications
     /// will be sent.
+    #[serde(with = "humantime_serde")]
     pub notify_price_sched_interval_duration: Duration,
 }
 
