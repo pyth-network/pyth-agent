@@ -87,10 +87,13 @@ pub struct Config {
     /// Duration of the interval at which to refresh the cached network state (current slot and blockhash).
     /// It is recommended to set this to slightly less than the network's block time,
     /// as the slot fetched will be used as the time of the price update.
+    #[serde(with = "humantime_serde")]
     pub refresh_network_state_interval_duration: Duration,
     /// Duration of the interval at which to publish updates
+    #[serde(with = "humantime_serde")]
     pub publish_interval_duration:               Duration,
     /// Age after which a price update is considered stale and not published
+    #[serde(with = "humantime_serde")]
     pub staleness_threshold:                     Duration,
     /// Maximum size of a batch
     pub max_batch_size:                          usize,
@@ -482,6 +485,7 @@ mod transaction_monitor {
         pub rpc_endpoint:           String,
         /// Duration of the interval with which to poll the status of transactions.
         /// It is recommended to set this to a value close to the Exporter's publish_interval.
+        #[serde(with = "humantime_serde")]
         pub poll_interval_duration: Duration,
         /// Maximum number of recent transactions to monitor. When this number is exceeded,
         /// the oldest transactions are no longer monitored. It is recommended to set this to
