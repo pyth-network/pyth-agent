@@ -595,7 +595,8 @@ mod transaction_monitor {
                 .flatten()
                 .filter(|s| s.satisfies_commitment(CommitmentConfig::confirmed()))
                 .count();
-            let percentage_confirmed = (confirmed as f64) / (self.sent_transactions.len() as f64);
+            let percentage_confirmed =
+                ((confirmed as f64) / (self.sent_transactions.len() as f64)) * 100.0;
             info!(self.logger, "monitoring transaction hit rate"; "percentage confirmed" => percentage_confirmed);
 
             Ok(())
