@@ -324,7 +324,7 @@ impl Exporter {
             let price_info = price_info_result?;
 
             let stale_price = (Utc::now().timestamp() - price_info.timestamp)
-                < self.config.staleness_threshold.as_secs() as i64;
+                > self.config.staleness_threshold.as_secs() as i64;
             if stale_price {
                 continue;
             }
