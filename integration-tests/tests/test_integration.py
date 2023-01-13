@@ -300,13 +300,13 @@ class PythTest:
     @pytest.fixture
     def agent(self, sync_accounts, agent_keystore, tmp_path):
         LOGGER.debug("Building agent binary")
-        self.run("cargo build")
+        self.run("cargo build --release")
 
         log_dir = os.path.join(tmp_path, "agent_logs")
         LOGGER.debug("Launching agent logging to %s", log_dir)
 
         os.environ["RUST_BACKTRACE"] = "full"
-        with self.spawn("../target/debug/agent --config agent_conf.toml", log_dir=log_dir):
+        with self.spawn("../target/release/agent --config agent_conf.toml", log_dir=log_dir):
             time.sleep(3)
             yield
 
