@@ -5,4 +5,5 @@ cargo test --workspace
 
 # Run Python integration tests
 cd integration-tests
-pytest -s --log-cli-level=debug
+poetry install
+poetry run pytest -s --log-cli-level=debug
