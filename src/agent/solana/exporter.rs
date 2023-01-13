@@ -63,17 +63,15 @@ use {
 };
 
 const PYTH_ORACLE_VERSION: u32 = 2;
+const UPDATE_PRICE_NO_FAIL_ON_ERROR: i32 = 13;
 
-#[derive(Serialize, PartialEq, Debug, Clone)]
-enum OracleCommand {
-    UpdatePriceNoFailOnError = 13,
-}
-
+#[repr(C)]
 #[derive(Serialize, PartialEq, Debug, Clone)]
 struct UpdPriceCmd {
     version:  u32,
-    cmd:      OracleCommand,
+    cmd:      i32,
     status:   PriceStatus,
+    unused_:  u32,
     price:    i64,
     conf:     u64,
     pub_slot: u64,
@@ -339,7 +337,7 @@ impl Exporter {
                     },
                     AccountMeta {
                         pubkey:      Pubkey::new(&identifier.to_bytes()),
-                        is_signer:   true,
+                        is_signer:   false,
                         is_writable: true,
                     },
                     AccountMeta {
@@ -348,14 +346,21 @@ impl Exporter {
                         is_writable: false,
                     },
                 ],
-                data:       bincode::serialize(&UpdPriceCmd {
-                    version:  PYTH_ORACLE_VERSION,
-                    cmd:      OracleCommand::UpdatePriceNoFailOnError,
-                    status:   price_info.status,
-                    price:    price_info.price,
-                    conf:     price_info.conf,
-                    pub_slot: network_state.current_slot,
-                })?,
+
+                data: bincode::DefaultOptions::new()
+                    .with_little_endian()
+                    .with_fixint_encoding()
+                    .serialize(
+                        &(UpdPriceCmd {
+                            version:  PYTH_ORACLE_VERSION,
+                            cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
+                            status:   price_info.status,
+                            unused_:  0,
+                            price:    price_info.price,
+                            conf:     price_info.conf,
+                            pub_slot: network_state.current_slot,
+                        }),
+                    )?,
             };
 
             instructions.push(instruction);
