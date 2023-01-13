@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "integration-tests"
+version = "0.1.0"
+description = ""
+authors = ["Pyth Data Association <contact@pyth.network>"]
+readme = "README.md"
+packages = [{ include = "integration_tests" }]
+
+[tool.poetry.dependencies]
+python = "~3.10"
+
+[tool.poetry.dev-dependencies]
+program-admin = { git = "https://github.com/pyth-network/program-admin.git", branch = "main" }
+pytest = "^7.2"
+pytest-asyncio = "^0.18.3"
+pre-commit = "^2.21.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
