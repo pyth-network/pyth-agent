@@ -34,6 +34,7 @@ use {
     solana_sdk::{
         bs58,
         commitment_config::CommitmentConfig,
+        compute_budget::ComputeBudgetInstruction,
         hash::Hash,
         instruction::{
             AccountMeta,
@@ -103,6 +104,10 @@ pub struct Config {
     pub inflight_transactions_channel_capacity:  usize,
     /// Configuration for the Transaction Monitor
     pub transaction_monitor:                     transaction_monitor::Config,
+    /// Maximum number of compute units requested by each upd_price transaction
+    pub compute_unit_limit:                      u32,
+    /// Price per compute unit offered for each upd_price transaction
+    pub compute_unit_price_micro_lamports:       Option<u64>,
 }
 
 impl Default for Config {
@@ -116,6 +121,9 @@ impl Default for Config {
             key_store:                               Default::default(),
             inflight_transactions_channel_capacity:  10000,
             transaction_monitor:                     Default::default(),
+            // The largest transactions appear to be about ~12000 CUs. We leave ourselves some breathing room.
+            compute_unit_limit:                      20000,
+            compute_unit_price_micro_lamports:       None,
         }
     }
 }
@@ -372,7 +380,18 @@ impl Exporter {
             instructions.push(instruction);
         }
 
-        // TODO: add priority fee support
+        // Pay priority fees, if configured
+        instructions.push(ComputeBudgetInstruction::set_compute_unit_limit(
+            self.config.compute_unit_limit,
+        ));
+        if let Some(compute_unit_price_micro_lamports) =
+            self.config.compute_unit_price_micro_lamports
+        {
+            instructions.push(ComputeBudgetInstruction::set_compute_unit_price(
+                compute_unit_price_micro_lamports,
+            ));
+        }
+
         let transaction = Transaction::new_signed_with_payer(
             &instructions,
             Some(&self.key_store.publish_keypair.pubkey()),
