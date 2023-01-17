@@ -76,7 +76,7 @@ ETH_USD = {
 asyncio.set_event_loop(asyncio.new_event_loop())
 
 
-class PythdClient:
+class PythAgentClient:
 
     def __init__(self, address: str) -> None:
         self.address: str = address
@@ -86,15 +86,16 @@ class PythdClient:
         self.server = Server(self.address)
         task = await self.server.ws_connect()
         task.add_done_callback(self._on_connection_done)
-        LOGGER.debug("connected to pythd websocket server at %s", self.address)
+        LOGGER.debug(
+            "connected to pyth agent websocket server at %s", self.address)
 
     async def close(self) -> None:
         await self.server.close()
-        LOGGER.debug("closed pythd connection")
+        LOGGER.debug("closed pyth agent websocket connection")
 
     @staticmethod
     def _on_connection_done(task):
-        LOGGER.debug("pythd connection closed")
+        LOGGER.debug("pyth agent connection closed")
         if not task.cancelled() and task.exception() is not None:
             e = task.exception()
             LOGGER.error(e, exc_info=1)
@@ -311,19 +312,19 @@ class PythTest:
             yield
 
     @pytest_asyncio.fixture
-    async def pythd(self, agent):
-        pythd = PythdClient(address="ws://localhost:8910")
-        await pythd.connect()
-        yield pythd
-        await pythd.close()
+    async def client(self, agent):
+        client = PythAgentClient(address="ws://localhost:8910")
+        await client.connect()
+        yield client
+        await client.close()
 
 
 class TestUpdatePrice(PythTest):
 
     @pytest.mark.asyncio
-    async def test_update_price_simple(self, pythd: PythdClient):
+    async def test_update_price_simple(self, client: PythAgentClient):
         # Fetch all products
-        products = {product["attr_dict"]["symbol"]: product for product in await pythd.get_all_products()}
+        products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
 
         # Find the product account ID corresponding to the BTC/USD symbol
         product = products[BTC_USD["attr_dict"]["symbol"]]
@@ -333,15 +334,15 @@ class TestUpdatePrice(PythTest):
         price_account = product["price_accounts"][0]["account"]
 
         # Send an "update_price" request
-        await pythd.update_price(price_account, 42, 2, "trading")
+        await client.update_price(price_account, 42, 2, "trading")
         time.sleep(2)
 
         # Send another "update_price" request to trigger aggregation
-        await pythd.update_price(price_account, 81, 1, "trading")
+        await client.update_price(price_account, 81, 1, "trading")
         time.sleep(2)
 
         # Confirm that the price account has been updated with the values from the first "update_price" request
-        product = await pythd.get_product(product_account)
+        product = await client.get_product(product_account)
         price_account = product["price_accounts"][0]
         assert price_account["price"] == 42
         assert price_account["conf"] == 2
