@@ -101,8 +101,6 @@ pub struct Config {
     pub staleness_threshold:                     Duration,
     /// Maximum size of a batch
     pub max_batch_size:                          usize,
-    /// Configuration for the Key Store
-    pub key_store:                               key_store::Config,
     /// Capacity of the channel between the Exporter and the Transaction Monitor
     pub inflight_transactions_channel_capacity:  usize,
     /// Configuration for the Transaction Monitor
@@ -121,7 +119,6 @@ impl Default for Config {
             publish_interval_duration:               Duration::from_secs(1),
             staleness_threshold:                     Duration::from_secs(5),
             max_batch_size:                          12,
-            key_store:                               Default::default(),
             inflight_transactions_channel_capacity:  10000,
             transaction_monitor:                     Default::default(),
             // The largest transactions appear to be about ~12000 CUs. We leave ourselves some breathing room.
