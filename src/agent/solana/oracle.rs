@@ -3,6 +3,7 @@
 
 use {
     self::subscriber::Subscriber,
+    super::key_store::KeyStore,
     crate::agent::store::global,
     anyhow::{
         anyhow,
@@ -17,10 +18,6 @@ use {
     serde::{
         Deserialize,
         Serialize,
-    },
-    serde_with::{
-        serde_as,
-        DisplayFromStr,
     },
     slog::Logger,
     solana_client::nonblocking::rpc_client::RpcClient,
@@ -65,6 +62,9 @@ pub type PriceAccount = pyth_sdk_solana::state::PriceAccount;
 pub struct Oracle {
     config: Config,
 
+    // The Key Store
+    key_store: KeyStore,
+
     // The Solana account data
     data: Data,
 
@@ -85,18 +85,11 @@ pub struct Oracle {
     logger: Logger,
 }
 
-#[serde_as]
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct Config {
     /// The commitment level to use when reading data from the RPC node.
     pub commitment:               CommitmentLevel,
-    /// Public key of the Oracle program.
-    #[serde_as(as = "DisplayFromStr")]
-    pub oracle_account_key:       Pubkey,
-    /// Public key of the root mapping account.
-    #[serde_as(as = "DisplayFromStr")]
-    pub mapping_account_key:      Pubkey,
     /// RPC endpoint to send requests to.
     pub rpc_url:                  String,
     /// The interval with which to poll account information.
@@ -114,8 +107,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             commitment:               CommitmentLevel::Confirmed,
-            oracle_account_key:       Default::default(),
-            mapping_account_key:      Default::default(),
             rpc_url:                  "http://localhost:8899".to_string(),
             poll_interval_duration:   Duration::from_secs(30),
             subscriber_enabled:       true,
@@ -127,6 +118,7 @@ impl Default for Config {
 
 pub fn spawn_oracle(
     config: Config,
+    key_store: KeyStore,
     global_store_update_tx: mpsc::Sender<global::Update>,
     logger: Logger,
 ) -> Vec<JoinHandle<()>> {
@@ -135,12 +127,23 @@ pub fn spawn_oracle(
     // Create and spawn the account subscriber
     let (updates_tx, updates_rx) = mpsc::channel(config.updates_channel_capacity);
     if config.subscriber_enabled {
-        let subscriber = Subscriber::new(config.subscriber.clone(), updates_tx, logger.clone());
+        let subscriber = Subscriber::new(
+            config.subscriber.clone(),
+            key_store.program_key.clone(),
+            updates_tx,
+            logger.clone(),
+        );
         jhs.push(tokio::spawn(async move { subscriber.run().await }));
     }
 
     // Create and spawn the Oracle
-    let mut oracle = Oracle::new(config, updates_rx, global_store_update_tx, logger);
+    let mut oracle = Oracle::new(
+        config,
+        key_store,
+        updates_rx,
+        global_store_update_tx,
+        logger,
+    );
     jhs.push(tokio::spawn(async move { oracle.run().await }));
 
     jhs
@@ -149,6 +152,7 @@ pub fn spawn_oracle(
 impl Oracle {
     pub fn new(
         config: Config,
+        key_store: KeyStore,
         updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
         global_store_tx: mpsc::Sender<global::Update>,
         logger: Logger,
@@ -163,6 +167,7 @@ impl Oracle {
 
         Oracle {
             config,
+            key_store,
             data: Default::default(),
             rpc_client,
             poll_interval,
@@ -200,7 +205,7 @@ impl Oracle {
             .cloned()
             .collect::<HashSet<_>>();
         self.data.mapping_accounts = self
-            .fetch_mapping_accounts(self.config.mapping_account_key)
+            .fetch_mapping_accounts(self.key_store.mapping_key)
             .await?;
         info!(self.logger, "fetched mapping accounts"; "new" => format!("{:?}", self
             .data
@@ -449,10 +454,6 @@ mod subscriber {
             Deserialize,
             Serialize,
         },
-        serde_with::{
-            serde_as,
-            DisplayFromStr,
-        },
         slog::Logger,
         solana_sdk::{
             account::Account,
@@ -469,29 +470,23 @@ mod subscriber {
         },
     };
 
-    #[serde_as]
     #[derive(Clone, Serialize, Deserialize, Debug)]
     #[serde(default)]
     pub struct Config {
         /// Commitment level used to read account data
-        pub commitment:  CommitmentLevel,
-        /// Public key of the root account to monitor. Note that all
-        /// accounts owned by this account are also monitored.
-        #[serde_as(as = "DisplayFromStr")]
-        pub account_key: Pubkey,
+        pub commitment: CommitmentLevel,
         /// HTTP RPC endpoint
-        pub rpc_url:     String,
+        pub rpc_url:    String,
         /// WSS RPC endpoint
-        pub wss_url:     String,
+        pub wss_url:    String,
     }
 
     impl Default for Config {
         fn default() -> Self {
             Self {
-                commitment:  CommitmentLevel::Confirmed,
-                account_key: Default::default(),
-                rpc_url:     "http://localhost:8899".to_string(),
-                wss_url:     "ws://localhost:8900".to_string(),
+                commitment: CommitmentLevel::Confirmed,
+                rpc_url:    "http://localhost:8899".to_string(),
+                wss_url:    "ws://localhost:8900".to_string(),
             }
         }
     }
@@ -501,7 +496,11 @@ mod subscriber {
     pub struct Subscriber {
         config: Config,
 
-        // Channel on which updates are sent
+        /// Public key of the root account to monitor. Note that all
+        /// accounts owned by this account are also monitored.
+        account_key: Pubkey,
+
+        /// Channel on which updates are sent
         updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
 
         logger: Logger,
@@ -510,11 +509,13 @@ mod subscriber {
     impl Subscriber {
         pub fn new(
             config: Config,
+            account_key: Pubkey,
             updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
             logger: Logger,
         ) -> Self {
             Subscriber {
                 config,
+                account_key,
                 updates_tx,
                 logger,
             }
@@ -549,7 +550,7 @@ mod subscriber {
             &self,
         ) -> Result<broadcast::Receiver<(Pubkey, solana_sdk::account::Account)>> {
             let shadow = BlockchainShadow::new_for_program(
-                &self.config.account_key,
+                &self.account_key,
                 SyncOptions {
                     network: solana_shadow::Network::Custom(
                         self.config.rpc_url.clone(),
