@@ -1,9 +1,12 @@
 use {
     self::transaction_monitor::TransactionMonitor,
-    super::super::store::{
-        self,
-        local::PriceInfo,
-        PriceIdentifier,
+    super::{
+        super::store::{
+            self,
+            local::PriceInfo,
+            PriceIdentifier,
+        },
+        key_store,
     },
     anyhow::{
         anyhow,
@@ -130,6 +133,7 @@ impl Default for Config {
 
 pub fn spawn_exporter(
     config: Config,
+    key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     logger: Logger,
 ) -> Result<Vec<JoinHandle<()>>> {
@@ -154,7 +158,6 @@ pub fn spawn_exporter(
     let transaction_monitor_jh = tokio::spawn(async move { transaction_monitor.run().await });
 
     // Create and spawn the exporter
-    let key_store = KeyStore::new(config.key_store.clone())?;
     let mut exporter = Exporter::new(
         config,
         key_store,
@@ -626,93 +629,6 @@ mod transaction_monitor {
             info!(self.logger, "monitoring transaction hit rate"; "percentage confirmed" => percentage_confirmed);
 
             Ok(())
-        }
-    }
-}
-
-/// The key_store module is responsible for parsing the pythd key store.
-mod key_store {
-    use {
-        anyhow::{
-            anyhow,
-            Context,
-            Result,
-        },
-        serde::{
-            Deserialize,
-            Serialize,
-        },
-        solana_sdk::{
-            pubkey::Pubkey,
-            signature::Keypair,
-            signer::keypair,
-        },
-        std::{
-            fs,
-            path::{
-                Path,
-                PathBuf,
-            },
-            str::FromStr,
-        },
-    };
-
-
-    #[derive(Clone, Serialize, Deserialize, Debug)]
-    #[serde(default)]
-    pub struct Config {
-        /// Root directory of the KeyStore
-        pub root_path:            PathBuf,
-        /// Path to the keypair used to publish price updates, relative to the root
-        pub publish_keypair_path: PathBuf,
-        /// Path to the public key of the Oracle program, relative to the root
-        pub program_key_path:     PathBuf,
-        /// Path to the public key of the root mapping account, relative to the root
-        pub mapping_key_path:     PathBuf,
-    }
-
-    impl Default for Config {
-        fn default() -> Self {
-            Self {
-                root_path:            Default::default(),
-                publish_keypair_path: "publish_key_pair.json".into(),
-                program_key_path:     "program_key.json".into(),
-                mapping_key_path:     "mapping_key.json".into(),
-            }
-        }
-    }
-
-    pub struct KeyStore {
-        /// The keypair used to publish price updates
-        pub publish_keypair: Keypair,
-        /// Public key of the Oracle program
-        pub program_key:     Pubkey,
-        /// Public key of the root mapping account
-        pub mapping_key:     Pubkey,
-    }
-
-    impl KeyStore {
-        pub fn new(config: Config) -> Result<Self> {
-            Ok(KeyStore {
-                publish_keypair: keypair::read_keypair_file(
-                    config.root_path.join(config.publish_keypair_path),
-                )
-                .map_err(|e| anyhow!(e.to_string()))
-                .context("reading publish keypair")?,
-                program_key:     Self::pubkey_from_path(
-                    config.root_path.join(config.program_key_path),
-                )
-                .context("reading program key")?,
-                mapping_key:     Self::pubkey_from_path(
-                    config.root_path.join(config.mapping_key_path),
-                )
-                .context("reading mapping key")?,
-            })
-        }
-
-        fn pubkey_from_path(path: impl AsRef<Path>) -> Result<Pubkey> {
-            let contents = fs::read_to_string(path)?;
-            Pubkey::from_str(contents.trim()).map_err(|e| e.into())
         }
     }
 }
