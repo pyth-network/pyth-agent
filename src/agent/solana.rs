@@ -50,19 +50,21 @@ pub mod network {
         global_store_update_tx: mpsc::Sender<global::Update>,
         logger: Logger,
     ) -> Result<Vec<JoinHandle<()>>> {
-        // Create the key store
-        let key_store = KeyStore::new(config.key_store.clone())?;
-
         // Spawn the Oracle
         let mut jhs = oracle::spawn_oracle(
             config.oracle.clone(),
+            KeyStore::new(config.key_store.clone())?,
             global_store_update_tx,
             logger.clone(),
         );
 
         // Spawn the Exporter
-        let exporter_jhs =
-            exporter::spawn_exporter(config.exporter, key_store, local_store_tx, logger)?;
+        let exporter_jhs = exporter::spawn_exporter(
+            config.exporter,
+            KeyStore::new(config.key_store.clone())?,
+            local_store_tx,
+            logger,
+        )?;
         jhs.extend(exporter_jhs);
 
         Ok(jhs)

@@ -1,7 +1,4 @@
 [primary_network]
 key_store.root_path = "keystore"
 oracle.poll_interval_duration = "1s"
-oracle.oracle_account_key = "BujGr9ChcuaCJhxeFEvGvaCFTxSV1CUCSVHL1SVFpU4i"
-oracle.mapping_account_key = "BTJKZngp3vzeJiRmmT9PitQH4H29dhQZ1GNhxFfDi4kw"
-oracle.subscriber.account_key = "BujGr9ChcuaCJhxeFEvGvaCFTxSV1CUCSVHL1SVFpU4i"
 exporter.transaction_monitor.poll_interval_duration = "1s"
