@@ -60,8 +60,6 @@ pub type PriceAccount = pyth_sdk_solana::state::PriceAccount;
 
 // Oracle is responsible for fetching Solana account data stored in the Pyth on-chain Oracle.
 pub struct Oracle {
-    config: Config,
-
     // The Key Store
     key_store: KeyStore,
 
