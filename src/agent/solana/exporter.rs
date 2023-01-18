@@ -86,8 +86,6 @@ struct UpdPriceCmd {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct Config {
-    /// HTTP endpoint of the Solana RPC node
-    pub rpc_endpoint:                            String,
     /// Duration of the interval at which to refresh the cached network state (current slot and blockhash).
     /// It is recommended to set this to slightly less than the network's block time,
     /// as the slot fetched will be used as the time of the price update.
@@ -114,7 +112,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            rpc_endpoint:                            "http://localhost:8899".to_string(),
             refresh_network_state_interval_duration: Duration::from_millis(200),
             publish_interval_duration:               Duration::from_secs(1),
             staleness_threshold:                     Duration::from_secs(5),
@@ -130,6 +127,7 @@ impl Default for Config {
 
 pub fn spawn_exporter(
     config: Config,
+    rpc_url: &str,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     logger: Logger,
@@ -137,7 +135,7 @@ pub fn spawn_exporter(
     // Create and spawn the network state querier
     let (network_state_tx, network_state_rx) = watch::channel(Default::default());
     let mut network_state_querier = NetworkStateQuerier::new(
-        &config.rpc_endpoint,
+        &rpc_url,
         time::interval(config.refresh_network_state_interval_duration),
         network_state_tx,
         logger.clone(),
@@ -149,6 +147,7 @@ pub fn spawn_exporter(
         mpsc::channel(config.inflight_transactions_channel_capacity);
     let mut transaction_monitor = TransactionMonitor::new(
         config.transaction_monitor.clone(),
+        rpc_url,
         transactions_rx,
         logger.clone(),
     );
@@ -157,6 +156,7 @@ pub fn spawn_exporter(
     // Create and spawn the exporter
     let mut exporter = Exporter::new(
         config,
+        rpc_url,
         key_store,
         local_store_tx,
         network_state_rx,
@@ -203,6 +203,7 @@ pub struct Exporter {
 impl Exporter {
     pub fn new(
         config: Config,
+        rpc_url: &str,
         key_store: KeyStore,
         local_store_tx: Sender<store::local::Message>,
         network_state_rx: watch::Receiver<NetworkState>,
@@ -211,7 +212,7 @@ impl Exporter {
     ) -> Self {
         let publish_interval = time::interval(config.publish_interval_duration);
         Exporter {
-            rpc_client: RpcClient::new(config.rpc_endpoint.to_string()),
+            rpc_client: RpcClient::new(rpc_url.to_string()),
             config,
             publish_interval,
             key_store,
@@ -512,8 +513,6 @@ mod transaction_monitor {
     #[derive(Clone, Serialize, Deserialize, Debug)]
     #[serde(default)]
     pub struct Config {
-        /// HTTP endpoint of the Solana RPC node
-        pub rpc_endpoint:           String,
         /// Duration of the interval with which to poll the status of transactions.
         /// It is recommended to set this to a value close to the Exporter's publish_interval.
         #[serde(with = "humantime_serde")]
@@ -527,7 +526,6 @@ mod transaction_monitor {
     impl Default for Config {
         fn default() -> Self {
             Self {
-                rpc_endpoint:           "http://localhost:8899".to_string(),
                 poll_interval_duration: Duration::from_secs(4),
                 max_transactions:       100,
             }
@@ -557,11 +555,12 @@ mod transaction_monitor {
     impl TransactionMonitor {
         pub fn new(
             config: Config,
+            rpc_url: &str,
             transactions_rx: mpsc::Receiver<Signature>,
             logger: Logger,
         ) -> Self {
             let poll_interval = time::interval(config.poll_interval_duration);
-            let rpc_client = RpcClient::new(config.rpc_endpoint.to_string());
+            let rpc_client = RpcClient::new(rpc_url.to_string());
             TransactionMonitor {
                 config,
                 rpc_client,

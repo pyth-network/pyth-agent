@@ -88,8 +88,6 @@ pub struct Oracle {
 pub struct Config {
     /// The commitment level to use when reading data from the RPC node.
     pub commitment:               CommitmentLevel,
-    /// RPC endpoint to send requests to.
-    pub rpc_url:                  String,
     /// The interval with which to poll account information.
     #[serde(with = "humantime_serde")]
     pub poll_interval_duration:   Duration,
@@ -105,7 +103,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             commitment:               CommitmentLevel::Confirmed,
-            rpc_url:                  "http://localhost:8899".to_string(),
             poll_interval_duration:   Duration::from_secs(30),
             subscriber_enabled:       true,
             subscriber:               Default::default(),
@@ -116,6 +113,8 @@ impl Default for Config {
 
 pub fn spawn_oracle(
     config: Config,
+    rpc_url: &str,
+    wss_url: &str,
     key_store: KeyStore,
     global_store_update_tx: mpsc::Sender<global::Update>,
     logger: Logger,
@@ -127,6 +126,8 @@ pub fn spawn_oracle(
     if config.subscriber_enabled {
         let subscriber = Subscriber::new(
             config.subscriber.clone(),
+            rpc_url.to_string(),
+            wss_url.to_string(),
             key_store.program_key.clone(),
             updates_tx,
             logger.clone(),
@@ -137,6 +138,7 @@ pub fn spawn_oracle(
     // Create and spawn the Oracle
     let mut oracle = Oracle::new(
         config,
+        rpc_url,
         key_store,
         updates_rx,
         global_store_update_tx,
@@ -150,13 +152,14 @@ pub fn spawn_oracle(
 impl Oracle {
     pub fn new(
         config: Config,
+        rpc_url: &str,
         key_store: KeyStore,
         updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
         global_store_tx: mpsc::Sender<global::Update>,
         logger: Logger,
     ) -> Self {
         let rpc_client = RpcClient::new_with_commitment(
-            config.rpc_url.clone(),
+            rpc_url.to_string(),
             CommitmentConfig {
                 commitment: config.commitment,
             },
@@ -164,7 +167,6 @@ impl Oracle {
         let poll_interval = tokio::time::interval(config.poll_interval_duration);
 
         Oracle {
-            config,
             key_store,
             data: Default::default(),
             rpc_client,
@@ -473,18 +475,12 @@ mod subscriber {
     pub struct Config {
         /// Commitment level used to read account data
         pub commitment: CommitmentLevel,
-        /// HTTP RPC endpoint
-        pub rpc_url:    String,
-        /// WSS RPC endpoint
-        pub wss_url:    String,
     }
 
     impl Default for Config {
         fn default() -> Self {
             Self {
                 commitment: CommitmentLevel::Confirmed,
-                rpc_url:    "http://localhost:8899".to_string(),
-                wss_url:    "ws://localhost:8900".to_string(),
             }
         }
     }
@@ -493,6 +489,11 @@ mod subscriber {
     /// on updates_tx. This is a convenience wrapper around the Blockchain Shadow crate.
     pub struct Subscriber {
         config: Config,
+
+        /// HTTP RPC endpoint
+        pub rpc_url: String,
+        /// WSS RPC endpoint
+        pub wss_url: String,
 
         /// Public key of the root account to monitor. Note that all
         /// accounts owned by this account are also monitored.
@@ -507,12 +508,16 @@ mod subscriber {
     impl Subscriber {
         pub fn new(
             config: Config,
+            rpc_url: String,
+            wss_url: String,
             account_key: Pubkey,
             updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
             logger: Logger,
         ) -> Self {
             Subscriber {
                 config,
+                rpc_url,
+                wss_url,
                 account_key,
                 updates_tx,
                 logger,
@@ -551,8 +556,8 @@ mod subscriber {
                 &self.account_key,
                 SyncOptions {
                     network: solana_shadow::Network::Custom(
-                        self.config.rpc_url.clone(),
-                        self.config.wss_url.clone(),
+                        self.rpc_url.clone(),
+                        self.wss_url.clone(),
                     ),
                     commitment: self.config.commitment,
                     ..SyncOptions::default()
