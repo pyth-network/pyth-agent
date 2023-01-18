@@ -93,8 +93,6 @@ pub struct Config {
     pub poll_interval_duration:   Duration,
     /// Whether subscribing to account updates over websocket is enabled
     pub subscriber_enabled:       bool,
-    /// Configuration for account Subscriber
-    pub subscriber:               subscriber::Config,
     /// Capacity of the channel over which the Subscriber sends updates to the Exporter
     pub updates_channel_capacity: usize,
 }
@@ -105,7 +103,6 @@ impl Default for Config {
             commitment:               CommitmentLevel::Confirmed,
             poll_interval_duration:   Duration::from_secs(30),
             subscriber_enabled:       true,
-            subscriber:               Default::default(),
             updates_channel_capacity: 10000,
         }
     }
@@ -125,9 +122,9 @@ pub fn spawn_oracle(
     let (updates_tx, updates_rx) = mpsc::channel(config.updates_channel_capacity);
     if config.subscriber_enabled {
         let subscriber = Subscriber::new(
-            config.subscriber.clone(),
             rpc_url.to_string(),
             wss_url.to_string(),
+            config.commitment,
             key_store.program_key.clone(),
             updates_tx,
             logger.clone(),
@@ -450,10 +447,6 @@ mod subscriber {
             anyhow,
             Result,
         },
-        serde::{
-            Deserialize,
-            Serialize,
-        },
         slog::Logger,
         solana_sdk::{
             account::Account,
@@ -470,30 +463,16 @@ mod subscriber {
         },
     };
 
-    #[derive(Clone, Serialize, Deserialize, Debug)]
-    #[serde(default)]
-    pub struct Config {
-        /// Commitment level used to read account data
-        pub commitment: CommitmentLevel,
-    }
-
-    impl Default for Config {
-        fn default() -> Self {
-            Self {
-                commitment: CommitmentLevel::Confirmed,
-            }
-        }
-    }
-
     /// Subscriber subscribes to all changes on the given account, and sends those changes
     /// on updates_tx. This is a convenience wrapper around the Blockchain Shadow crate.
     pub struct Subscriber {
-        config: Config,
-
         /// HTTP RPC endpoint
-        pub rpc_url: String,
+        rpc_url: String,
         /// WSS RPC endpoint
-        pub wss_url: String,
+        wss_url: String,
+
+        /// Commitment level used to read account data
+        commitment: CommitmentLevel,
 
         /// Public key of the root account to monitor. Note that all
         /// accounts owned by this account are also monitored.
@@ -507,17 +486,17 @@ mod subscriber {
 
     impl Subscriber {
         pub fn new(
-            config: Config,
             rpc_url: String,
             wss_url: String,
+            commitment: CommitmentLevel,
             account_key: Pubkey,
             updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
             logger: Logger,
         ) -> Self {
             Subscriber {
-                config,
                 rpc_url,
                 wss_url,
+                commitment,
                 account_key,
                 updates_tx,
                 logger,
@@ -559,7 +538,7 @@ mod subscriber {
                         self.rpc_url.clone(),
                         self.wss_url.clone(),
                     ),
-                    commitment: self.config.commitment,
+                    commitment: self.commitment,
                     ..SyncOptions::default()
                 },
             )
