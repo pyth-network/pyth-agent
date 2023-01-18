@@ -34,14 +34,31 @@ pub mod network {
     };
 
     /// Configuration for a network
-    #[derive(Clone, Serialize, Deserialize, Debug, Default)]
+    #[derive(Clone, Serialize, Deserialize, Debug)]
+    #[serde(default)]
     pub struct Config {
+        /// HTTP RPC endpoint
+        pub rpc_url:   String,
+        /// WSS RPC endpoint
+        pub wss_url:   String,
         /// Keystore
         pub key_store: key_store::Config,
         /// Configuration for the Oracle reading data from this network
         pub oracle:    oracle::Config,
         /// Configuration for the Exporter publishing data to this network
         pub exporter:  exporter::Config,
+    }
+
+    impl Default for Config {
+        fn default() -> Self {
+            Self {
+                rpc_url:   "http://localhost:8899".to_string(),
+                wss_url:   "ws://localhost:8900".to_string(),
+                key_store: Default::default(),
+                oracle:    Default::default(),
+                exporter:  Default::default(),
+            }
+        }
     }
 
     pub fn spawn_network(
@@ -53,6 +70,8 @@ pub mod network {
         // Spawn the Oracle
         let mut jhs = oracle::spawn_oracle(
             config.oracle.clone(),
+            &config.rpc_url,
+            &config.wss_url,
             KeyStore::new(config.key_store.clone())?,
             global_store_update_tx,
             logger.clone(),
@@ -61,6 +80,7 @@ pub mod network {
         // Spawn the Exporter
         let exporter_jhs = exporter::spawn_exporter(
             config.exporter,
+            &config.rpc_url,
             KeyStore::new(config.key_store.clone())?,
             local_store_tx,
             logger,
