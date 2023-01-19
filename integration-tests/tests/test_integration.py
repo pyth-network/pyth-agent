@@ -307,6 +307,7 @@ class PythTest:
         LOGGER.debug("Launching agent logging to %s", log_dir)
 
         os.environ["RUST_BACKTRACE"] = "full"
+        os.environ["RUST_LOG"] = "debug"
         with self.spawn("../target/release/agent --config agent_conf.toml", log_dir=log_dir):
             time.sleep(3)
             yield
