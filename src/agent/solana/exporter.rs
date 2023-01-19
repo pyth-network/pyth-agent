@@ -592,6 +592,8 @@ mod transaction_monitor {
         }
 
         fn add_transaction(&mut self, signature: Signature) {
+            debug!(self.logger, "monitoring new transaction"; "signature" => signature.to_string());
+
             // Add the new transaction to the list
             self.sent_transactions.push_back(signature);
 
@@ -622,7 +624,7 @@ mod transaction_monitor {
                 .count();
             let percentage_confirmed =
                 ((confirmed as f64) / (self.sent_transactions.len() as f64)) * 100.0;
-            info!(self.logger, "monitoring transaction hit rate"; "percentage confirmed" => percentage_confirmed);
+            info!(self.logger, "monitoring transaction hit rate"; "percentage confirmed" => format!("{:.}", percentage_confirmed));
 
             Ok(())
         }
