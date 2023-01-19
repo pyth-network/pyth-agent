@@ -11,7 +11,11 @@ use {
         Drain,
         Logger,
     },
-    std::path::PathBuf,
+    slog_envlogger::LogBuilder,
+    std::{
+        env,
+        path::PathBuf,
+    },
 };
 
 #[derive(Parser, Debug)]
@@ -26,12 +30,15 @@ struct Arguments {
 #[tokio::main]
 async fn main() {
     let logger = slog::Logger::root(
-        slog_async::Async::new(
-            slog_term::CompactFormat::new(slog_term::TermDecorator::new().build())
-                .build()
-                .fuse(),
+        slog_async::Async::default(
+            LogBuilder::new(
+                slog_term::CompactFormat::new(slog_term::TermDecorator::new().stdout().build())
+                    .build()
+                    .fuse(),
+            )
+            .parse(&env::var("RUST_LOG").unwrap_or("info".to_string()))
+            .build(),
         )
-        .build()
         .fuse(),
         o!(),
     );
