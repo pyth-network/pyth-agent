@@ -589,6 +589,8 @@ pub mod rpc {
                      with_logger: WithLogger,
                      config: Config| {
                         ws.on_upgrade(move |conn| async move {
+                            info!(with_logger.logger, "websocket user connected");
+
                             Connection::new(
                                 conn,
                                 adapter_tx,

@@ -531,6 +531,8 @@ mod subscriber {
         pub async fn start_shadow(
             &self,
         ) -> Result<broadcast::Receiver<(Pubkey, solana_sdk::account::Account)>> {
+            debug!(self.logger, "subscribed to account updates"; "account" => self.account_key.to_string());
+
             let shadow = BlockchainShadow::new_for_program(
                 &self.account_key,
                 SyncOptions {
