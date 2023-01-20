@@ -513,7 +513,7 @@ mod subscriber {
         async fn forward_updates(&self, shadow_rx: &mut broadcast::Receiver<(Pubkey, Account)>) {
             loop {
                 if let Err(err) = self.forward_update(shadow_rx).await {
-                    error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+                    error!(self.logger, "error forwarding updates: {:#}", err; "error" => format!("{:?}", err))
                 }
             }
         }
