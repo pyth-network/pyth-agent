@@ -50,6 +50,20 @@ pub struct Data {
     pub price_accounts:   HashMap<Pubkey, PriceAccount>,
 }
 
+impl Data {
+    fn new(
+        mapping_accounts: HashMap<Pubkey, MappingAccount>,
+        product_accounts: HashMap<Pubkey, ProductAccount>,
+        price_accounts: HashMap<Pubkey, PriceAccount>,
+    ) -> Self {
+        Data {
+            mapping_accounts,
+            product_accounts,
+            price_accounts,
+        }
+    }
+}
+
 pub type MappingAccount = pyth_sdk_solana::state::MappingAccount;
 #[derive(Debug, Clone)]
 pub struct ProductAccount {
@@ -60,21 +74,13 @@ pub type PriceAccount = pyth_sdk_solana::state::PriceAccount;
 
 // Oracle is responsible for fetching Solana account data stored in the Pyth on-chain Oracle.
 pub struct Oracle {
-    // The Key Store
-    key_store: KeyStore,
-
     // The Solana account data
     data: Data,
 
-    // The RPC client to use to poll data from the RPC node
-    // Also pass in a websocket client to use for "get account data" if
-    // websocket data is found.
-    rpc_client: RpcClient,
+    // Channel on which polled data are received from the Poller
+    data_rx: mpsc::Receiver<Data>,
 
-    // The interval with which to poll for data
-    poll_interval: Interval,
-
-    // Channel on which account updates are received from the subscriber
+    // Channel on which account updates are received from the Subscriber
     updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
 
     // Channel on which updates are sent to the global store
@@ -93,17 +99,20 @@ pub struct Config {
     pub poll_interval_duration:   Duration,
     /// Whether subscribing to account updates over websocket is enabled
     pub subscriber_enabled:       bool,
-    /// Capacity of the channel over which the Subscriber sends updates to the Exporter
+    /// Capacity of the channel over which the Subscriber sends updates to the Oracle
     pub updates_channel_capacity: usize,
+    /// Capacity of the channel over which the Poller sends data to the Oracle
+    pub data_channel_capacity:    usize,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             commitment:               CommitmentLevel::Confirmed,
-            poll_interval_duration:   Duration::from_secs(30),
+            poll_interval_duration:   Duration::from_secs(5 * 60),
             subscriber_enabled:       true,
             updates_channel_capacity: 10000,
+            data_channel_capacity:    10000,
         }
     }
 }
@@ -132,15 +141,20 @@ pub fn spawn_oracle(
         jhs.push(tokio::spawn(async move { subscriber.run().await }));
     }
 
-    // Create and spawn the Oracle
-    let mut oracle = Oracle::new(
-        config,
+    // Create and spawn the Poller
+    let (data_tx, data_rx) = mpsc::channel(config.data_channel_capacity);
+    let mut poller = Poller::new(
+        data_tx,
+        key_store.mapping_key,
         rpc_url,
-        key_store,
-        updates_rx,
-        global_store_update_tx,
-        logger,
+        config.commitment,
+        config.poll_interval_duration,
+        logger.clone(),
     );
+    jhs.push(tokio::spawn(async move { poller.run().await }));
+
+    // Create and spawn the Oracle
+    let mut oracle = Oracle::new(data_rx, updates_rx, global_store_update_tx, logger);
     jhs.push(tokio::spawn(async move { oracle.run().await }));
 
     jhs
@@ -148,26 +162,14 @@ pub fn spawn_oracle(
 
 impl Oracle {
     pub fn new(
-        config: Config,
-        rpc_url: &str,
-        key_store: KeyStore,
+        data_rx: mpsc::Receiver<Data>,
         updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
         global_store_tx: mpsc::Sender<global::Update>,
         logger: Logger,
     ) -> Self {
-        let rpc_client = RpcClient::new_with_commitment(
-            rpc_url.to_string(),
-            CommitmentConfig {
-                commitment: config.commitment,
-            },
-        );
-        let poll_interval = tokio::time::interval(config.poll_interval_duration);
-
         Oracle {
-            key_store,
             data: Default::default(),
-            rpc_client,
-            poll_interval,
+            data_rx,
             updates_rx,
             global_store_tx,
             logger,
@@ -187,67 +189,200 @@ impl Oracle {
             Some((account_key, account)) = self.updates_rx.recv() => {
                 self.handle_account_update(&account_key, &account).await
             }
-            _ = self.poll_interval.tick() => {
-                self.poll().await
+            Some(data) = self.data_rx.recv() => {
+                self.handle_data_update(data);
+                self.send_all_data_to_global_store().await
             }
         }
     }
 
-    async fn poll(&mut self) -> Result<()> {
-        // Fetch mapping accounts
+    fn handle_data_update(&mut self, data: Data) {
+        // Log new accounts which have been found
         let previous_mapping_accounts = self
             .data
             .mapping_accounts
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
-        self.data.mapping_accounts = self
-            .fetch_mapping_accounts(self.key_store.mapping_key)
-            .await?;
-        info!(self.logger, "fetched mapping accounts"; "new" => format!("{:?}", self
-            .data
-            .mapping_accounts
-            .keys()
-            .cloned()
-            .collect::<HashSet<_>>().difference(&previous_mapping_accounts)), "total" => self.data.mapping_accounts.len());
-
-        // Fetch product accounts
+        info!(self.logger, "fetched mapping accounts"; "new" => format!("{:?}", data
+                .mapping_accounts
+                .keys()
+                .cloned()
+                .collect::<HashSet<_>>().difference(&previous_mapping_accounts)), "total" => data.mapping_accounts.len());
         let previous_product_accounts = self
             .data
             .product_accounts
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
-        self.data.product_accounts = self
-            .fetch_product_accounts(self.data.mapping_accounts.values())
-            .await?;
-        info!(self.logger, "fetched product accounts"; "new" => format!("{:?}", self
-            .data
-            .product_accounts
-            .keys()
-            .cloned()
-            .collect::<HashSet<_>>().difference(&previous_product_accounts)), "total" => self.data.product_accounts.len());
-
-        // Fetch price accounts
+        info!(self.logger, "fetched product accounts"; "new" => format!("{:?}", data
+                .product_accounts
+                .keys()
+                .cloned()
+                .collect::<HashSet<_>>().difference(&previous_product_accounts)), "total" => data.product_accounts.len());
         let previous_price_accounts = self
             .data
             .price_accounts
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
-        self.data.price_accounts = self
-            .fetch_price_accounts(self.data.product_accounts.values())
-            .await?;
-        info!(self.logger, "fetched price accounts"; "new" => format!("{:?}", self
-            .data
-            .price_accounts
-            .keys()
-            .cloned()
-            .collect::<HashSet<_>>().difference(&previous_price_accounts)), "total" => self.data.price_accounts.len());
+        info!(self.logger, "fetched price accounts"; "new" => format!("{:?}", data
+                .price_accounts
+                .keys()
+                .cloned()
+                .collect::<HashSet<_>>().difference(&previous_price_accounts)), "total" => data.price_accounts.len());
 
-        self.send_all_data_to_global_store().await?;
+        // Update the data with the new data structs
+        self.data = data;
+    }
+
+    async fn handle_account_update(
+        &mut self,
+        account_key: &Pubkey,
+        account: &Account,
+    ) -> Result<()> {
+        debug!(self.logger, "handling account update");
+
+        // We are only interested in price account updates, all other types of updates
+        // will be fetched using polling.
+        if !self.data.price_accounts.contains_key(account_key) {
+            return Ok(());
+        }
+
+        self.handle_price_account_update(account_key, account).await
+    }
+
+    async fn handle_price_account_update(
+        &mut self,
+        account_key: &Pubkey,
+        account: &Account,
+    ) -> Result<()> {
+        let price_account = *load_price_account(&account.data)
+            .with_context(|| format!("load price account {}", account_key))?;
+
+        info!(self.logger, "observed on-chain price account update"; "pubkey" => account_key.to_string(), "price" => price_account.agg.price, "conf" => price_account.agg.conf, "status" => format!("{:?}", price_account.agg.status));
+
+        self.data.price_accounts.insert(*account_key, price_account);
+
+        self.notify_price_account_update(account_key, &price_account)
+            .await?;
 
         Ok(())
+    }
+
+    async fn send_all_data_to_global_store(&self) -> Result<()> {
+        for (product_account_key, product_account) in &self.data.product_accounts {
+            self.notify_product_account_update(product_account_key, product_account)
+                .await?;
+        }
+
+        for (price_account_key, price_account) in &self.data.price_accounts {
+            self.notify_price_account_update(price_account_key, price_account)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn notify_product_account_update(
+        &self,
+        account_key: &Pubkey,
+        account: &ProductAccount,
+    ) -> Result<()> {
+        self.global_store_tx
+            .send(global::Update::ProductAccountUpdate {
+                account_key: account_key.clone(),
+                account:     account.clone(),
+            })
+            .await
+            .map_err(|_| anyhow!("failed to notify product account update"))
+    }
+
+    async fn notify_price_account_update(
+        &self,
+        account_key: &Pubkey,
+        account: &PriceAccount,
+    ) -> Result<()> {
+        self.global_store_tx
+            .send(global::Update::PriceAccountUpdate {
+                account_key: account_key.clone(),
+                account:     account.clone(),
+            })
+            .await
+            .map_err(|_| anyhow!("failed to notify price account update"))
+    }
+}
+
+struct Poller {
+    /// The channel on which to send polled update data
+    data_tx: mpsc::Sender<Data>,
+
+    /// The root mapping account key to fetch data from
+    mapping_account_key: Pubkey,
+
+    /// The RPC client to use to poll data from the RPC node
+    rpc_client: RpcClient,
+
+    /// The interval with which to poll for data
+    poll_interval: Interval,
+
+    /// Logger
+    logger: Logger,
+}
+
+impl Poller {
+    pub fn new(
+        data_tx: mpsc::Sender<Data>,
+        mapping_account_key: Pubkey,
+        rpc_url: &str,
+        commitment: CommitmentLevel,
+        poll_interval_duration: Duration,
+        logger: Logger,
+    ) -> Self {
+        let rpc_client =
+            RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig { commitment });
+        let poll_interval = tokio::time::interval(poll_interval_duration);
+
+        Poller {
+            data_tx,
+            mapping_account_key,
+            rpc_client,
+            poll_interval,
+            logger,
+        }
+    }
+
+    pub async fn run(&mut self) {
+        loop {
+            self.poll_interval.tick().await;
+            info!(self.logger, "fetching all pyth account data");
+            if let Err(err) = self.poll_and_send().await {
+                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+            }
+        }
+    }
+
+    async fn poll_and_send(&mut self) -> Result<()> {
+        self.data_tx
+            .send(self.poll().await?)
+            .await
+            .map_err(|_| anyhow!("failed to send data to oracle"))
+    }
+
+    async fn poll(&self) -> Result<Data> {
+        let mapping_accounts = self
+            .fetch_mapping_accounts(self.mapping_account_key)
+            .await?;
+        let product_accounts = self
+            .fetch_product_accounts(mapping_accounts.values())
+            .await?;
+        let price_accounts = self.fetch_price_accounts(product_accounts.values()).await?;
+
+        Ok(Data::new(
+            mapping_accounts,
+            product_accounts,
+            price_accounts,
+        ))
     }
 
     async fn fetch_mapping_accounts(
@@ -364,80 +499,6 @@ impl Oracle {
             .with_context(|| format!("load price account {}", price_account_key))?;
 
         Ok(price_account)
-    }
-
-    async fn handle_account_update(
-        &mut self,
-        account_key: &Pubkey,
-        account: &Account,
-    ) -> Result<()> {
-        // We are only interested in price account updates, all other types of updates
-        // will be fetched using polling.
-        if !self.data.price_accounts.contains_key(account_key) {
-            return Ok(());
-        }
-
-        self.handle_price_account_update(account_key, account).await
-    }
-
-    async fn handle_price_account_update(
-        &mut self,
-        account_key: &Pubkey,
-        account: &Account,
-    ) -> Result<()> {
-        let price_account = *load_price_account(&account.data)
-            .with_context(|| format!("load price account {}", account_key))?;
-
-        debug!(self.logger, "observed on-chain price account update"; "pubkey" => account_key.to_string(), "price" => price_account.agg.price, "conf" => price_account.agg.conf, "status" => format!("{:?}", price_account.agg.status));
-
-        self.data.price_accounts.insert(*account_key, price_account);
-
-        self.notify_price_account_update(account_key, &price_account)
-            .await?;
-
-        Ok(())
-    }
-
-    async fn send_all_data_to_global_store(&self) -> Result<()> {
-        for (product_account_key, product_account) in &self.data.product_accounts {
-            self.notify_product_account_update(product_account_key, product_account)
-                .await?;
-        }
-
-        for (price_account_key, price_account) in &self.data.price_accounts {
-            self.notify_price_account_update(price_account_key, price_account)
-                .await?;
-        }
-
-        Ok(())
-    }
-
-    async fn notify_product_account_update(
-        &self,
-        account_key: &Pubkey,
-        account: &ProductAccount,
-    ) -> Result<()> {
-        self.global_store_tx
-            .send(global::Update::ProductAccountUpdate {
-                account_key: account_key.clone(),
-                account:     account.clone(),
-            })
-            .await
-            .map_err(|_| anyhow!("failed to notify product account update"))
-    }
-
-    async fn notify_price_account_update(
-        &self,
-        account_key: &Pubkey,
-        account: &PriceAccount,
-    ) -> Result<()> {
-        self.global_store_tx
-            .send(global::Update::PriceAccountUpdate {
-                account_key: account_key.clone(),
-                account:     account.clone(),
-            })
-            .await
-            .map_err(|_| anyhow!("failed to notify price account update"))
     }
 }
 
