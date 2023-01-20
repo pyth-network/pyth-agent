@@ -541,6 +541,7 @@ mod subscriber {
                         self.wss_url.clone(),
                     ),
                     commitment: self.commitment,
+                    max_lag: Some(10000),
                     ..SyncOptions::default()
                 },
             )
