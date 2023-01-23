@@ -10,6 +10,7 @@ use {
         Context,
         Result,
     },
+    futures_util::future::join_all,
     pyth_sdk_solana::state::{
         load_mapping_account,
         load_price_account,
@@ -415,16 +416,30 @@ impl Poller {
     where
         A: IntoIterator<Item = &'a MappingAccount>,
     {
-        let mut product_accounts = HashMap::new();
+        let mut pubkeys = vec![];
+        let mut futures = vec![];
 
+        // Fetch all product accounts in parallel
         for mapping_account in mapping_accounts {
-            product_accounts.extend(
-                self.fetch_product_accounts_from_mapping_account(mapping_account)
-                    .await?,
-            );
+            for account_key in mapping_account
+                .products
+                .iter()
+                .filter(|pubkey| **pubkey != Pubkey::default())
+            {
+                pubkeys.push(account_key.clone());
+                futures.push(self.fetch_product_account(account_key));
+            }
         }
 
-        Ok(product_accounts)
+        let product_accounts = join_all(futures)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(pubkeys
+            .into_iter()
+            .zip(product_accounts.into_iter())
+            .collect())
     }
 
     async fn fetch_price_accounts<'a, P>(
@@ -444,24 +459,6 @@ impl Poller {
         }
 
         Ok(price_accounts)
-    }
-
-    async fn fetch_product_accounts_from_mapping_account(
-        &self,
-        mapping_account: &MappingAccount,
-    ) -> Result<HashMap<Pubkey, ProductAccount>> {
-        let mut product_accounts = HashMap::new();
-        for account_key in mapping_account
-            .products
-            .iter()
-            .filter(|pubkey| **pubkey != Pubkey::default())
-        {
-            // Update the price accounts
-            let product_account = self.fetch_product_account(account_key).await?;
-            product_accounts.insert(*account_key, product_account);
-        }
-
-        Ok(product_accounts)
     }
 
     async fn fetch_product_account(&self, product_account_key: &Pubkey) -> Result<ProductAccount> {
