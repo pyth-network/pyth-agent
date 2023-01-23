@@ -35,6 +35,7 @@ use {
             HashMap,
             HashSet,
         },
+        iter::zip,
         time::Duration,
     },
     tokio::{
@@ -374,10 +375,9 @@ impl Poller {
         let mapping_accounts = self
             .fetch_mapping_accounts(self.mapping_account_key)
             .await?;
-        let product_accounts = self
-            .fetch_product_accounts(mapping_accounts.values())
+        let (product_accounts, price_accounts) = self
+            .fetch_product_and_price_accounts(mapping_accounts.values())
             .await?;
-        let price_accounts = self.fetch_price_accounts(product_accounts.values()).await?;
 
         Ok(Data::new(
             mapping_accounts,
@@ -409,10 +409,13 @@ impl Poller {
         Ok(accounts)
     }
 
-    async fn fetch_product_accounts<'a, A>(
+    async fn fetch_product_and_price_accounts<'a, A>(
         &self,
         mapping_accounts: A,
-    ) -> Result<HashMap<Pubkey, ProductAccount>>
+    ) -> Result<(
+        HashMap<Pubkey, ProductAccount>,
+        HashMap<Pubkey, PriceAccount>,
+    )>
     where
         A: IntoIterator<Item = &'a MappingAccount>,
     {
@@ -431,37 +434,32 @@ impl Poller {
             }
         }
 
-        let product_accounts = join_all(futures)
+        let future_results = join_all(futures)
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
 
-        Ok(pubkeys
+        let product_accounts = zip(
+            pubkeys.into_iter(),
+            future_results
+                .clone()
+                .into_iter()
+                .map(|(product_account, _)| product_account),
+        )
+        .collect();
+
+        let price_accounts = future_results
             .into_iter()
-            .zip(product_accounts.into_iter())
-            .collect())
+            .flat_map(|(_, price_accounts)| price_accounts.into_iter())
+            .collect();
+
+        Ok((product_accounts, price_accounts))
     }
 
-    async fn fetch_price_accounts<'a, P>(
+    async fn fetch_product_account(
         &self,
-        product_accounts: P,
-    ) -> Result<HashMap<Pubkey, PriceAccount>>
-    where
-        P: IntoIterator<Item = &'a ProductAccount>,
-    {
-        let mut price_accounts = HashMap::new();
-
-        for product_account in product_accounts {
-            for price_account_key in &product_account.price_accounts {
-                let price_account = self.fetch_price_account(price_account_key).await?;
-                price_accounts.insert(*price_account_key, price_account);
-            }
-        }
-
-        Ok(price_accounts)
-    }
-
-    async fn fetch_product_account(&self, product_account_key: &Pubkey) -> Result<ProductAccount> {
+        product_account_key: &Pubkey,
+    ) -> Result<(ProductAccount, HashMap<Pubkey, PriceAccount>)> {
         // Fetch the product account
         let product_account = *load_product_account(
             &self
@@ -487,7 +485,7 @@ impl Poller {
             price_accounts: price_accounts.keys().cloned().collect(),
         };
 
-        Ok(product_account)
+        Ok((product_account, price_accounts))
     }
 
     async fn fetch_price_account(&self, price_account_key: &Pubkey) -> Result<PriceAccount> {
