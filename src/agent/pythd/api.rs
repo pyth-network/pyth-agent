@@ -611,6 +611,8 @@ pub mod rpc {
                 },
             );
 
+            info!(self.logger, "starting api server"; "listen address" => self.config.listen_address.clone());
+
             tokio::task::spawn(serve).await.map_err(|e| e.into())
         }
     }
