@@ -1,0 +1,113 @@
+# Configuration for the JRPC API Websocket Server
+[pythd_api_server]
+# The address on which the websocket API server will listen on.
+listen_address = "127.0.0.1:8910"
+
+# Configuration for the primary network this agent will publish data to. In most cases this should be a Pythnet endpoint.
+[primary_network]
+### Required fields ###
+
+# HTTP(S) endpoint of the RPC node. Public RPC endpoints are usually rate-limited, so a private node should be used in most cases.
+rpc_url = "http://api.pythnet.pyth.network:8899"
+
+# WS(S) endpoint of the RRC node. This is used to subscribe to account changes on the network.
+# This can be omitted when oracle.subscriber_enabled is set to false.
+wss_url = "ws://api.pythnet.pyth.network:8900"
+
+# Path to the key store.
+key_store.root_path = "/path/to/keystore"
+
+### Optional fields ###
+
+# The interval with which to poll account information.
+# oracle.poll_interval_duration = "2m"
+
+# Whether subscribing to account updates over websocket is enabled
+# oracle.subscriber_enabled = true
+
+# Duration of the interval at which to refresh the cached network state (current slot and blockhash).
+# It is recommended to set this to slightly less than the network's block time,
+# as the slot fetched will be used as the time of the price update.
+# exporter.refresh_network_state_interval_duration = "200ms"
+
+# Duration of the interval at which to publish updates
+# exporter.publish_interval_duration = "1s"
+
+# Age after which a price update is considered stale and not published
+# exporter.staleness_threshold = "5s"
+
+# Maximum size of a batch
+# exporter.max_batch_size = 12
+
+# Maximum number of compute units requested by each update_price transaction
+# exporter.compute_unit_limit = 20000
+
+# Price per compute unit offered for update_price transactions
+# exporter.compute_unit_price_micro_lamports =
+
+# Duration of the interval with which to poll the status of transactions.
+# It is recommended to set this to a value close to exporter.publish_interval_duration
+# exporter.transaction_monitor.poll_interval_duration = "4s"
+
+# Maximum number of recent transactions to monitor. When this number is exceeded,
+# the oldest transactions are no longer monitored. It is recommended to set this to
+# a value at least as large as (number of products published / number of products in a batch).
+# exporter.transaction_monitor.max_transactions = "100"
+
+# Configuration for the optional secondary network this agent will publish data to. In most cases this should be a Solana endpoint.
+# [secondary_network]
+### Required fields ###
+
+# HTTP(S) endpoint of the RPC node. The Solana public RPC endpoints are rate-limited, so a private node should be used.
+# rpc_url = "http://api.devnet.solana.com"
+
+# WS(S) endpoint of the RRC node. This is used to subscribe to account changes on the network.
+# This can be omitted when oracle.subscriber_enabled is set to false.
+# wss_url = "ws://api.devnet.solana.com"
+
+# Path to the key store.
+# key_store.root_path = "/path/to/keystore"
+
+### Optional fields ###
+
+# The interval with which to poll account information.
+# oracle.poll_interval_duration = "2m"
+
+# Whether subscribing to account updates over websocket is enabled
+# oracle.subscriber_enabled = true
+
+# Duration of the interval at which to refresh the cached network state (current slot and blockhash).
+# It is recommended to set this to slightly less than the network's block time,
+# as the slot fetched will be used as the time of the price update.
+# exporter.refresh_network_state_interval_duration = "200ms"
+
+# Duration of the interval at which to publish updates
+# exporter.publish_interval_duration = "1s"
+
+# Age after which a price update is considered stale and not published
+# exporter.staleness_threshold = "5s"
+
+# Maximum size of a batch
+# exporter.max_batch_size = 12
+
+# Maximum number of compute units requested by each update_price transaction
+# exporter.compute_unit_limit = 20000
+
+# Price per compute unit offered for update_price transactions
+# exporter.compute_unit_price_micro_lamports =
+
+# Duration of the interval with which to poll the status of transactions.
+# It is recommended to set this to a value close to exporter.publish_interval_duration
+# exporter.transaction_monitor.poll_interval_duration = "4s"
+
+# Maximum number of recent transactions to monitor. When this number is exceeded,
+# the oldest transactions are no longer monitored. It is recommended to set this to
+# a value at least as large as (number of products published / number of products in a batch).
+# exporter.transaction_monitor.max_transactions = "100"
+
+# Configuration for the JRPC API
+[pythd_adapter]
+# The duration of the interval at which `notify_price_sched` notifications will be sent.
+# Note that this doesn't affect the rate at which transactions are published:
+# this is soley a backwards-compatibility API feature.
+# notify_price_sched_interval_duration = "1s"
