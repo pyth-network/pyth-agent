@@ -36,6 +36,7 @@ sh -c "$(curl -sSfL https://release.solana.com/v1.14.13/install)"
 PYTH_KEY_STORE=$HOME/.pythd
 
 # Create your keypair (pair of private/public keys) that will be used to sign your transactions.
+# Pyth Network will need to permission this key, so reach out to us once you have created it.
 solana-keygen new --no-bip39-passphrase --outfile $PYTH_KEY_STORE/publish_key_pair.json
 
 # Initialize the key store with the public keys of the Pyth Oracle Program on the network you wish to publish to.
