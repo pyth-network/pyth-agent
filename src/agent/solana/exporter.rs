@@ -103,9 +103,9 @@ pub struct Config {
     pub inflight_transactions_channel_capacity:  usize,
     /// Configuration for the Transaction Monitor
     pub transaction_monitor:                     transaction_monitor::Config,
-    /// Maximum number of compute units requested by each upd_price transaction
+    /// Maximum number of compute units requested by each update_price transaction
     pub compute_unit_limit:                      u32,
-    /// Price per compute unit offered for each upd_price transaction
+    /// Price per compute unit offered for update_price transactions
     pub compute_unit_price_micro_lamports:       Option<u64>,
 }
 
@@ -519,7 +519,7 @@ mod transaction_monitor {
         pub poll_interval_duration: Duration,
         /// Maximum number of recent transactions to monitor. When this number is exceeded,
         /// the oldest transactions are no longer monitored. It is recommended to set this to
-        /// a value close to (number of products published / number of products in a batch).
+        /// a value at least as large as (number of products published / number of products in a batch).
         pub max_transactions:       usize,
     }
 
