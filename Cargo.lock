@@ -2402,6 +2402,7 @@ dependencies = [
  "pyth-sdk-solana",
  "rand 0.8.5",
  "serde",
+ "serde-this-or-that",
  "serde_json",
  "slog",
  "slog-async",
@@ -2978,6 +2979,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f747710de3dcd43b88c9168773254e809d8ddbdf9653b84e2554ab219f17860"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-this-or-that"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32154d9ad2523f841f224d059f9e35aac0881f05e255e92cc9a0a6cf406215f3"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

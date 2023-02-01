@@ -127,6 +127,10 @@ pub mod rpc {
             Deserialize,
             Serialize,
         },
+        serde_this_or_that::{
+            as_i64,
+            as_u64,
+        },
         slog::Logger,
         std::{
             fmt::Debug,
@@ -181,7 +185,9 @@ pub mod rpc {
     #[derive(Serialize, Deserialize, Debug, Clone)]
     struct UpdatePriceParams {
         account: Pubkey,
+        #[serde(deserialize_with = "as_i64")]
         price:   Price,
+        #[serde(deserialize_with = "as_u64")]
         conf:    Conf,
         status:  String,
     }
