@@ -320,7 +320,7 @@ impl Adapter {
             result.push(ProductAccountMetadata {
                 account:   product_account_key.to_string(),
                 attr_dict: product_account.attr_dict,
-                prices:    price_accounts_metadata,
+                price:     price_accounts_metadata,
             })
         }
 
@@ -867,7 +867,7 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                prices:    vec![
+                price:     vec![
                     PriceAccountMetadata {
                         account:        "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD".to_string(),
                         price_type:     "price".to_string(),
@@ -898,7 +898,7 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                prices:    vec![
+                price:     vec![
                     PriceAccountMetadata {
                         account:        "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".to_string(),
                         price_type:     "price".to_string(),

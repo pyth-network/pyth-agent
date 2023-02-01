@@ -24,7 +24,7 @@ pub type Slot = u64;
 pub struct ProductAccountMetadata {
     pub account:   Pubkey,
     pub attr_dict: Attrs,
-    pub prices:    Vec<PriceAccountMetadata>,
+    pub price:     Vec<PriceAccountMetadata>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
@@ -983,7 +983,7 @@ pub mod rpc {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                prices:    vec![
+                price:     vec![
                     PriceAccountMetadata {
                         account:        Pubkey::from("some_price_account"),
                         price_type:     "price".to_string(),
