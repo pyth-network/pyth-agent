@@ -206,6 +206,7 @@ impl Adapter {
 
     pub async fn run(&mut self) {
         loop {
+            self.drop_closed_subscriptions();
             tokio::select! {
                 Some(message) = self.message_rx.recv() => {
                     if let Err(err) = self.handle_message(message).await {
@@ -508,6 +509,16 @@ impl Adapter {
         }
 
         Ok(())
+    }
+
+    fn drop_closed_subscriptions(&mut self) {
+        for subscriptions in self.notify_price_subscriptions.values_mut() {
+            subscriptions.retain(|subscription| !subscription.notify_price_tx.is_closed())
+        }
+
+        for subscriptions in self.notify_price_sched_subscriptions.values_mut() {
+            subscriptions.retain(|subscription| !subscription.notify_price_sched_tx.is_closed())
+        }
     }
 
     async fn handle_update_price(
