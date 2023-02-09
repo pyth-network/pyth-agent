@@ -16,5 +16,5 @@ poetry install
 
 ## Running Tests
 ```bash
-pytest -s --log-cli-level=debug
+poetry run pytest -s --log-cli-level=debug
 ```
