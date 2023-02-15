@@ -103,7 +103,9 @@ pub struct Config {
     pub inflight_transactions_channel_capacity:  usize,
     /// Configuration for the Transaction Monitor
     pub transaction_monitor:                     transaction_monitor::Config,
-    /// Maximum number of compute units requested by each update_price transaction
+    /// Number of compute units requested per update_price instruction within the transaction
+    /// (i.e., requested units equals `n * compute_unit_limit`, where `n` is the number of update_price
+    /// instructions)
     pub compute_unit_limit:                      u32,
     /// Price per compute unit offered for update_price transactions
     pub compute_unit_price_micro_lamports:       Option<u64>,

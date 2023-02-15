@@ -41,7 +41,7 @@ key_store.root_path = "/path/to/keystore"
 # Maximum size of a batch
 # exporter.max_batch_size = 12
 
-# Maximum number of compute units requested by each update_price transaction
+# Number of compute units requested per update_price instruction within the transaction.
 # exporter.compute_unit_limit = 20000
 
 # Price per compute unit offered for update_price transactions
