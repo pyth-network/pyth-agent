@@ -335,7 +335,6 @@ impl Exporter {
             .collect::<Vec<_>>();
 
         let network_state = *self.network_state_rx.borrow();
-        let refreshed_batch_size = refreshed_batch.len() as u32;
         for (identifier, price_info_result) in refreshed_batch {
             let price_info = price_info_result?;
 
@@ -386,7 +385,7 @@ impl Exporter {
 
         // Pay priority fees, if configured
         instructions.push(ComputeBudgetInstruction::set_compute_unit_limit(
-            self.config.compute_unit_limit * refreshed_batch_size,
+            self.config.compute_unit_limit * instructions.len() as u32,
         ));
         if let Some(compute_unit_price_micro_lamports) =
             self.config.compute_unit_price_micro_lamports
