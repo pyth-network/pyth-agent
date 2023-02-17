@@ -11,7 +11,7 @@ path = "src/bin/agent.rs"
 anyhow = "1.0.55"
 serde = { version = "1.0.136", features = ["derive"] }
 async-trait = "0.1.52"
-warp = { version = "0.3.1", features = ["websocket"] }
+warp = { version = "0.3.3", features = ["websocket"] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = "0.1.1"
 futures-util = { version = "0.3", default-features = false, features = [
