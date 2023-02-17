@@ -89,6 +89,9 @@ key_store.root_path = "/path/to/keystore"
 # Age after which a price update is considered stale and not published
 # exporter.staleness_threshold = "5s"
 
+# RPC timeout for the requests to the RPC for sending price updates and monitoring them
+# exporter.rpc_timeout = "10s"
+
 # Maximum size of a batch
 # exporter.max_batch_size = 12
 

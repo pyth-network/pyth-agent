@@ -97,6 +97,9 @@ pub struct Config {
     /// Age after which a price update is considered stale and not published
     #[serde(with = "humantime_serde")]
     pub staleness_threshold:                     Duration,
+    /// RPC timeout for the requests to the RPC for sending price updates and monitoring them
+    #[serde(with = "humantime_serde")]
+    pub rpc_timeout:                             Duration,
     /// Maximum size of a batch
     pub max_batch_size:                          usize,
     /// Capacity of the channel between the Exporter and the Transaction Monitor
@@ -117,6 +120,7 @@ impl Default for Config {
             refresh_network_state_interval_duration: Duration::from_millis(200),
             publish_interval_duration:               Duration::from_secs(1),
             staleness_threshold:                     Duration::from_secs(5),
+            rpc_timeout:                             Duration::from_secs(10),
             max_batch_size:                          12,
             inflight_transactions_channel_capacity:  10000,
             transaction_monitor:                     Default::default(),
@@ -214,7 +218,7 @@ impl Exporter {
     ) -> Self {
         let publish_interval = time::interval(config.publish_interval_duration);
         Exporter {
-            rpc_client: RpcClient::new(rpc_url.to_string()),
+            rpc_client: RpcClient::new_with_timeout(rpc_url.to_string(), config.rpc_timeout),
             config,
             publish_interval,
             key_store,
