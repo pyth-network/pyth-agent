@@ -123,6 +123,7 @@ pub fn spawn_oracle(
     config: Config,
     rpc_url: &str,
     wss_url: &str,
+    rpc_timeout: Duration,
     key_store: KeyStore,
     global_store_update_tx: mpsc::Sender<global::Update>,
     logger: Logger,
@@ -135,6 +136,7 @@ pub fn spawn_oracle(
         let subscriber = Subscriber::new(
             rpc_url.to_string(),
             wss_url.to_string(),
+            rpc_timeout,
             config.commitment,
             key_store.program_key.clone(),
             updates_tx,
@@ -149,6 +151,7 @@ pub fn spawn_oracle(
         data_tx,
         key_store.mapping_key,
         rpc_url,
+        rpc_timeout,
         config.commitment,
         config.poll_interval_duration,
         logger.clone(),
@@ -337,12 +340,16 @@ impl Poller {
         data_tx: mpsc::Sender<Data>,
         mapping_account_key: Pubkey,
         rpc_url: &str,
+        rpc_timeout: Duration,
         commitment: CommitmentLevel,
         poll_interval_duration: Duration,
         logger: Logger,
     ) -> Self {
-        let rpc_client =
-            RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig { commitment });
+        let rpc_client = RpcClient::new_with_timeout_and_commitment(
+            rpc_url.to_string(),
+            rpc_timeout,
+            CommitmentConfig { commitment },
+        );
         let poll_interval = tokio::time::interval(poll_interval_duration);
 
         Poller {
@@ -513,6 +520,7 @@ mod subscriber {
             BlockchainShadow,
             SyncOptions,
         },
+        std::time::Duration,
         tokio::sync::{
             broadcast,
             mpsc,
@@ -526,6 +534,9 @@ mod subscriber {
         rpc_url: String,
         /// WSS RPC endpoint
         wss_url: String,
+
+        /// Timeout for RPC requests
+        rpc_timeout: Duration,
 
         /// Commitment level used to read account data
         commitment: CommitmentLevel,
@@ -544,6 +555,7 @@ mod subscriber {
         pub fn new(
             rpc_url: String,
             wss_url: String,
+            rpc_timeout: Duration,
             commitment: CommitmentLevel,
             account_key: Pubkey,
             updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
@@ -552,6 +564,7 @@ mod subscriber {
             Subscriber {
                 rpc_url,
                 wss_url,
+                rpc_timeout,
                 commitment,
                 account_key,
                 updates_tx,
@@ -597,6 +610,7 @@ mod subscriber {
                         self.wss_url.clone(),
                     ),
                     commitment: self.commitment,
+                    rpc_timeout: self.rpc_timeout,
                     max_lag: Some(10000),
                     ..SyncOptions::default()
                 },

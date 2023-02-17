@@ -67,6 +67,9 @@ key_store.root_path = "/path/to/keystore"
 # This can be omitted when oracle.subscriber_enabled is set to false.
 # wss_url = "ws://api.devnet.solana.com"
 
+# Timeout for the requests to the RPC
+# rpc_timeout = "10s"
+
 # Path to the key store.
 # key_store.root_path = "/path/to/keystore"
 
@@ -88,9 +91,6 @@ key_store.root_path = "/path/to/keystore"
 
 # Age after which a price update is considered stale and not published
 # exporter.staleness_threshold = "5s"
-
-# RPC timeout for the requests to the RPC for sending price updates and monitoring them
-# exporter.rpc_timeout = "10s"
 
 # Maximum size of a batch
 # exporter.max_batch_size = 12
