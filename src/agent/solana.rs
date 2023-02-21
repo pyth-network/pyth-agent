@@ -24,6 +24,7 @@ pub mod network {
             Serialize,
         },
         slog::Logger,
+        std::time::Duration,
         tokio::{
             sync::{
                 mpsc,
@@ -38,25 +39,29 @@ pub mod network {
     #[serde(default)]
     pub struct Config {
         /// HTTP RPC endpoint
-        pub rpc_url:   String,
+        pub rpc_url:     String,
         /// WSS RPC endpoint
-        pub wss_url:   String,
+        pub wss_url:     String,
+        /// Timeout for the requests to the RPC
+        #[serde(with = "humantime_serde")]
+        pub rpc_timeout: Duration,
         /// Keystore
-        pub key_store: key_store::Config,
+        pub key_store:   key_store::Config,
         /// Configuration for the Oracle reading data from this network
-        pub oracle:    oracle::Config,
+        pub oracle:      oracle::Config,
         /// Configuration for the Exporter publishing data to this network
-        pub exporter:  exporter::Config,
+        pub exporter:    exporter::Config,
     }
 
     impl Default for Config {
         fn default() -> Self {
             Self {
-                rpc_url:   "http://localhost:8899".to_string(),
-                wss_url:   "ws://localhost:8900".to_string(),
-                key_store: Default::default(),
-                oracle:    Default::default(),
-                exporter:  Default::default(),
+                rpc_url:     "http://localhost:8899".to_string(),
+                wss_url:     "ws://localhost:8900".to_string(),
+                rpc_timeout: Duration::from_secs(10),
+                key_store:   Default::default(),
+                oracle:      Default::default(),
+                exporter:    Default::default(),
             }
         }
     }
@@ -72,6 +77,7 @@ pub mod network {
             config.oracle.clone(),
             &config.rpc_url,
             &config.wss_url,
+            config.rpc_timeout,
             KeyStore::new(config.key_store.clone())?,
             global_store_update_tx,
             logger.clone(),
@@ -81,6 +87,7 @@ pub mod network {
         let exporter_jhs = exporter::spawn_exporter(
             config.exporter,
             &config.rpc_url,
+            config.rpc_timeout,
             KeyStore::new(config.key_store.clone())?,
             local_store_tx,
             logger,

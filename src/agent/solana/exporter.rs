@@ -130,6 +130,7 @@ impl Default for Config {
 pub fn spawn_exporter(
     config: Config,
     rpc_url: &str,
+    rpc_timeout: Duration,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     logger: Logger,
@@ -137,7 +138,8 @@ pub fn spawn_exporter(
     // Create and spawn the network state querier
     let (network_state_tx, network_state_rx) = watch::channel(Default::default());
     let mut network_state_querier = NetworkStateQuerier::new(
-        &rpc_url,
+        rpc_url,
+        rpc_timeout,
         time::interval(config.refresh_network_state_interval_duration),
         network_state_tx,
         logger.clone(),
@@ -150,6 +152,7 @@ pub fn spawn_exporter(
     let mut transaction_monitor = TransactionMonitor::new(
         config.transaction_monitor.clone(),
         rpc_url,
+        rpc_timeout,
         transactions_rx,
         logger.clone(),
     );
@@ -159,6 +162,7 @@ pub fn spawn_exporter(
     let mut exporter = Exporter::new(
         config,
         rpc_url,
+        rpc_timeout,
         key_store,
         local_store_tx,
         network_state_rx,
@@ -206,6 +210,7 @@ impl Exporter {
     pub fn new(
         config: Config,
         rpc_url: &str,
+        rpc_timeout: Duration,
         key_store: KeyStore,
         local_store_tx: Sender<store::local::Message>,
         network_state_rx: watch::Receiver<NetworkState>,
@@ -214,7 +219,7 @@ impl Exporter {
     ) -> Self {
         let publish_interval = time::interval(config.publish_interval_duration);
         Exporter {
-            rpc_client: RpcClient::new(rpc_url.to_string()),
+            rpc_client: RpcClient::new_with_timeout(rpc_url.to_string(), rpc_timeout),
             config,
             publish_interval,
             key_store,
@@ -445,12 +450,13 @@ struct NetworkStateQuerier {
 impl NetworkStateQuerier {
     pub fn new(
         rpc_endpoint: &str,
+        rpc_timeout: Duration,
         query_interval: Interval,
         network_state_tx: watch::Sender<NetworkState>,
         logger: Logger,
     ) -> Self {
         NetworkStateQuerier {
-            rpc_client: RpcClient::new(rpc_endpoint.to_string()),
+            rpc_client: RpcClient::new_with_timeout(rpc_endpoint.to_string(), rpc_timeout),
             query_interval,
             network_state_tx,
             logger,
@@ -558,11 +564,12 @@ mod transaction_monitor {
         pub fn new(
             config: Config,
             rpc_url: &str,
+            rpc_timeout: Duration,
             transactions_rx: mpsc::Receiver<Signature>,
             logger: Logger,
         ) -> Self {
             let poll_interval = time::interval(config.poll_interval_duration);
-            let rpc_client = RpcClient::new(rpc_url.to_string());
+            let rpc_client = RpcClient::new_with_timeout(rpc_url.to_string(), rpc_timeout);
             TransactionMonitor {
                 config,
                 rpc_client,

@@ -103,7 +103,7 @@ impl Agent {
             self.config.primary_network.clone(),
             local_store_tx.clone(),
             primary_oracle_updates_tx,
-            logger.clone(),
+            logger.new(o!("primary" => true)),
         )?);
 
         // Spawn the secondary network, if needed
@@ -112,7 +112,7 @@ impl Agent {
                 config.clone(),
                 local_store_tx.clone(),
                 secondary_oracle_updates_tx,
-                logger.clone(),
+                logger.new(o!("primary" => false)),
             )?);
         }
 

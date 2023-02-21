@@ -32,7 +32,7 @@ async fn main() {
     let logger = slog::Logger::root(
         slog_async::Async::default(
             LogBuilder::new(
-                slog_term::CompactFormat::new(slog_term::TermDecorator::new().stdout().build())
+                slog_term::FullFormat::new(slog_term::TermDecorator::new().stdout().build())
                     .build()
                     .fuse(),
             )
