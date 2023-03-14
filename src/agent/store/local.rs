@@ -32,6 +32,7 @@ pub struct PriceInfo {
     pub timestamp: UnixTimestamp,
 }
 
+#[derive(Debug)]
 pub enum Message {
     Update {
         price_identifier: PriceIdentifier,
