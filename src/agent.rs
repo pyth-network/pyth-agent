@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 /* ###################################################### System Architecture #######################################################
 
 +-----------------------------+      +----------------------------+
@@ -46,22 +48,16 @@ Note that there is an Oracle and Exporter for each network, but only one Local S
 
 ################################################################################################################################## */
 
+pub mod metrics;
 pub mod pythd;
 pub mod solana;
 pub mod store;
 use {
-    self::{
-        config::Config,
-        pythd::api::rpc,
-        solana::network,
-    },
+    self::{config::Config, pythd::api::rpc, solana::network},
     anyhow::Result,
     futures_util::future::join_all,
     slog::Logger,
-    tokio::sync::{
-        broadcast,
-        mpsc,
-    },
+    tokio::sync::{broadcast, mpsc},
 };
 
 pub struct Agent {
@@ -81,6 +77,7 @@ impl Agent {
     }
 
     async fn spawn(&self, logger: Logger) -> Result<()> {
+        // job handles
         let mut jhs = vec![];
 
         // Create the channels
@@ -132,8 +129,8 @@ impl Agent {
         jhs.push(pythd::adapter::spawn_adapter(
             self.config.pythd_adapter.clone(),
             pythd_adapter_rx,
-            global_store_lookup_tx,
-            local_store_tx,
+            global_store_lookup_tx.clone(),
+            local_store_tx.clone(),
             shutdown_tx.subscribe(),
             logger.clone(),
         ));
@@ -146,6 +143,13 @@ impl Agent {
             logger,
         ));
 
+        // Spawn the metrics server
+        jhs.push(tokio::spawn(metrics::MetricsServer::spawn(
+            "127.0.0.1:8888".parse::<SocketAddr>()?,
+	    local_store_tx,
+	    global_store_lookup_tx,
+        )));
+
         // Wait for all tasks to complete
         join_all(jhs).await;
 
@@ -155,19 +159,10 @@ impl Agent {
 
 pub mod config {
     use {
-        super::{
-            pythd,
-            solana::network,
-        },
-        anyhow::{
-            anyhow,
-            Result,
-        },
+        super::{pythd, solana::network},
+        anyhow::{anyhow, Result},
         config as config_rs,
-        config_rs::{
-            Environment,
-            File,
-        },
+        config_rs::{Environment, File},
         serde::Deserialize,
         std::path::Path,
     };
@@ -177,10 +172,10 @@ pub mod config {
     #[serde(default)]
     pub struct Config {
         pub channel_capacities: ChannelCapacities,
-        pub primary_network:    network::Config,
-        pub secondary_network:  Option<network::Config>,
-        pub pythd_adapter:      pythd::adapter::Config,
-        pub pythd_api_server:   pythd::api::rpc::Config,
+        pub primary_network: network::Config,
+        pub secondary_network: Option<network::Config>,
+        pub pythd_adapter: pythd::adapter::Config,
+        pub pythd_api_server: pythd::api::rpc::Config,
     }
 
     impl Config {
@@ -206,31 +201,31 @@ pub mod config {
     #[derive(Deserialize, Debug)]
     pub struct ChannelCapacities {
         /// Capacity of the channel used to broadcast shutdown events to all components
-        pub shutdown:                 usize,
+        pub shutdown: usize,
         /// Capacity of the channel used to send updates from the primary Oracle to the Global Store
-        pub primary_oracle_updates:   usize,
+        pub primary_oracle_updates: usize,
         /// Capacity of the channel used to send updates from the secondary Oracle to the Global Store
         pub secondary_oracle_updates: usize,
         /// Capacity of the channel the Pythd API Adapter uses to send lookup requests to the Global Store
-        pub global_store_lookup:      usize,
+        pub global_store_lookup: usize,
         /// Capacity of the channel the Pythd API Adapter uses to communicate with the Local Store
-        pub local_store_lookup:       usize,
+        pub local_store_lookup: usize,
         /// Capacity of the channel on which the Local Store receives messages
-        pub local_store:              usize,
+        pub local_store: usize,
         /// Capacity of the channel on which the Pythd API Adapter receives messages
-        pub pythd_adapter:            usize,
+        pub pythd_adapter: usize,
     }
 
     impl Default for ChannelCapacities {
         fn default() -> Self {
             Self {
-                shutdown:                 10000,
-                primary_oracle_updates:   10000,
+                shutdown: 10000,
+                primary_oracle_updates: 10000,
                 secondary_oracle_updates: 10000,
-                global_store_lookup:      10000,
-                local_store_lookup:       10000,
-                local_store:              10000,
-                pythd_adapter:            10000,
+                global_store_lookup: 10000,
+                local_store_lookup: 10000,
+                local_store: 10000,
+                pythd_adapter: 10000,
             }
         }
     }
