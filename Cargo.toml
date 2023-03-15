@@ -39,8 +39,6 @@ humantime-serde = "1.1.1"
 slog-envlogger = "2.2.0"
 serde-this-or-that = "0.4.0"
 typed-html = { git = "https://github.com/bodil/typed-html", rev = "4c13ecca" }
-prometheus = "0.13.3"
-lazy_static = "1.4.0"
 
 [dev-dependencies]
 tokio-util = { version = "0.7.0", features = ["full"] }
