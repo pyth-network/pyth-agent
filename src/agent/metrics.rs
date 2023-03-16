@@ -1,10 +1,6 @@
 use {
     super::{
-        solana::oracle::{
-            self,
-            PriceAccount,
-            ProductAccount,
-        },
+        solana::oracle::PriceAccount,
         store::{
             global::{
                 AllAccountsData,
@@ -19,7 +15,6 @@ use {
         },
     },
     chrono::NaiveDateTime,
-    prometheus::Registry,
     pyth_sdk::{
         Identifier,
         PriceIdentifier,
@@ -44,16 +39,12 @@ use {
     },
     typed_html::{
         dom::DOMTree,
-        elements::TableContent,
         html,
         text,
     },
     warp::{
         hyper::StatusCode,
-        reply::{
-            self,
-            WithStatus,
-        },
+        reply::{self,},
         Filter,
         Rejection,
         Reply,
@@ -66,8 +57,6 @@ pub struct MetricsServer {
     /// Used to pull the state of all symbols in local store
     local_store_tx:         mpsc::Sender<Message>,
     global_store_lookup_tx: mpsc::Sender<Lookup>,
-    /// Prometheus registry for enumerating all metrics for clients
-    registry:               Registry,
     start_time:             Instant,
     logger:                 Logger,
 }
@@ -83,7 +72,6 @@ impl MetricsServer {
         let server = MetricsServer {
             local_store_tx,
             global_store_lookup_tx,
-            registry: Registry::new(),
             start_time: Instant::now(),
             logger,
         };
@@ -95,13 +83,13 @@ impl MetricsServer {
             .and_then(move || {
                 let shared_state = shared_state.clone();
                 async move {
-                    let response = shared_state
-                        .lock()
-                        .await
+                    let locked_state = shared_state.lock().await;
+                    let response = locked_state
                         .render_dashboard()
                         .await
                         .unwrap_or_else(|e| {
                             // Add logging here
+			    error!(locked_state.logger,"Could not render dashboard"; "error" => e.to_string());
 
                             // Withhold failure details from client
                             "Could not render dashboard!".to_owned()
