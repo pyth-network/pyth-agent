@@ -9,12 +9,12 @@ listen_address = "127.0.0.1:8910"
 
 # HTTP(S) endpoint of the RPC node. Public RPC endpoints are usually rate-limited, so a private endpoint should be used in most cases.
 # Note that api.pythtest.pyth.network is a private endpoint: please contact us for access.
-rpc_url = "http://api.pythtest.pyth.network:8899"
+rpc_url = "http://api.pythtest.pyth.network"
 
 # WS(S) endpoint of the RRC node. This is used to subscribe to account changes on the network.
 # This can be omitted when oracle.subscriber_enabled is set to false.
 # Note that api.pythtest.pyth.network is a private endpoint: please contact us for access.
-wss_url = "ws://api.pythtest.pyth.network:8900"
+wss_url = "wss://api.pythtest.pyth.network:8900"
 
 # Path to the key store.
 key_store.root_path = "/path/to/keystore"
