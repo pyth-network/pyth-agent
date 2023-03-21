@@ -30,7 +30,10 @@ use {
         },
         net::SocketAddr,
         sync::Arc,
-        time::Instant,
+        time::{
+            Duration,
+            Instant,
+        },
     },
     tokio::sync::{
         mpsc,
@@ -138,23 +141,8 @@ impl MetricsServer {
         let symbol_view =
             build_dashboard_data(local_data, global_data, global_metadata, &self.logger);
 
-        let mut uptime_seconds = self.start_time.elapsed().as_secs();
-
-        // Shave bigger units off the seconds value. Decide the count
-        // and replace with remainder.
-        let uptime_days = uptime_seconds / (24 * 3600); // 24h
-        uptime_seconds %= 24 * 3600;
-
-        let uptime_hours = uptime_seconds / 3600; // 1h
-        uptime_seconds %= 3600;
-
-        let uptime_minutes = uptime_seconds / 60; // 1min
-        uptime_seconds %= 60;
-
-        let uptime_string = format!(
-            "{}d{}h{}m{}s",
-            uptime_days, uptime_hours, uptime_minutes, uptime_seconds
-        );
+        // uptime in whole seconds
+        let uptime = Duration::from_secs(self.start_time.elapsed().as_secs());
 
         // Build and collect table rows
         let mut rows = vec![];
@@ -226,7 +214,7 @@ table, th, td {
             </head>
             <body>
             <h1>{text!(title_string)}</h1>
-        {text!("Uptime: {}", uptime_string)}
+        {text!("Uptime: {}", humantime::format_duration(uptime))}
             <h2>"State Overview"</h2>
             <table>
             <tr>
