@@ -234,11 +234,13 @@ table, th, td {
     }
 }
 
+#[derive(Debug)]
 pub struct DashboardSymbolView {
     product: Pubkey,
     prices:  BTreeMap<Pubkey, DashboardPriceView>,
 }
 
+#[derive(Debug)]
 pub struct DashboardPriceView {
     local_data:      Option<PriceInfo>,
     global_data:     Option<PriceAccount>,
@@ -337,13 +339,19 @@ pub fn build_dashboard_data(
             // Mark this product as done
             remaining_product_keys.remove(&product_key);
 
-            ret.insert(
-                symbol_name,
-                DashboardSymbolView {
-                    product: product_key,
-                    prices,
-                },
-            );
+            let symbol_view = DashboardSymbolView {
+                product: product_key,
+                prices,
+            };
+
+            if ret.contains_key(&symbol_name) {
+                warn!(logger, "Dashboard: Duplicate symbol name detected";
+                      "symbol_name" => &symbol_name,
+                      "data" => format!("{:?}", symbol_view),
+                );
+            }
+
+            ret.insert(symbol_name, symbol_view);
         } else {
             // TODO(drozdziak1): log a missing product problem. We
             // expect that missing price information is possible if no
