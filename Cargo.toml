@@ -38,6 +38,12 @@ clap = { version = "4.0.32", features = ["derive"] }
 humantime-serde = "1.1.1"
 slog-envlogger = "2.2.0"
 serde-this-or-that = "0.4.0"
+# The public typed-html 0.2.2 release is causing a recursion limit
+# error that cannot be fixed from outside the crate.
+#
+# Rationale, 2023-03-21: https://stackoverflow.com/questions/74462753
+typed-html = { git = "https://github.com/bodil/typed-html", rev = "4c13ecca" }
+humantime = "2.1.0"
 
 [dev-dependencies]
 tokio-util = { version = "0.7.0", features = ["full"] }

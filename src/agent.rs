@@ -46,6 +46,7 @@ Note that there is an Oracle and Exporter for each network, but only one Local S
 
 ################################################################################################################################## */
 
+pub mod metrics;
 pub mod pythd;
 pub mod solana;
 pub mod store;
@@ -81,6 +82,7 @@ impl Agent {
     }
 
     async fn spawn(&self, logger: Logger) -> Result<()> {
+        // job handles
         let mut jhs = vec![];
 
         // Create the channels
@@ -132,8 +134,8 @@ impl Agent {
         jhs.push(pythd::adapter::spawn_adapter(
             self.config.pythd_adapter.clone(),
             pythd_adapter_rx,
-            global_store_lookup_tx,
-            local_store_tx,
+            global_store_lookup_tx.clone(),
+            local_store_tx.clone(),
             shutdown_tx.subscribe(),
             logger.clone(),
         ));
@@ -143,8 +145,16 @@ impl Agent {
             self.config.pythd_api_server.clone(),
             pythd_adapter_tx,
             shutdown_rx,
-            logger,
+            logger.clone(),
         ));
+
+        // Spawn the metrics server
+        jhs.push(tokio::spawn(metrics::MetricsServer::spawn(
+            self.config.metrics_server.bind_address,
+            local_store_tx,
+            global_store_lookup_tx,
+            logger,
+        )));
 
         // Wait for all tasks to complete
         join_all(jhs).await;
@@ -154,8 +164,10 @@ impl Agent {
 }
 
 pub mod config {
+
     use {
         super::{
+            metrics,
             pythd,
             solana::network,
         },
@@ -181,6 +193,7 @@ pub mod config {
         pub secondary_network:  Option<network::Config>,
         pub pythd_adapter:      pythd::adapter::Config,
         pub pythd_api_server:   pythd::api::rpc::Config,
+        pub metrics_server:     metrics::Config,
     }
 
     impl Config {
