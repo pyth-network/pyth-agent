@@ -59,7 +59,6 @@ use {
     anyhow::Result,
     futures_util::future::join_all,
     slog::Logger,
-    std::net::SocketAddr,
     tokio::sync::{
         broadcast,
         mpsc,
@@ -151,7 +150,7 @@ impl Agent {
 
         // Spawn the metrics server
         jhs.push(tokio::spawn(metrics::MetricsServer::spawn(
-            "127.0.0.1:8888".parse::<SocketAddr>()?,
+            self.config.metrics_server.bind_address,
             local_store_tx,
             global_store_lookup_tx,
             logger,
@@ -165,8 +164,10 @@ impl Agent {
 }
 
 pub mod config {
+
     use {
         super::{
+            metrics,
             pythd,
             solana::network,
         },
@@ -192,6 +193,7 @@ pub mod config {
         pub secondary_network:  Option<network::Config>,
         pub pythd_adapter:      pythd::adapter::Config,
         pub pythd_api_server:   pythd::api::rpc::Config,
+        pub metrics_server:     metrics::Config,
     }
 
     impl Config {

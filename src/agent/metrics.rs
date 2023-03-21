@@ -19,6 +19,7 @@ use {
         Identifier,
         PriceIdentifier,
     },
+    serde::Deserialize,
     slog::Logger,
     solana_sdk::pubkey::Pubkey,
     std::{
@@ -53,6 +54,24 @@ use {
         Reply,
     },
 };
+
+pub fn default_bind_address() -> SocketAddr {
+    "127.0.0.1:8888".parse().unwrap()
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Config {
+    #[serde(default = "default_bind_address")]
+    pub bind_address: SocketAddr,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bind_address: default_bind_address(),
+        }
+    }
+}
 
 /// Internal metrics server state, holds state needed for serving
 /// dashboard and metrics.
