@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 /* ###################################################### System Architecture #######################################################
 
 +-----------------------------+      +----------------------------+
@@ -61,6 +59,7 @@ use {
     anyhow::Result,
     futures_util::future::join_all,
     slog::Logger,
+    std::net::SocketAddr,
     tokio::sync::{
         broadcast,
         mpsc,
