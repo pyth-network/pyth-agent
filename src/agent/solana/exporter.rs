@@ -8,6 +8,10 @@ use {
         },
         key_store,
     },
+    crate::agent::remote_keypair_loader::{
+        KeypairRequest,
+        RemoteKeypairLoader,
+    },
     anyhow::{
         anyhow,
         Context,
@@ -44,7 +48,10 @@ use {
             Instruction,
         },
         pubkey::Pubkey,
-        signature::Signature,
+        signature::{
+            Keypair,
+            Signature,
+        },
         signer::Signer,
         sysvar::clock,
         transaction::Transaction,
@@ -133,6 +140,7 @@ pub fn spawn_exporter(
     rpc_timeout: Duration,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
+    keypair_request_tx: mpsc::Sender<KeypairRequest>,
     logger: Logger,
 ) -> Result<Vec<JoinHandle<()>>> {
     // Create and spawn the network state querier
@@ -167,6 +175,7 @@ pub fn spawn_exporter(
         local_store_tx,
         network_state_rx,
         transactions_tx,
+        keypair_request_tx,
         logger,
     );
     let exporter_jh = tokio::spawn(async move { exporter.run().await });
@@ -203,6 +212,8 @@ pub struct Exporter {
     // Channel on which to send inflight transactions to the transaction monitor
     inflight_transactions_tx: Sender<Signature>,
 
+    keypair_request_tx: Sender<KeypairRequest>,
+
     logger: Logger,
 }
 
@@ -215,6 +226,7 @@ impl Exporter {
         local_store_tx: Sender<store::local::Message>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
+        keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Self {
         let publish_interval = time::interval(config.publish_interval_duration);
@@ -227,6 +239,7 @@ impl Exporter {
             last_published_at: HashMap::new(),
             network_state_rx,
             inflight_transactions_tx,
+            keypair_request_tx,
             logger,
         }
     }
@@ -321,6 +334,21 @@ impl Exporter {
     }
 
     async fn publish_batch(&self, batch: &[(&Identifier, &PriceInfo)]) -> Result<()> {
+        let publish_keypair = if let Some(kp) = self.key_store.publish_keypair.as_ref() {
+            // It's impossible to sanely return a &Keypair in the
+            // other if branch, so we clone the reference.
+            Keypair::from_bytes(&kp.to_bytes())
+                .context("INTERNAL: Could not convert keypair to bytes and back")?
+        } else {
+            debug!(
+                self.logger,
+                "Exporter: Publish keypair is None, requesting remote loaded key"
+            );
+            let kp = RemoteKeypairLoader::request_keypair(&self.keypair_request_tx).await?;
+            debug!(self.logger, "Exporter: Keypair received");
+            kp
+        };
+
         let mut instructions = Vec::new();
 
         // Refresh the data in the batch
@@ -353,7 +381,7 @@ impl Exporter {
                 program_id: self.key_store.program_key,
                 accounts:   vec![
                     AccountMeta {
-                        pubkey:      self.key_store.publish_keypair.pubkey(),
+                        pubkey:      publish_keypair.pubkey(),
                         is_signer:   true,
                         is_writable: true,
                     },
@@ -402,8 +430,8 @@ impl Exporter {
 
         let transaction = Transaction::new_signed_with_payer(
             &instructions,
-            Some(&self.key_store.publish_keypair.pubkey()),
-            &vec![&self.key_store.publish_keypair],
+            Some(&publish_keypair.pubkey()),
+            &vec![&publish_keypair],
             network_state.blockhash,
         );
 
