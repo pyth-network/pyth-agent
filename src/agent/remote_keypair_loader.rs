@@ -12,7 +12,10 @@ use {
         signer::Signer,
     },
     std::{
-        net::SocketAddr,
+        net::{
+            IpAddr,
+            SocketAddr,
+        },
         sync::Arc,
         time::Duration,
     },
@@ -40,18 +43,16 @@ pub fn default_min_keypair_balance_sol() -> u64 {
 }
 
 pub fn default_bind_address() -> SocketAddr {
-    "0.0.0.0:9001"
+    "localhost:9001"
         .parse()
         .expect("INTERNAL: Could not build default remote keypair loader bind address")
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
 pub struct Config {
-    #[serde(default = "default_min_keypair_balance_sol")]
     primary_min_keypair_balance_sol:   u64,
-    #[serde(default = "default_min_keypair_balance_sol")]
     secondary_min_keypair_balance_sol: u64,
-    #[serde(default = "default_bind_address")]
     bind_address:                      SocketAddr,
 }
 
@@ -89,6 +90,12 @@ impl RemoteKeypairLoader {
         logger: Logger,
     ) -> Vec<JoinHandle<()>> {
         let bind_address = config.bind_address.clone();
+
+        let ip = bind_address.ip();
+
+        if !ip.is_loopback() {
+            warn!(logger, "Remote key loader: bind address is not localhost. Make sure the access on the selected address is secure."; "bind_address" => bind_address,);
+        }
 
         let shared_state = Arc::new(Mutex::new(Self {
             primary_current_keypair: None,
