@@ -12,10 +12,7 @@ use {
         signer::Signer,
     },
     std::{
-        net::{
-            IpAddr,
-            SocketAddr,
-        },
+        net::SocketAddr,
         sync::Arc,
         time::Duration,
     },
