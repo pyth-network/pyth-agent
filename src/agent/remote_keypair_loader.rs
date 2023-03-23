@@ -7,6 +7,7 @@ use {
     slog::Logger,
     solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
+        commitment_config::CommitmentConfig,
         signature::Keypair,
         signer::Signer,
     },
@@ -111,7 +112,7 @@ impl RemoteKeypairLoader {
             .and(warp::body::content_length_limit(1024))
             .and(warp::body::json())
             .and(warp::path::end())
-            .and_then(move |kp: [u8; 32]| {
+            .and_then(move |kp: Vec<u8>| {
                 let shared_state = shared_state4primary.clone();
                 let logger = logger4primary.clone();
                 async move {
@@ -139,7 +140,7 @@ impl RemoteKeypairLoader {
             .and(warp::body::content_length_limit(1024))
             .and(warp::body::json())
             .and(warp::path::end())
-            .and_then(move |kp: [u8; 32]| {
+            .and_then(move |kp: Vec<u8>| {
                 let shared_state = shared_state.clone();
                 let logger = logger.clone();
                 async move {
@@ -185,7 +186,7 @@ impl RemoteKeypairLoader {
     /// because of https://github.com/rust-lang/rust/issues/63033
     async fn handle_new_keypair<'a, 'b: 'a>(
         keypair_slot: &'a mut Option<Keypair>,
-        new_keypair_bytes: [u8; 32],
+        new_keypair_bytes: Vec<u8>,
         min_keypair_balance_sol: u64,
         rpc_url: String,
         network_name: &'b str,
@@ -233,18 +234,22 @@ impl RemoteKeypairLoader {
         min_keypair_balance_sol: u64,
         rpc_url: String,
     ) -> Result<()> {
-        let c = RpcClient::new(rpc_url);
+        let c = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
 
         let balance_lamports = c
             .get_balance(&kp.pubkey())
             .await
             .context("Could not check keypair's balance")?;
 
-        if balance_lamports > min_keypair_balance_sol * 1_000_000_000 {
+        let lamports_in_sol = 1_000_000_000;
+
+        if balance_lamports > min_keypair_balance_sol * lamports_in_sol {
             Ok(())
         } else {
             Err(anyhow::anyhow!(format!(
-                "Keypair balance below threshold of {} SOL",
+                "Keypair {} balance of {} SOL below threshold of {} SOL",
+                kp.pubkey(),
+                balance_lamports as f64 / lamports_in_sol as f64,
                 min_keypair_balance_sol
             )))
         }
