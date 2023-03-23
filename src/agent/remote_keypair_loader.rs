@@ -106,7 +106,7 @@ impl RemoteKeypairLoader {
 
         let logger4primary = logger.clone();
         let shared_state4primary = shared_state.clone();
-        let primary_upload_route = warp::path("primary/load_keypair")
+        let primary_upload_route = warp::path!("primary" / "load_keypair")
             .and(warp::post())
             .and(warp::body::content_length_limit(1024))
             .and(warp::body::json())
@@ -134,7 +134,7 @@ impl RemoteKeypairLoader {
                 }
             });
 
-        let secondary_upload_route = warp::path("secondary/load_keypair")
+        let secondary_upload_route = warp::path!("secondary" / "load_keypair")
             .and(warp::post())
             .and(warp::body::content_length_limit(1024))
             .and(warp::body::json())
@@ -168,12 +168,12 @@ impl RemoteKeypairLoader {
                 }
             });
 
-        warp::serve(primary_upload_route.or(secondary_upload_route))
-            .bind(bind_address)
-            .await;
+        let http_api_jh = tokio::spawn(
+            warp::serve(primary_upload_route.or(secondary_upload_route)).bind(bind_address),
+        );
 
         // WARNING: All jobs spawned here must report their join handles in this vec
-        return vec![request_handler_jh];
+        return vec![request_handler_jh, http_api_jh];
     }
 
     /// Validate and apply a keypair to the specified mut reference,

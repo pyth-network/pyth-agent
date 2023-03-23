@@ -161,7 +161,7 @@ impl Agent {
             logger.clone(),
         )));
 
-        // Spawn the remote keypair loader endpoint for both
+        // Spawn the remote keypair loader endpoint for both networks
         jhs.append(
             &mut remote_keypair_loader::RemoteKeypairLoader::spawn(
                 primary_keypair_loader_rx,
