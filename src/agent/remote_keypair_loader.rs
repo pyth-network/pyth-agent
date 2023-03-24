@@ -317,6 +317,10 @@ async fn handle_key_requests(
                 }
             }
         }
+
+        // Free the state for others while we sleep
+        drop(locked_state);
+
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
