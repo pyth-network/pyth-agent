@@ -43,7 +43,7 @@ pub fn default_min_keypair_balance_sol() -> u64 {
 }
 
 pub fn default_bind_address() -> SocketAddr {
-    "localhost:9001"
+    "127.0.0.1:9001"
         .parse()
         .expect("INTERNAL: Could not build default remote keypair loader bind address")
 }

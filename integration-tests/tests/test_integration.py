@@ -141,12 +141,19 @@ class PythTest:
 
         with open(stdout_path, 'w') as stdout:
             with open(stderr_path, 'w') as stderr:
-                with subprocess.Popen(cmd.split(), stdout=stdout, stderr=stderr, env=env) as process:
-                    LOGGER.debug(
-                        "Spawned subprocess with command %s logging to %s", cmd, log_dir)
-                    yield
-                    process.terminate()
-                    process.wait()
+                process = subprocess.Popen(cmd.split(), stdout=stdout, stderr=stderr, env=env)
+                LOGGER.debug(
+                    "Spawned subprocess with command %s logging to %s", cmd, log_dir)
+                yield
+
+                process.poll() # fills return code if available
+
+                if process.returncode is not None and process.returncode != 0:
+                    LOGGER.error("Spawned process \"%s\" finished with error code %d before teardown. See logs in %s", cmd, process.returncode, log_dir)
+
+                process.terminate()
+                process.wait()
+
                 stderr.flush()
             stdout.flush()
 
