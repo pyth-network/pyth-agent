@@ -340,6 +340,19 @@ impl Exporter {
             Keypair::from_bytes(&kp.to_bytes())
                 .context("INTERNAL: Could not convert keypair to bytes and back")?
         } else {
+            // Request the keypair from remote keypair loader.  Doing
+            // this here guarantees that the up to date loaded keypair
+            // is being used.
+            //
+            // Currently, we're guaranteed not to clog memory or block
+            // the keypair loader under the following assumptions:
+            // - The Exporter publishing loop waits for a publish
+            //   attempt to finish before beginning the next
+            //   one. Currently realized in run()
+            // - The Remote Key Loader does not read channels for
+            //   keypairs it does not have. Currently expressed in
+            //   handle_key_requests() in remote_keypair_loader.rs
+
             debug!(
                 self.logger,
                 "Exporter: Publish keypair is None, requesting remote loaded key"
