@@ -5,6 +5,7 @@ pub mod oracle;
 /// - The Oracle, which reads data from the network
 /// - The Exporter, which publishes data to the network
 pub mod network {
+
     use {
         super::{
             super::{
@@ -18,6 +19,7 @@ pub mod network {
             },
             oracle,
         },
+        crate::agent::remote_keypair_loader::KeypairRequest,
         anyhow::Result,
         serde::{
             Deserialize,
@@ -70,6 +72,7 @@ pub mod network {
         config: Config,
         local_store_tx: Sender<store::local::Message>,
         global_store_update_tx: mpsc::Sender<global::Update>,
+        keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Result<Vec<JoinHandle<()>>> {
         // Spawn the Oracle
@@ -78,8 +81,8 @@ pub mod network {
             &config.rpc_url,
             &config.wss_url,
             config.rpc_timeout,
-            KeyStore::new(config.key_store.clone())?,
-            global_store_update_tx,
+            KeyStore::new(config.key_store.clone(), &logger)?,
+            global_store_update_tx.clone(),
             logger.clone(),
         );
 
@@ -88,8 +91,9 @@ pub mod network {
             config.exporter,
             &config.rpc_url,
             config.rpc_timeout,
-            KeyStore::new(config.key_store.clone())?,
+            KeyStore::new(config.key_store.clone(), &logger)?,
             local_store_tx,
+            keypair_request_tx,
             logger,
         )?;
         jhs.extend(exporter_jhs);
@@ -102,7 +106,6 @@ pub mod network {
 mod key_store {
     use {
         anyhow::{
-            anyhow,
             Context,
             Result,
         },
@@ -110,6 +113,7 @@ mod key_store {
             Deserialize,
             Serialize,
         },
+        slog::Logger,
         solana_sdk::{
             pubkey::Pubkey,
             signature::Keypair,
@@ -125,13 +129,16 @@ mod key_store {
         },
     };
 
-
     #[derive(Clone, Serialize, Deserialize, Debug)]
     #[serde(default)]
     pub struct Config {
         /// Root directory of the KeyStore
         pub root_path:            PathBuf,
-        /// Path to the keypair used to publish price updates, relative to the root
+        /// Path to the keypair used to publish price updates,
+        /// relative to the root. If set to a non-existent file path,
+        /// the system expects a keypair to be loaded via the remote
+        /// keypair loader. If the path is valid, the remote keypair
+        /// loading is disabled.
         pub publish_keypair_path: PathBuf,
         /// Path to the public key of the Oracle program, relative to the root
         pub program_key_path:     PathBuf,
@@ -151,8 +158,10 @@ mod key_store {
     }
 
     pub struct KeyStore {
-        /// The keypair used to publish price updates
-        pub publish_keypair: Keypair,
+        /// The keypair used to publish price updates. When None,
+        /// publishing will not start until a new keypair is supplied
+        /// via the remote loading endpoint
+        pub publish_keypair: Option<Keypair>,
         /// Public key of the Oracle program
         pub program_key:     Pubkey,
         /// Public key of the root mapping account
@@ -160,21 +169,25 @@ mod key_store {
     }
 
     impl KeyStore {
-        pub fn new(config: Config) -> Result<Self> {
+        pub fn new(config: Config, logger: &Logger) -> Result<Self> {
+            let full_keypair_path = config.root_path.join(config.publish_keypair_path);
+
+            let publish_keypair = match keypair::read_keypair_file(&full_keypair_path) {
+                Ok(k) => Some(k),
+                Err(e) => {
+                    warn!(logger,
+			  "Reading publish keypair returned an error. Waiting for a remote-loaded key before publishing.";
+			  "full_keypair_path" => full_keypair_path.to_str(), "error" => e.to_string());
+                    None
+                }
+            };
+
             Ok(KeyStore {
-                publish_keypair: keypair::read_keypair_file(
-                    config.root_path.join(config.publish_keypair_path),
-                )
-                .map_err(|e| anyhow!(e.to_string()))
-                .context("reading publish keypair")?,
-                program_key:     Self::pubkey_from_path(
-                    config.root_path.join(config.program_key_path),
-                )
-                .context("reading program key")?,
-                mapping_key:     Self::pubkey_from_path(
-                    config.root_path.join(config.mapping_key_path),
-                )
-                .context("reading mapping key")?,
+                publish_keypair,
+                program_key: Self::pubkey_from_path(config.root_path.join(config.program_key_path))
+                    .context("reading program key")?,
+                mapping_key: Self::pubkey_from_path(config.root_path.join(config.mapping_key_path))
+                    .context("reading mapping key")?,
             })
         }
 

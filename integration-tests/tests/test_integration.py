@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import requests
 import time
 from typing import Any, List
 import pytest
@@ -140,12 +141,19 @@ class PythTest:
 
         with open(stdout_path, 'w') as stdout:
             with open(stderr_path, 'w') as stderr:
-                with subprocess.Popen(cmd.split(), stdout=stdout, stderr=stderr, env=env) as process:
-                    LOGGER.debug(
-                        "Spawned subprocess with command %s logging to %s", cmd, log_dir)
-                    yield
-                    process.terminate()
-                    process.wait()
+                process = subprocess.Popen(cmd.split(), stdout=stdout, stderr=stderr, env=env)
+                LOGGER.debug(
+                    "Spawned subprocess with command %s logging to %s", cmd, log_dir)
+                yield
+
+                process.poll() # fills return code if available
+
+                if process.returncode is not None and process.returncode != 0:
+                    LOGGER.error("Spawned process \"%s\" finished with error code %d before teardown. See logs in %s", cmd, process.returncode, log_dir)
+
+                process.terminate()
+                process.wait()
+
                 stderr.flush()
             stdout.flush()
 
@@ -288,6 +296,9 @@ class PythTest:
 
         LOGGER.debug("Airdropping SOL to publish keypair at %s", path)
         self.run(f"solana airdrop 100 -k {path} -u localhost")
+        address = self.run(f"solana address -k {path} -u localhost")
+        balance = self.run(f"solana balance -k {path} -u localhost")
+        LOGGER.debug(f"Publisher {address.stdout.strip()} balance: {balance.stdout.strip()}")
         time.sleep(8)
 
     @pytest.fixture
@@ -312,8 +323,34 @@ class PythTest:
             time.sleep(3)
             yield
 
+    @pytest.fixture
+    def agent_hotload(self, sync_accounts, agent_keystore, agent_keystore_path, tmp_path):
+        """
+        Spawns an agent without a publish keypair, used for keypair hotloading testing
+        """
+        os.remove(os.path.join(agent_keystore_path, "publish_key_pair.json"))
+
+        LOGGER.debug("Building hotload agent binary")
+        self.run("cargo build --release")
+
+        log_dir = os.path.join(tmp_path, "agent_logs")
+        LOGGER.debug("Launching hotload agent logging to %s", log_dir)
+
+        os.environ["RUST_BACKTRACE"] = "full"
+        os.environ["RUST_LOG"] = "debug"
+        with self.spawn("../target/release/agent --config agent_conf.toml", log_dir=log_dir):
+            time.sleep(3)
+            yield
+
     @pytest_asyncio.fixture
     async def client(self, agent):
+        client = PythAgentClient(address="ws://localhost:8910")
+        await client.connect()
+        yield client
+        await client.close()
+
+    @pytest_asyncio.fixture
+    async def client_hotload(self, agent_hotload):
         client = PythAgentClient(address="ws://localhost:8910")
         await client.connect()
         yield client
@@ -348,3 +385,16 @@ class TestUpdatePrice(PythTest):
         assert price_account["price"] == 42
         assert price_account["conf"] == 2
         assert price_account["status"] == "trading"
+
+    @pytest.mark.asyncio
+    async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
+        # Hotload the keypair into running agent
+        hl_request = requests.post("http://localhost:9001/primary/load_keypair", json=PUBLISHER_KEYPAIR)
+
+        # Verify succesful hotload
+        assert hl_request.status_code == 200
+
+        LOGGER.info("Publisher keypair hotload OK")
+
+        # Continue normally with the existing simple scenario
+        await self.test_update_price_simple(client_hotload)

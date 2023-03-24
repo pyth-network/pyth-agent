@@ -48,6 +48,7 @@ Note that there is an Oracle and Exporter for each network, but only one Local S
 
 pub mod metrics;
 pub mod pythd;
+pub mod remote_keypair_loader;
 pub mod solana;
 pub mod store;
 use {
@@ -99,12 +100,15 @@ impl Agent {
             mpsc::channel(self.config.channel_capacities.local_store);
         let (pythd_adapter_tx, pythd_adapter_rx) =
             mpsc::channel(self.config.channel_capacities.pythd_adapter);
+        let (primary_keypair_loader_tx, primary_keypair_loader_rx) = mpsc::channel(10);
+        let (secondary_keypair_loader_tx, secondary_keypair_loader_rx) = mpsc::channel(10);
 
         // Spawn the primary network
         jhs.extend(network::spawn_network(
             self.config.primary_network.clone(),
             local_store_tx.clone(),
             primary_oracle_updates_tx,
+            primary_keypair_loader_tx,
             logger.new(o!("primary" => true)),
         )?);
 
@@ -114,6 +118,7 @@ impl Agent {
                 config.clone(),
                 local_store_tx.clone(),
                 secondary_oracle_updates_tx,
+                secondary_keypair_loader_tx,
                 logger.new(o!("primary" => false)),
             )?);
         }
@@ -153,8 +158,24 @@ impl Agent {
             self.config.metrics_server.bind_address,
             local_store_tx,
             global_store_lookup_tx,
-            logger,
+            logger.clone(),
         )));
+
+        // Spawn the remote keypair loader endpoint for both networks
+        jhs.append(
+            &mut remote_keypair_loader::RemoteKeypairLoader::spawn(
+                primary_keypair_loader_rx,
+                secondary_keypair_loader_rx,
+                self.config.primary_network.rpc_url.clone(),
+                self.config
+                    .secondary_network
+                    .as_ref()
+                    .map(|c| c.rpc_url.clone()),
+                self.config.remote_keypair_loader.clone(),
+                logger,
+            )
+            .await,
+        );
 
         // Wait for all tasks to complete
         join_all(jhs).await;
@@ -164,11 +185,11 @@ impl Agent {
 }
 
 pub mod config {
-
     use {
         super::{
             metrics,
             pythd,
+            remote_keypair_loader,
             solana::network,
         },
         anyhow::{
@@ -188,12 +209,13 @@ pub mod config {
     #[derive(Default, Deserialize, Debug)]
     #[serde(default)]
     pub struct Config {
-        pub channel_capacities: ChannelCapacities,
-        pub primary_network:    network::Config,
-        pub secondary_network:  Option<network::Config>,
-        pub pythd_adapter:      pythd::adapter::Config,
-        pub pythd_api_server:   pythd::api::rpc::Config,
-        pub metrics_server:     metrics::Config,
+        pub channel_capacities:    ChannelCapacities,
+        pub primary_network:       network::Config,
+        pub secondary_network:     Option<network::Config>,
+        pub pythd_adapter:         pythd::adapter::Config,
+        pub pythd_api_server:      pythd::api::rpc::Config,
+        pub metrics_server:        metrics::Config,
+        pub remote_keypair_loader: remote_keypair_loader::Config,
     }
 
     impl Config {
