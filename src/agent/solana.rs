@@ -134,7 +134,11 @@ mod key_store {
     pub struct Config {
         /// Root directory of the KeyStore
         pub root_path:            PathBuf,
-        /// Path to the keypair used to publish price updates, relative to the root
+        /// Path to the keypair used to publish price updates,
+        /// relative to the root. If set to a non-existent file path,
+        /// the system expects a keypair to be loaded via the remote
+        /// keypair loader. If the path is valid, the remote keypair
+        /// loading is disabled.
         pub publish_keypair_path: PathBuf,
         /// Path to the public key of the Oracle program, relative to the root
         pub program_key_path:     PathBuf,

@@ -1,3 +1,6 @@
+//! Remote keypair loading endpoint. Lets you hotload a keypair in
+//! runtime for publishing to the given network.
+//!
 use {
     anyhow::{
         Context,
