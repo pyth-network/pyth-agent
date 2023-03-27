@@ -4,8 +4,8 @@
 use {
     super::super::solana::oracle::{
         self,
-        PriceAccount,
-        ProductAccount,
+        PriceEntry,
+        ProductEntry,
     },
     crate::agent::pythd::adapter,
     anyhow::{
@@ -32,8 +32,8 @@ use {
 /// from the primary network.
 #[derive(Debug, Clone, Default)]
 pub struct AllAccountsData {
-    pub product_accounts: HashMap<Pubkey, oracle::ProductAccount>,
-    pub price_accounts:   HashMap<Pubkey, oracle::PriceAccount>,
+    pub product_accounts: HashMap<Pubkey, oracle::ProductEntry>,
+    pub price_accounts:   HashMap<Pubkey, oracle::PriceEntry>,
 }
 
 /// AllAccountsMetadata contains the metadata for all the price and product accounts.
@@ -54,8 +54,8 @@ pub struct ProductAccountMetadata {
     pub price_accounts: Vec<Pubkey>,
 }
 
-impl From<oracle::ProductAccount> for ProductAccountMetadata {
-    fn from(product_account: oracle::ProductAccount) -> Self {
+impl From<oracle::ProductEntry> for ProductAccountMetadata {
+    fn from(product_account: oracle::ProductEntry) -> Self {
         ProductAccountMetadata {
             attr_dict:      product_account
                 .account_data
@@ -74,8 +74,8 @@ pub struct PriceAccountMetadata {
     pub expo: i32,
 }
 
-impl From<oracle::PriceAccount> for PriceAccountMetadata {
-    fn from(price_account: oracle::PriceAccount) -> Self {
+impl From<oracle::PriceEntry> for PriceAccountMetadata {
+    fn from(price_account: oracle::PriceEntry) -> Self {
         PriceAccountMetadata {
             expo: price_account.expo,
         }
@@ -86,11 +86,11 @@ impl From<oracle::PriceAccount> for PriceAccountMetadata {
 pub enum Update {
     ProductAccountUpdate {
         account_key: Pubkey,
-        account:     ProductAccount,
+        account:     ProductEntry,
     },
     PriceAccountUpdate {
         account_key: Pubkey,
-        account:     PriceAccount,
+        account:     PriceEntry,
     },
 }
 
