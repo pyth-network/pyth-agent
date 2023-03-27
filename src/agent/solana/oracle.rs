@@ -442,7 +442,7 @@ impl Poller {
 
         let mut product_entries = HashMap::new();
 
-        // Log missing products, enumerate prices, filling the hash maps
+        // Log missing products, fill the product entries with initial values
         for (product_key, product_account) in product_keys.iter().zip(product_accounts) {
             if let Some(prod_acc) = product_account {
                 let product = load_product_account(prod_acc.data.as_slice())
@@ -463,7 +463,9 @@ impl Poller {
 
         let mut price_entries = HashMap::new();
 
-        // Starting with top-level prices, look up price accounts in batches
+        // Starting with top-level prices, look up price accounts in
+        // batches, filling price entries and adding found prices to
+        // the product entries
         let mut todo = product_entries
             .iter()
             .map(|(_key, p)| p.account_data.px_acc)
