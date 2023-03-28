@@ -1,12 +1,20 @@
+use prometheus::register_counter_with_registry;
 // The Local Store stores a copy of all the price information this local publisher
 // is contributing to the network. The Exporters will then take this data and publish
 // it to the networks.
-
 use {
     super::PriceIdentifier,
+    crate::agent::metrics::PROMETHEUS_REGISTRY,
     anyhow::{
         anyhow,
         Result,
+    },
+    prometheus::{
+        register_gauge_with_registry,
+        register_int_gauge_with_registry,
+        Counter,
+        Gauge,
+        IntGauge,
     },
     pyth_sdk::{
         PriceStatus,
@@ -32,6 +40,14 @@ pub struct PriceInfo {
     pub timestamp: UnixTimestamp,
 }
 
+/// Metrics exposed to Prometheus by the local store for each price
+pub struct PriceLocalMetrics {
+    price:        IntGauge,
+    conf:         Gauge,
+    timestamp:    IntGauge,
+    update_count: Counter,
+}
+
 #[derive(Debug)]
 pub enum Message {
     Update {
@@ -48,15 +64,17 @@ pub fn spawn_store(rx: mpsc::Receiver<Message>, logger: Logger) -> JoinHandle<()
 }
 
 pub struct Store {
-    prices: HashMap<PriceIdentifier, PriceInfo>,
-    rx:     mpsc::Receiver<Message>,
-    logger: Logger,
+    prices:  HashMap<PriceIdentifier, PriceInfo>,
+    metrics: HashMap<PriceIdentifier, PriceLocalMetrics>,
+    rx:      mpsc::Receiver<Message>,
+    logger:  Logger,
 }
 
 impl Store {
     pub fn new(rx: mpsc::Receiver<Message>, logger: Logger) -> Self {
         Store {
             prices: HashMap::new(),
+            metrics: HashMap::new(),
             rx,
             logger,
         }
@@ -76,7 +94,7 @@ impl Store {
                 price_identifier,
                 price_info,
             } => {
-                self.update(price_identifier, price_info);
+                self.update(price_identifier, price_info)?;
                 Ok(())
             }
             Message::LookupAllPriceInfo { result_tx } => result_tx
@@ -85,17 +103,64 @@ impl Store {
         }
     }
 
-    pub fn update(&mut self, price_identifier: PriceIdentifier, price_info: PriceInfo) {
+    pub fn update(
+        &mut self,
+        price_identifier: PriceIdentifier,
+        price_info: PriceInfo,
+    ) -> Result<()> {
         debug!(self.logger, "local store received price update"; "identifier" => bs58::encode(price_identifier.to_bytes()).into_string());
 
         // Drop the update if it is older than the current one stored for the price
         if let Some(current_price_info) = self.prices.get(&price_identifier) {
             if current_price_info.timestamp > price_info.timestamp {
-                return;
+                return Err(anyhow!(
+                    "Received stale timestamp for price {}",
+                    price_identifier
+                ));
             }
         }
 
+        let this_price_metrics =
+            self.metrics
+                .entry(price_identifier)
+                .or_insert(PriceLocalMetrics {
+                    // Instantiate metrics if they don't exist
+                    price:        register_int_gauge_with_registry!(
+                        format!("local_{}_price", price_identifier),
+                        format!("Local Store's price value for price {}", price_identifier),
+                        PROMETHEUS_REGISTRY
+                    )?,
+                    conf:         register_gauge_with_registry!(
+                        format!("local_{}_conf", price_identifier),
+                        format!(
+                            "Local Store's confidence interval for price {}",
+                            price_identifier
+                        ),
+                        PROMETHEUS_REGISTRY
+                    )?,
+                    timestamp:    register_int_gauge_with_registry!(
+                        format!("local_{}_timestamp", price_identifier),
+                        format!("Local Store's timestamp for price {}", price_identifier),
+                        PROMETHEUS_REGISTRY
+                    )?,
+                    update_count: register_counter_with_registry!(
+                        format!("local_{}_update_count", price_identifier),
+                        format!(
+                            "Local Store's number of updates since process start for price {}",
+                            price_identifier
+                        ),
+                        PROMETHEUS_REGISTRY
+                    )?,
+                });
+
+        this_price_metrics.price.set(price_info.price);
+        this_price_metrics.conf.set(price_info.conf as f64);
+        this_price_metrics.timestamp.set(price_info.timestamp);
+        this_price_metrics.update_count.inc();
+
         self.prices.insert(price_identifier, price_info);
+
+        Ok(())
     }
 
     pub fn get_all_price_infos(&self) -> HashMap<PriceIdentifier, PriceInfo> {

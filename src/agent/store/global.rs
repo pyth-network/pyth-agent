@@ -1,3 +1,11 @@
+use prometheus::{
+    register_counter_with_registry,
+    register_gauge_with_registry,
+    register_int_gauge_with_registry,
+    Counter,
+    Gauge,
+    IntGauge,
+};
 // The Global Store stores a copy of all the product and price information held in the Pyth
 // on-chain aggregation contracts, across both the primary and secondary networks.
 // This enables this data to be easily queried by other components.
@@ -7,7 +15,10 @@ use {
         PriceEntry,
         ProductEntry,
     },
-    crate::agent::pythd::adapter,
+    crate::agent::{
+        metrics::PROMETHEUS_REGISTRY,
+        pythd::adapter,
+    },
     anyhow::{
         anyhow,
         Result,
@@ -67,6 +78,13 @@ impl From<oracle::ProductEntry> for ProductAccountMetadata {
     }
 }
 
+/// Product account global store metrics. Most fields correspond with a subset of PriceAccount fields.
+pub struct ProductGlobalMetrics {
+    /// Trivial dummy metric, reporting the pubkey underlying the human-readable symbol
+    symbol_to_key: IntGauge,
+    update_count:  Counter,
+}
+
 /// PriceAccountMetadata contains the metadata for a price account.
 #[derive(Debug, Clone)]
 pub struct PriceAccountMetadata {
@@ -80,6 +98,22 @@ impl From<oracle::PriceEntry> for PriceAccountMetadata {
             expo: price_account.expo,
         }
     }
+}
+
+/// Price account global store metrics. Most fields correspond with a subset of PriceAccount fields.
+pub struct PriceGlobalMetrics {
+    /// Note: the exponent is not applied to this metric
+    price:          IntGauge,
+    expo:           IntGauge,
+    conf:           Gauge,
+    timestamp:      IntGauge,
+    /// Note: the exponent is not applied to this metric
+    prev_price:     IntGauge,
+    prev_conf:      Gauge,
+    prev_timestamp: IntGauge,
+
+    /// How many times this Price was updated in the global store
+    update_count: Counter,
 }
 
 #[derive(Debug)]
@@ -108,6 +142,12 @@ pub struct Store {
     /// The actual data
     account_data:     AllAccountsData,
     account_metadata: AllAccountsMetadata,
+
+    /// Prometheus metrics for products
+    product_metrics: HashMap<Pubkey, ProductGlobalMetrics>,
+
+    /// Prometheus metrics for prices
+    price_metrics: HashMap<Pubkey, PriceGlobalMetrics>,
 
     /// Channel on which lookup requests are received
     lookup_rx: mpsc::Receiver<Lookup>,
@@ -155,6 +195,8 @@ impl Store {
         Store {
             account_data: Default::default(),
             account_metadata: Default::default(),
+            product_metrics: HashMap::new(),
+            price_metrics: HashMap::new(),
             lookup_rx,
             primary_updates_rx,
             secondary_updates_rx,
@@ -175,7 +217,7 @@ impl Store {
         tokio::select! {
             Some(update) = self.primary_updates_rx.recv() => {
                 self.update_data(&update).await?;
-                self.update_metadata(&update).await;
+                self.update_metadata(&update)?;
             }
             Some(update) = self.secondary_updates_rx.recv() => {
                 // We only use the secondary store to update the metadata, which is
@@ -183,7 +225,7 @@ impl Store {
                 // we still have the metadata available to us. We don't update the data
                 // itself, because the aggregate prices may diverge slightly between
                 // the two networks.
-                self.update_metadata(&update).await;
+                self.update_metadata(&update)?;
             }
             Some(lookup) = self.lookup_rx.recv() => {
                 self.handle_lookup(lookup).await?
@@ -199,6 +241,10 @@ impl Store {
                 account_key,
                 account,
             } => {
+                // Update metrics
+                self.update_product_metrics(account_key, account)?;
+
+                // Update the stored data
                 self.account_data
                     .product_accounts
                     .insert(*account_key, account.clone());
@@ -208,15 +254,19 @@ impl Store {
                 account,
             } => {
                 // Sanity-check that we are updating with more recent data
-                if self
-                    .account_data
-                    .price_accounts
-                    .get(account_key)
-                    .map(|cur| cur.timestamp > account.timestamp)
-                    .unwrap_or_default()
-                {
-                    return Ok(());
+                if let Some(existing_price) = self.account_data.price_accounts.get(account_key) {
+                    if existing_price.timestamp > account.timestamp {
+                        warn!(self.logger, "Global store: denied stale update of an existing newer price";
+                        "price_key" => account_key.to_string(),
+                        "existing_timestamp" => existing_price.timestamp,
+                        "new_timestamp" => account.timestamp,
+                                      );
+                        return Ok(());
+                    }
                 }
+
+                // Update metrics
+                self.update_price_metrics(account_key, account)?;
 
                 // Update the stored data
                 self.account_data
@@ -241,7 +291,7 @@ impl Store {
         Ok(())
     }
 
-    async fn update_metadata(&mut self, update: &Update) {
+    fn update_metadata(&mut self, update: &Update) -> Result<()> {
         match update {
             Update::ProductAccountUpdate {
                 account_key,
@@ -250,6 +300,8 @@ impl Store {
                 self.account_metadata
                     .product_accounts_metadata
                     .insert(*account_key, account.clone().into());
+
+                Ok(())
             }
             Update::PriceAccountUpdate {
                 account_key,
@@ -258,8 +310,171 @@ impl Store {
                 self.account_metadata
                     .price_accounts_metadata
                     .insert(*account_key, (*account).into());
+
+                Ok(())
             }
         }
+    }
+
+    /// Update global store metrics for the specified product
+    fn update_product_metrics(
+        &mut self,
+        product_key: &Pubkey,
+        prod_account: &ProductEntry,
+    ) -> Result<()> {
+        let metadata: ProductAccountMetadata = prod_account.clone().into();
+
+        let symbol_string = metadata
+            .attr_dict
+            .get("symbol")
+            .cloned()
+            .map(|mut sym| {
+                // Remove whitespace, preventing invalid metric names
+                sym.retain(|sym_char| !sym_char.is_whitespace());
+                sym
+            })
+            // Use placeholder if the attribute was not found
+            .unwrap_or(format!("unknown-{}", product_key.to_string()));
+
+        // Denying unused var warnings and destructuring prevents
+        // forgetting to use a metric field
+        #[deny(unused_variables)]
+        let ProductGlobalMetrics {
+            symbol_to_key,
+            update_count,
+        } = self
+            .product_metrics
+            .entry(*product_key)
+            .or_insert(ProductGlobalMetrics { // Instantiate if not found
+                symbol_to_key: register_int_gauge_with_registry!(
+                    format!(
+                        "global_{}_has_pubkey_{}",
+                        symbol_string,
+                        product_key.to_string(),
+                    ),
+                    format!(
+                        "Dummy metric for indicating that human-readable symbol {} corresponds with product pubkey {}. Set to 'unknown-<pubkey>' if symbol is not defined.",
+                        product_key.to_string(),
+                        symbol_string
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+                update_count: register_counter_with_registry!(
+                    format!("global_{}_update_count", symbol_string),
+                    format!(
+                        "Global Store's update count since agent startup for symbol {}",
+                        symbol_string
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+            });
+
+        symbol_to_key.set(42);
+        update_count.inc();
+
+        Ok(())
+    }
+
+    /// Update global store metrics for the specified price
+    fn update_price_metrics(
+        &mut self,
+        price_key: &Pubkey,
+        price_account: &PriceEntry,
+    ) -> Result<()> {
+        // Denying unused var warnings and destructuring prevents
+        // forgetting to use a metric field
+        #[deny(unused_variables)]
+        let PriceGlobalMetrics {
+            price,
+            expo,
+            conf,
+            timestamp,
+            prev_price,
+            prev_conf,
+            prev_timestamp,
+            update_count,
+        } = self
+            .price_metrics
+            .entry(*price_key)
+            .or_insert(PriceGlobalMetrics {
+                price:          register_int_gauge_with_registry!(
+                    format!("global_{}_price", price_key.to_string()),
+                    format!(
+                        "Global store's latest price field value for price {}",
+                        price_key.to_string()
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+                expo:           register_int_gauge_with_registry!(
+                    format!("global_{}_expo", price_key.to_string()),
+                    format!(
+                        "Global store's latest expo field value for price {}",
+                        price_key.to_string()
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+                conf:           register_gauge_with_registry!(
+                    format!("global_{}_conf", price_key.to_string()),
+                    format!(
+                        "Global store's latest confidence interval value for price {}",
+                        price_key.to_string()
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+                timestamp:      register_int_gauge_with_registry!(
+                    format!("global_{}_timestamp", price_key.to_string()),
+                    format!(
+                        "Global store's latest publish timestamp field value for price {}",
+                        price_key.to_string()
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+                prev_price:     register_int_gauge_with_registry!(
+                    format!("global_{}_prev_price", price_key.to_string()),
+                    format!(
+                        "Global store's latest prev_price field value for price {}",
+                        price_key.to_string()
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+                prev_conf:      register_gauge_with_registry!(
+                    format!("global_{}_prev_conf", price_key.to_string()),
+                    format!(
+                        "Global store's latest previous confidence interval value for price {}",
+                        price_key.to_string()
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+                prev_timestamp: register_int_gauge_with_registry!(
+                    format!("global_{}_prev_timestamp", price_key.to_string()),
+                    format!(
+                        "Global store's latest last trading timestamp value for price {}",
+                        price_key.to_string()
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+                update_count:   register_counter_with_registry!(
+                    format!("global_{}_update_count", price_key.to_string()),
+                    format!(
+                        "Global store's number of updates since agent startup for price {}",
+                        price_key.to_string()
+                    ),
+                    PROMETHEUS_REGISTRY
+                )?,
+            });
+
+        price.set(price_account.agg.price);
+        expo.set(price_account.expo.into());
+        conf.set(price_account.agg.conf as f64);
+        timestamp.set(price_account.timestamp);
+
+        prev_price.set(price_account.prev_price);
+        prev_conf.set(price_account.prev_conf as f64);
+
+        prev_timestamp.set(price_account.prev_timestamp);
+
+        update_count.inc();
+        Ok(())
     }
 
     async fn handle_lookup(&self, lookup: Lookup) -> Result<()> {

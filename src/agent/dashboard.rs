@@ -1,6 +1,6 @@
 use {
     super::{
-        solana::oracle::PriceAccount,
+        solana::oracle::PriceEntry,
         store::{
             global::{
                 AllAccountsData,
@@ -176,7 +176,7 @@ pub struct DashboardSymbolView {
 #[derive(Debug)]
 pub struct DashboardPriceView {
     local_data:      Option<PriceInfo>,
-    global_data:     Option<PriceAccount>,
+    global_data:     Option<PriceEntry>,
     global_metadata: Option<PriceAccountMetadata>,
 }
 
