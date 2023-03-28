@@ -103,6 +103,13 @@ pub struct Config {
     pub updates_channel_capacity: usize,
     /// Capacity of the channel over which the Poller sends data to the Oracle
     pub data_channel_capacity:    usize,
+
+    /// Ask the RPC for up to this many product/price accounts in a
+    /// single request. Tune this setting if you're experiencing
+    /// timeouts on data fetching. In order to keep concurrent open
+    /// socket count at bay, the batches are looked up sequentially,
+    /// trading off overall time it takes to fetch all symbols.
+    pub max_lookup_batch_size: usize,
 }
 
 impl Default for Config {
@@ -113,6 +120,7 @@ impl Default for Config {
             subscriber_enabled:       true,
             updates_channel_capacity: 10000,
             data_channel_capacity:    10000,
+            max_lookup_batch_size:    200,
         }
     }
 }
@@ -152,6 +160,7 @@ pub fn spawn_oracle(
         rpc_timeout,
         config.commitment,
         config.poll_interval_duration,
+        config.max_lookup_batch_size,
         logger.clone(),
     );
     jhs.push(tokio::spawn(async move { poller.run().await }));
@@ -329,6 +338,9 @@ struct Poller {
     /// The interval with which to poll for data
     poll_interval: Interval,
 
+    /// Passed from Oracle config
+    max_lookup_batch_size: usize,
+
     /// Logger
     logger: Logger,
 }
@@ -341,6 +353,7 @@ impl Poller {
         rpc_timeout: Duration,
         commitment: CommitmentLevel,
         poll_interval_duration: Duration,
+        max_lookup_batch_size: usize,
         logger: Logger,
     ) -> Self {
         let rpc_client = RpcClient::new_with_timeout_and_commitment(
@@ -355,6 +368,7 @@ impl Poller {
             mapping_account_key,
             rpc_client,
             poll_interval,
+            max_lookup_batch_size,
             logger,
         }
     }
@@ -434,13 +448,32 @@ impl Poller {
             }
         }
 
-        // Look up all products with a single request
-        let product_accounts = self
-            .rpc_client
-            .get_multiple_accounts(product_keys.as_slice())
-            .await?;
-
         let mut product_entries = HashMap::new();
+        let mut price_entries = HashMap::new();
+
+        // Lookup products and their prices using the configured batch size
+        for product_key_batch in product_keys.as_slice().chunks(self.max_lookup_batch_size) {
+            let (mut batch_products, mut batch_prices) = self
+                .fetch_batch_of_product_and_price_accounts(product_key_batch)
+                .await?;
+
+            product_entries.extend(batch_products.drain());
+            price_entries.extend(batch_prices.drain());
+        }
+
+        Ok((product_entries, price_entries))
+    }
+
+    async fn fetch_batch_of_product_and_price_accounts(
+        &self,
+        product_key_batch: &[Pubkey],
+    ) -> Result<(HashMap<Pubkey, ProductEntry>, HashMap<Pubkey, PriceEntry>)> {
+        let mut product_entries = HashMap::new();
+
+        let product_keys = product_key_batch;
+
+        // Look up the batch with a single request
+        let product_accounts = self.rpc_client.get_multiple_accounts(product_keys).await?;
 
         // Log missing products, fill the product entries with initial values
         for (product_key, product_account) in product_keys.iter().zip(product_accounts) {
@@ -467,8 +500,8 @@ impl Poller {
         // batches, filling price entries and adding found prices to
         // the product entries
         let mut todo = product_entries
-            .iter()
-            .map(|(_key, p)| p.account_data.px_acc)
+            .values()
+            .map(|p| p.account_data.px_acc)
             .collect::<Vec<_>>();
 
         while !todo.is_empty() {
@@ -511,7 +544,6 @@ impl Poller {
 
             todo = next_todo;
         }
-
         Ok((product_entries, price_entries))
     }
 }
