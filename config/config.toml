@@ -31,6 +31,13 @@ key_store.root_path = "/path/to/keystore"
 # Whether subscribing to account updates over websocket is enabled
 # oracle.subscriber_enabled = true
 
+# Ask the RPC for up to this many product/price accounts in a
+# single request. Tune this setting if you're experiencing
+# timeouts on data fetching. In order to keep concurrent open
+# socket count at bay, the batches are looked up sequentially,
+# trading off overall time it takes to fetch all symbols.
+# oracle.max_lookup_batch_size = 200
+
 # Duration of the interval at which to refresh the cached network state (current slot and blockhash).
 # It is recommended to set this to slightly less than the network's block time,
 # as the slot fetched will be used as the time of the price update.

@@ -10,7 +10,6 @@ use {
         Context,
         Result,
     },
-    futures_util::future::join_all,
     pyth_sdk_solana::state::{
         load_mapping_account,
         load_price_account,
@@ -35,7 +34,6 @@ use {
             HashMap,
             HashSet,
         },
-        iter::zip,
         time::Duration,
     },
     tokio::{
@@ -48,15 +46,15 @@ use {
 #[derive(Default, Debug, Clone)]
 pub struct Data {
     pub mapping_accounts: HashMap<Pubkey, MappingAccount>,
-    pub product_accounts: HashMap<Pubkey, ProductAccount>,
-    pub price_accounts:   HashMap<Pubkey, PriceAccount>,
+    pub product_accounts: HashMap<Pubkey, ProductEntry>,
+    pub price_accounts:   HashMap<Pubkey, PriceEntry>,
 }
 
 impl Data {
     fn new(
         mapping_accounts: HashMap<Pubkey, MappingAccount>,
-        product_accounts: HashMap<Pubkey, ProductAccount>,
-        price_accounts: HashMap<Pubkey, PriceAccount>,
+        product_accounts: HashMap<Pubkey, ProductEntry>,
+        price_accounts: HashMap<Pubkey, PriceEntry>,
     ) -> Self {
         Data {
             mapping_accounts,
@@ -68,11 +66,11 @@ impl Data {
 
 pub type MappingAccount = pyth_sdk_solana::state::MappingAccount;
 #[derive(Debug, Clone)]
-pub struct ProductAccount {
+pub struct ProductEntry {
     pub account_data:   pyth_sdk_solana::state::ProductAccount,
     pub price_accounts: Vec<Pubkey>,
 }
-pub type PriceAccount = pyth_sdk_solana::state::PriceAccount;
+pub type PriceEntry = pyth_sdk_solana::state::PriceAccount;
 
 // Oracle is responsible for fetching Solana account data stored in the Pyth on-chain Oracle.
 pub struct Oracle {
@@ -105,6 +103,13 @@ pub struct Config {
     pub updates_channel_capacity: usize,
     /// Capacity of the channel over which the Poller sends data to the Oracle
     pub data_channel_capacity:    usize,
+
+    /// Ask the RPC for up to this many product/price accounts in a
+    /// single request. Tune this setting if you're experiencing
+    /// timeouts on data fetching. In order to keep concurrent open
+    /// socket count at bay, the batches are looked up sequentially,
+    /// trading off overall time it takes to fetch all symbols.
+    pub max_lookup_batch_size: usize,
 }
 
 impl Default for Config {
@@ -115,6 +120,7 @@ impl Default for Config {
             subscriber_enabled:       true,
             updates_channel_capacity: 10000,
             data_channel_capacity:    10000,
+            max_lookup_batch_size:    200,
         }
     }
 }
@@ -154,6 +160,7 @@ pub fn spawn_oracle(
         rpc_timeout,
         config.commitment,
         config.poll_interval_duration,
+        config.max_lookup_batch_size,
         logger.clone(),
     );
     jhs.push(tokio::spawn(async move { poller.run().await }));
@@ -292,7 +299,7 @@ impl Oracle {
     async fn notify_product_account_update(
         &self,
         account_key: &Pubkey,
-        account: &ProductAccount,
+        account: &ProductEntry,
     ) -> Result<()> {
         self.global_store_tx
             .send(global::Update::ProductAccountUpdate {
@@ -306,7 +313,7 @@ impl Oracle {
     async fn notify_price_account_update(
         &self,
         account_key: &Pubkey,
-        account: &PriceAccount,
+        account: &PriceEntry,
     ) -> Result<()> {
         self.global_store_tx
             .send(global::Update::PriceAccountUpdate {
@@ -331,6 +338,9 @@ struct Poller {
     /// The interval with which to poll for data
     poll_interval: Interval,
 
+    /// Passed from Oracle config
+    max_lookup_batch_size: usize,
+
     /// Logger
     logger: Logger,
 }
@@ -343,6 +353,7 @@ impl Poller {
         rpc_timeout: Duration,
         commitment: CommitmentLevel,
         poll_interval_duration: Duration,
+        max_lookup_batch_size: usize,
         logger: Logger,
     ) -> Self {
         let rpc_client = RpcClient::new_with_timeout_and_commitment(
@@ -357,6 +368,7 @@ impl Poller {
             mapping_account_key,
             rpc_client,
             poll_interval,
+            max_lookup_batch_size,
             logger,
         }
     }
@@ -419,88 +431,120 @@ impl Poller {
     async fn fetch_product_and_price_accounts<'a, A>(
         &self,
         mapping_accounts: A,
-    ) -> Result<(
-        HashMap<Pubkey, ProductAccount>,
-        HashMap<Pubkey, PriceAccount>,
-    )>
+    ) -> Result<(HashMap<Pubkey, ProductEntry>, HashMap<Pubkey, PriceEntry>)>
     where
         A: IntoIterator<Item = &'a MappingAccount>,
     {
-        let mut pubkeys = vec![];
-        let mut futures = vec![];
+        let mut product_keys = vec![];
 
-        // Fetch all product accounts in parallel
+        // Get all product keys
         for mapping_account in mapping_accounts {
             for account_key in mapping_account
                 .products
                 .iter()
                 .filter(|pubkey| **pubkey != Pubkey::default())
             {
-                pubkeys.push(account_key.clone());
-                futures.push(self.fetch_product_account(account_key));
+                product_keys.push(account_key.clone());
             }
         }
 
-        let future_results = join_all(futures)
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
+        let mut product_entries = HashMap::new();
+        let mut price_entries = HashMap::new();
 
-        let product_accounts = zip(
-            pubkeys.into_iter(),
-            future_results
-                .clone()
-                .into_iter()
-                .map(|(product_account, _)| product_account),
-        )
-        .collect();
+        // Lookup products and their prices using the configured batch size
+        for product_key_batch in product_keys.as_slice().chunks(self.max_lookup_batch_size) {
+            let (mut batch_products, mut batch_prices) = self
+                .fetch_batch_of_product_and_price_accounts(product_key_batch)
+                .await?;
 
-        let price_accounts = future_results
-            .into_iter()
-            .flat_map(|(_, price_accounts)| price_accounts.into_iter())
-            .collect();
-
-        Ok((product_accounts, price_accounts))
-    }
-
-    async fn fetch_product_account(
-        &self,
-        product_account_key: &Pubkey,
-    ) -> Result<(ProductAccount, HashMap<Pubkey, PriceAccount>)> {
-        // Fetch the product account
-        let product_account = *load_product_account(
-            &self
-                .rpc_client
-                .get_account_data(product_account_key)
-                .await?,
-        )
-        .with_context(|| format!("load product account {}", product_account_key))?;
-
-        // Fetch the price accounts associated with this product account
-        let mut price_accounts = HashMap::new();
-        let mut price_account_key = product_account.px_acc;
-        while price_account_key != Pubkey::default() {
-            let price_account = self.fetch_price_account(&price_account_key).await?;
-            price_accounts.insert(price_account_key, price_account);
-
-            price_account_key = price_account.next;
+            product_entries.extend(batch_products.drain());
+            price_entries.extend(batch_prices.drain());
         }
 
-        // Create the product account object
-        let product_account = ProductAccount {
-            account_data:   product_account,
-            price_accounts: price_accounts.keys().cloned().collect(),
-        };
-
-        Ok((product_account, price_accounts))
+        Ok((product_entries, price_entries))
     }
 
-    async fn fetch_price_account(&self, price_account_key: &Pubkey) -> Result<PriceAccount> {
-        let data = self.rpc_client.get_account_data(price_account_key).await?;
-        let price_account = *load_price_account(&data)
-            .with_context(|| format!("load price account {}", price_account_key))?;
+    async fn fetch_batch_of_product_and_price_accounts(
+        &self,
+        product_key_batch: &[Pubkey],
+    ) -> Result<(HashMap<Pubkey, ProductEntry>, HashMap<Pubkey, PriceEntry>)> {
+        let mut product_entries = HashMap::new();
 
-        Ok(price_account)
+        let product_keys = product_key_batch;
+
+        // Look up the batch with a single request
+        let product_accounts = self.rpc_client.get_multiple_accounts(product_keys).await?;
+
+        // Log missing products, fill the product entries with initial values
+        for (product_key, product_account) in product_keys.iter().zip(product_accounts) {
+            if let Some(prod_acc) = product_account {
+                let product = load_product_account(prod_acc.data.as_slice())
+                    .context(format!("Could not parse product account {}", product_key))?;
+
+                product_entries.insert(
+                    *product_key,
+                    ProductEntry {
+                        account_data:   *product,
+                        price_accounts: vec![],
+                    },
+                );
+            } else {
+                warn!(self.logger, "Oracle: Could not find product on chain, skipping";
+		      "product_key" => product_key.to_string(),);
+            }
+        }
+
+        let mut price_entries = HashMap::new();
+
+        // Starting with top-level prices, look up price accounts in
+        // batches, filling price entries and adding found prices to
+        // the product entries
+        let mut todo = product_entries
+            .values()
+            .map(|p| p.account_data.px_acc)
+            .collect::<Vec<_>>();
+
+        while !todo.is_empty() {
+            let price_accounts = self
+                .rpc_client
+                .get_multiple_accounts(todo.as_slice())
+                .await?;
+
+            // Any non-zero price.next pubkey will be gathered here and looked up on next iteration
+            let mut next_todo = vec![];
+
+            // Process the response of each lookup request. If there's
+            // a next price, it will be looked up on next iteration,
+            // as todo gets replaced with next_todo.
+            for (price_key, price_account) in todo.iter().zip(price_accounts) {
+                if let Some(price_acc) = price_account {
+                    let price = load_price_account(&price_acc.data)
+                        .context(format!("Could not parse price account at {}", price_key))?;
+
+                    if let Some(prod) = product_entries.get_mut(&price.prod) {
+                        prod.price_accounts.push(*price_key);
+                        price_entries.insert(*price_key, *price);
+                    } else {
+                        warn!(self.logger, "Could not find product entry for price, listed in its prod field, skipping";
+                         "missing_product" => price.prod.to_string(),
+                         "price_key" => price_key.to_string(),
+                        );
+
+                        continue;
+                    }
+
+                    if price.next != Pubkey::default() {
+                        next_todo.push(price.next.clone());
+                    }
+                } else {
+                    warn!(self.logger, "Could not look up price account on chain, skipping"; "price_key" => price_key.to_string(),);
+                    continue;
+                }
+            }
+
+            todo = next_todo;
+        }
+        Ok((product_entries, price_entries))
     }
 }
 

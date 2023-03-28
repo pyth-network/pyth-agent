@@ -363,7 +363,7 @@ impl Adapter {
     }
 
     fn solana_product_account_to_pythd_api_product_account(
-        product_account: &solana::oracle::ProductAccount,
+        product_account: &solana::oracle::ProductEntry,
         all_accounts_data: &AllAccountsData,
         product_account_key: &solana_sdk::pubkey::Pubkey,
     ) -> ProductAccount {
@@ -947,7 +947,7 @@ mod tests {
                         "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t",
                     )
                     .unwrap(),
-                    solana::oracle::ProductAccount {
+                    solana::oracle::ProductEntry {
                         account_data:   pyth_sdk_solana::state::ProductAccount {
                             magic:  0xa1b2c3d4,
                             ver:    6,
@@ -1006,7 +1006,7 @@ mod tests {
                         "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc",
                     )
                     .unwrap(),
-                    solana::oracle::ProductAccount {
+                    solana::oracle::ProductEntry {
                         account_data:   pyth_sdk_solana::state::ProductAccount {
                             magic:  0xa1b2c3d4,
                             ver:    5,
