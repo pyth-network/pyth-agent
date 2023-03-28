@@ -331,10 +331,12 @@ impl Store {
             .map(|mut sym| {
                 // Remove whitespace, preventing invalid metric names
                 sym.retain(|sym_char| !sym_char.is_whitespace());
-                sym
+
+                // Prometheus does not like slashes or dots
+                sym.replace(".", "_dot_").replace("/", "_slash_")
             })
             // Use placeholder if the attribute was not found
-            .unwrap_or(format!("unknown-{}", product_key.to_string()));
+            .unwrap_or(format!("unknown_{}", product_key.to_string()));
 
         // Denying unused var warnings and destructuring prevents
         // forgetting to use a metric field
@@ -353,7 +355,7 @@ impl Store {
                         product_key.to_string(),
                     ),
                     format!(
-                        "Dummy metric for indicating that human-readable symbol {} corresponds with product pubkey {}. Set to 'unknown-<pubkey>' if symbol is not defined.",
+                        "Dummy metric for indicating that human-readable symbol {} corresponds with product pubkey {}. To create a valid metric name, replacements are made: '. -> _dot_, / -> _slash_'; Set to 'unknown_<pubkey>' if symbol is not defined.",
                         product_key.to_string(),
                         symbol_string
                     ),
