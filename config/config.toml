@@ -36,7 +36,7 @@ key_store.root_path = "/path/to/keystore"
 # timeouts on data fetching. In order to keep concurrent open
 # socket count at bay, the batches are looked up sequentially,
 # trading off overall time it takes to fetch all symbols.
-# oracle.max_lookup_batch_size = 200
+# oracle.max_lookup_batch_size = 100
 
 # Duration of the interval at which to refresh the cached network state (current slot and blockhash).
 # It is recommended to set this to slightly less than the network's block time,
