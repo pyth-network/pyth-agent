@@ -120,7 +120,7 @@ impl Default for Config {
             subscriber_enabled:       true,
             updates_channel_capacity: 10000,
             data_channel_capacity:    10000,
-            max_lookup_batch_size:    200,
+            max_lookup_batch_size:    100,
         }
     }
 }
