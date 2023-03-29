@@ -21,7 +21,7 @@
 {
   description                         = "Pyth Agent";
   nixConfig.bash-prompt               = "\[nix@pyth-agent\]$ ";
-  inputs.nixpkgs.url                  = github:NixOS/nixpkgs/release-22.11;
+  inputs.nixpkgs.url                  = "nixpkgs/nixos-unstable";
   inputs.flake-utils.url              = "github:numtide/flake-utils";
   inputs.fenix.url                    = "github:nix-community/fenix";
   inputs.fenix.inputs.nixpkgs.follows = "nixpkgs";
