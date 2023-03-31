@@ -1,20 +1,15 @@
-use prometheus::register_counter_with_registry;
 // The Local Store stores a copy of all the price information this local publisher
 // is contributing to the network. The Exporters will then take this data and publish
 // it to the networks.
 use {
     super::PriceIdentifier,
-    crate::agent::metrics::PROMETHEUS_REGISTRY,
+    crate::agent::metrics::{
+        PriceLocalMetrics,
+        PROMETHEUS_REGISTRY,
+    },
     anyhow::{
         anyhow,
         Result,
-    },
-    prometheus::{
-        register_gauge_with_registry,
-        register_int_gauge_with_registry,
-        Counter,
-        Gauge,
-        IntGauge,
     },
     pyth_sdk::{
         PriceStatus,
@@ -40,14 +35,6 @@ pub struct PriceInfo {
     pub timestamp: UnixTimestamp,
 }
 
-/// Metrics exposed to Prometheus by the local store for each price
-pub struct PriceLocalMetrics {
-    price:        IntGauge,
-    conf:         Gauge,
-    timestamp:    IntGauge,
-    update_count: Counter,
-}
-
 #[derive(Debug)]
 pub enum Message {
     Update {
@@ -60,21 +47,21 @@ pub enum Message {
 }
 
 pub fn spawn_store(rx: mpsc::Receiver<Message>, logger: Logger) -> JoinHandle<()> {
-    tokio::spawn(async move { Store::new(rx, logger).run().await })
+    tokio::spawn(async move { Store::new(rx, logger).await.run().await })
 }
 
 pub struct Store {
     prices:  HashMap<PriceIdentifier, PriceInfo>,
-    metrics: HashMap<PriceIdentifier, PriceLocalMetrics>,
+    metrics: PriceLocalMetrics,
     rx:      mpsc::Receiver<Message>,
     logger:  Logger,
 }
 
 impl Store {
-    pub fn new(rx: mpsc::Receiver<Message>, logger: Logger) -> Self {
+    pub async fn new(rx: mpsc::Receiver<Message>, logger: Logger) -> Self {
         Store {
             prices: HashMap::new(),
-            metrics: HashMap::new(),
+            metrics: PriceLocalMetrics::new(&mut &mut PROMETHEUS_REGISTRY.lock().await),
             rx,
             logger,
         }
@@ -120,43 +107,45 @@ impl Store {
             }
         }
 
-        let this_price_metrics =
-            self.metrics
-                .entry(price_identifier)
-                .or_insert(PriceLocalMetrics {
-                    // Instantiate metrics if they don't exist
-                    price:        register_int_gauge_with_registry!(
-                        format!("local_{}_price", price_identifier),
-                        format!("Local Store's price value for price {}", price_identifier),
-                        PROMETHEUS_REGISTRY
-                    )?,
-                    conf:         register_gauge_with_registry!(
-                        format!("local_{}_conf", price_identifier),
-                        format!(
-                            "Local Store's confidence interval for price {}",
-                            price_identifier
-                        ),
-                        PROMETHEUS_REGISTRY
-                    )?,
-                    timestamp:    register_int_gauge_with_registry!(
-                        format!("local_{}_timestamp", price_identifier),
-                        format!("Local Store's timestamp for price {}", price_identifier),
-                        PROMETHEUS_REGISTRY
-                    )?,
-                    update_count: register_counter_with_registry!(
-                        format!("local_{}_update_count", price_identifier),
-                        format!(
-                            "Local Store's number of updates since process start for price {}",
-                            price_identifier
-                        ),
-                        PROMETHEUS_REGISTRY
-                    )?,
-                });
+        self.metrics.update(&price_identifier, &price_info);
 
-        this_price_metrics.price.set(price_info.price);
-        this_price_metrics.conf.set(price_info.conf as f64);
-        this_price_metrics.timestamp.set(price_info.timestamp);
-        this_price_metrics.update_count.inc();
+        // let this_price_metrics =
+        //     self.metrics
+        //         .entry(price_identifier)
+        //         .or_insert(PriceLocalMetrics {
+        //             // Instantiate metrics if they don't exist
+        //             price:        register_int_gauge_with_registry!(
+        //                 format!("local_{}_price", price_identifier),
+        //                 format!("Local Store's price value for price {}", price_identifier),
+        //                 PROMETHEUS_REGISTRY
+        //             )?,
+        //             conf:         register_gauge_with_registry!(
+        //                 format!("local_{}_conf", price_identifier),
+        //                 format!(
+        //                     "Local Store's confidence interval for price {}",
+        //                     price_identifier
+        //                 ),
+        //                 PROMETHEUS_REGISTRY
+        //             )?,
+        //             timestamp:    register_int_gauge_with_registry!(
+        //                 format!("local_{}_timestamp", price_identifier),
+        //                 format!("Local Store's timestamp for price {}", price_identifier),
+        //                 PROMETHEUS_REGISTRY
+        //             )?,
+        //             update_count: register_counter_with_registry!(
+        //                 format!("local_{}_update_count", price_identifier),
+        //                 format!(
+        //                     "Local Store's number of updates since process start for price {}",
+        //                     price_identifier
+        //                 ),
+        //                 PROMETHEUS_REGISTRY
+        //             )?,
+        //         });
+
+        // this_price_metrics.price.set(price_info.price);
+        // this_price_metrics.conf.set(price_info.conf as f64);
+        // this_price_metrics.timestamp.set(price_info.timestamp);
+        // this_price_metrics.update_count.inc();
 
         self.prices.insert(price_identifier, price_info);
 

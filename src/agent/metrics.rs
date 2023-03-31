@@ -3,17 +3,35 @@ use {
         global::Lookup,
         local::Message,
     },
+    crate::agent::{
+        solana::oracle::PriceEntry,
+        store::{
+            local::PriceInfo,
+            PriceIdentifier,
+        },
+    },
     lazy_static::lazy_static,
-    prometheus::{
-        Encoder,
-        Registry,
-        TextEncoder,
+    prometheus_client::{
+        encoding::{
+            text::encode,
+            EncodeLabelSet,
+        },
+        metrics::{
+            counter::Counter,
+            family::Family,
+            gauge::Gauge,
+        },
+        registry::Registry,
     },
     serde::Deserialize,
     slog::Logger,
+    solana_sdk::pubkey::Pubkey,
     std::{
         net::SocketAddr,
-        sync::Arc,
+        sync::{
+            atomic::AtomicU64,
+            Arc,
+        },
         time::Instant,
     },
     tokio::sync::{
@@ -48,7 +66,8 @@ impl Default for Config {
 }
 
 lazy_static! {
-    pub static ref PROMETHEUS_REGISTRY: Registry = Registry::new();
+    pub static ref PROMETHEUS_REGISTRY: Arc<Mutex<Registry>> =
+        Arc::new(Mutex::new(<Registry>::default()));
 }
 
 /// Internal metrics server state, holds state needed for serving
@@ -109,14 +128,11 @@ impl MetricsServer {
                 let shared_state = shared_state4metrics.clone();
                 async move {
 		    let locked_state = shared_state.lock().await;
-                    let encoder = TextEncoder::new();
-                    let mut buf = vec![];
-                    let response = encoder.encode(&PROMETHEUS_REGISTRY.gather(), &mut buf).map_err(|e| -> Box<dyn std::error::Error> {
-			e.into()
+                    let mut buf = String::new();
+                    let response = encode(&mut buf, &&PROMETHEUS_REGISTRY.lock().await).map_err(|e| -> Box<dyn std::error::Error> {e.into()
 		    }).and_then(|_| -> Result<_, Box<dyn std::error::Error>> {
-			let response_txt = String::from_utf8(buf)?;
 
-			Ok(Box::new(reply::with_status(response_txt, StatusCode::OK)))
+			Ok(Box::new(reply::with_status(buf, StatusCode::OK)))
 		    }).unwrap_or_else(|e| {
 			error!(locked_state.logger, "Metrics: Could not gather metrics from registry"; "error" => e.to_string());
 
@@ -130,5 +146,287 @@ impl MetricsServer {
         warp::serve(dashboard_route.or(metrics_route))
             .bind(addr)
             .await;
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct ProductGlobalLabels {
+    pubkey: String,
+    /// Set to "unknown-<pubkey>" if not found in the attribute set
+    symbol: String,
+}
+
+/// Product account global store metrics. Most fields correspond with a subset of PriceAccount fields.
+#[derive(Default)]
+pub struct ProductGlobalMetrics {
+    /// Trivial dummy metric, reporting the pubkey underlying the human-readable symbol
+    update_count: Family<ProductGlobalLabels, Counter>,
+}
+
+impl ProductGlobalMetrics {
+    pub fn new(registry: &mut Registry) -> Self {
+        let metrics = Default::default();
+
+        #[deny(unused_variables)]
+        let Self { update_count } = &metrics;
+
+        registry.register(
+            "global_prod_update_count",
+            "The global store's update count for a product account",
+            update_count.clone(),
+        );
+
+        metrics
+    }
+
+    pub fn update(&self, product_key: &Pubkey, symbol_string: String) {
+        #[deny(unused_variables)]
+        let Self { update_count } = self;
+
+        update_count
+            .get_or_create(&ProductGlobalLabels {
+                pubkey: product_key.to_string(),
+                symbol: symbol_string,
+            })
+            .inc();
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct PriceGlobalLabels {
+    pubkey: String,
+}
+
+/// Price account global store metrics. Most fields correspond with a subset of PriceEntry fields.
+#[derive(Default)]
+pub struct PriceGlobalMetrics {
+    /// Note: the exponent is not applied to this metric
+    price: Family<PriceGlobalLabels, Gauge>,
+
+    expo: Family<PriceGlobalLabels, Gauge>,
+
+    /// f64 is used to get u64 support. Official docs:
+    /// https://docs.rs/prometheus-client/latest/prometheus_client/metrics/gauge/struct.Gauge.html#using-atomicu64-as-storage-and-f64-on-the-interface
+    conf:      Family<PriceGlobalLabels, Gauge<f64, AtomicU64>>,
+    timestamp: Family<PriceGlobalLabels, Gauge>,
+
+    /// Note: the exponent is not applied to this metric
+    prev_price:     Family<PriceGlobalLabels, Gauge>,
+    prev_conf:      Family<PriceGlobalLabels, Gauge<f64, AtomicU64>>,
+    prev_timestamp: Family<PriceGlobalLabels, Gauge>,
+
+    /// How many times this Price was updated in the global store
+    update_count: Family<PriceGlobalLabels, Counter>,
+}
+
+impl PriceGlobalMetrics {
+    pub fn new(registry: &mut Registry) -> Self {
+        let metrics = Default::default();
+
+        #[deny(unused_variables)]
+        let Self {
+            price,
+            expo,
+            conf,
+            timestamp,
+            prev_price,
+            prev_conf,
+            prev_timestamp,
+            update_count,
+        } = &metrics;
+
+        registry.register(
+            "global_price_price",
+            "The global store's price value for a price account",
+            price.clone(),
+        );
+
+        registry.register(
+            "global_price_expo",
+            "The global store's exponent value for a price account",
+            expo.clone(),
+        );
+
+        registry.register(
+            "global_price_conf",
+            "The global store's confidence interval value for a price account",
+            conf.clone(),
+        );
+
+        registry.register(
+            "global_price_timestamp",
+            "The global store's publish timestamp value for a price account",
+            timestamp.clone(),
+        );
+
+        registry.register(
+            "global_price_prev_price",
+            "The global store's prev_price value for a price account",
+            prev_price.clone(),
+        );
+
+        registry.register(
+            "global_price_prev_conf",
+            "The global store's prev_conf (previous confidence interval) value for a price account",
+            prev_conf.clone(),
+        );
+
+        registry.register(
+            "global_price_prev_timestamp",
+            "The global store's prev_timestamp (last publish timestamp with status 'trading') value for a price account",
+            prev_timestamp.clone(),
+        );
+
+        registry.register(
+            "global_price_update_count",
+            "The global store's update count for a price account",
+            update_count.clone(),
+        );
+
+        metrics
+    }
+
+    pub fn update(&self, price_key: &Pubkey, price_account: &PriceEntry) {
+        #[deny(unused_variables)]
+        let Self {
+            price,
+            expo,
+            conf,
+            timestamp,
+            prev_price,
+            prev_conf,
+            prev_timestamp,
+            update_count,
+        } = self;
+
+        price
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .set(price_account.agg.price);
+
+        expo.get_or_create(&PriceGlobalLabels {
+            pubkey: price_key.to_string(),
+        })
+        .set(price_account.expo as i64);
+
+        conf.get_or_create(&PriceGlobalLabels {
+            pubkey: price_key.to_string(),
+        })
+        .set(price_account.agg.conf as f64);
+
+        timestamp
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .set(price_account.timestamp);
+
+        prev_price
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .set(price_account.prev_price);
+
+        prev_conf
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .set(price_account.prev_conf as f64);
+
+        prev_timestamp
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .set(price_account.prev_timestamp);
+
+        update_count
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .inc();
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct PriceLocalLabels {
+    pubkey: String,
+}
+
+/// Metrics exposed to Prometheus by the local store for each price
+#[derive(Default)]
+pub struct PriceLocalMetrics {
+    price:     Family<PriceLocalLabels, Gauge>,
+    /// f64 is used to get u64 support. Official docs:
+    /// https://docs.rs/prometheus-client/latest/prometheus_client/metrics/gauge/struct.Gauge.html#using-atomicu64-as-storage-and-f64-on-the-interface
+    conf:      Family<PriceLocalLabels, Gauge<f64, AtomicU64>>,
+    timestamp: Family<PriceLocalLabels, Gauge>,
+
+    /// How many times this price was updated in the local store
+    update_count: Family<PriceLocalLabels, Counter>,
+}
+impl PriceLocalMetrics {
+    pub fn new(registry: &mut Registry) -> Self {
+        let metrics = Self::default();
+
+        #[deny(unused_variables)]
+        let PriceLocalMetrics {
+            price,
+            conf,
+            timestamp,
+            update_count,
+        } = &metrics;
+
+        registry.register(
+            "local_store_price",
+            "Price value from the local store",
+            price.clone(),
+        );
+        registry.register(
+            "local_store_conf",
+            "Confidence interval value from the local store",
+            conf.clone(),
+        );
+        registry.register(
+            "local_store_timestamp",
+            "Publish timestamp value from the local store",
+            timestamp.clone(),
+        );
+        registry.register(
+            "local_store_update_count",
+            "How many times we've seen an update for this price in the local store",
+            update_count.clone(),
+        );
+
+        metrics
+    }
+
+    pub fn update(&self, price_id: &PriceIdentifier, price_info: &PriceInfo) {
+        #[deny(unused_variables)]
+        let Self {
+            price,
+            conf,
+            timestamp,
+            update_count,
+        } = self;
+
+        price
+            .get_or_create(&PriceLocalLabels {
+                pubkey: price_id.to_string(),
+            })
+            .set(price_info.price);
+        conf.get_or_create(&PriceLocalLabels {
+            pubkey: price_id.to_string(),
+        })
+        .set(price_info.conf as f64);
+        timestamp
+            .get_or_create(&PriceLocalLabels {
+                pubkey: price_id.to_string(),
+            })
+            .set(price_info.timestamp);
+        update_count
+            .get_or_create(&PriceLocalLabels {
+                pubkey: price_id.to_string(),
+            })
+            .inc();
     }
 }
