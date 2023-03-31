@@ -373,11 +373,11 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(2)
+        time.sleep(3)
 
         # Send another "update_price" request to trigger aggregation
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(3)
 
         # Confirm that the price account has been updated with the values from the first "update_price" request
         product = await client.get_product(product_account)
