@@ -220,12 +220,9 @@ impl Store {
             } => {
                 let attr_dict = ProductAccountMetadata::from(account.clone()).attr_dict;
 
-                let symbol_string = attr_dict
-                    .get("symbol")
-                    .cloned()
-                    .unwrap_or(format!("unknown_{}", account_key.to_string()));
+                let maybe_symbol = attr_dict.get("symbol").cloned();
 
-                self.product_metrics.update(account_key, symbol_string);
+                self.product_metrics.update(account_key, maybe_symbol);
 
                 // Update the stored data
                 self.account_data

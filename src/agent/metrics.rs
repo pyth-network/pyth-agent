@@ -152,7 +152,7 @@ impl MetricsServer {
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct ProductGlobalLabels {
     pubkey: String,
-    /// Set to "unknown-<pubkey>" if not found in the attribute set
+    /// Set to "unknown_<pubkey>" if not found in the attribute set
     symbol: String,
 }
 
@@ -179,7 +179,9 @@ impl ProductGlobalMetrics {
         metrics
     }
 
-    pub fn update(&self, product_key: &Pubkey, symbol_string: String) {
+    pub fn update(&self, product_key: &Pubkey, maybe_symbol: Option<String>) {
+        let symbol_string = maybe_symbol.unwrap_or(format!("unknown_{}", product_key.to_string()));
+
         #[deny(unused_variables)]
         let Self { update_count } = self;
 
