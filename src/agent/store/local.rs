@@ -109,44 +109,6 @@ impl Store {
 
         self.metrics.update(&price_identifier, &price_info);
 
-        // let this_price_metrics =
-        //     self.metrics
-        //         .entry(price_identifier)
-        //         .or_insert(PriceLocalMetrics {
-        //             // Instantiate metrics if they don't exist
-        //             price:        register_int_gauge_with_registry!(
-        //                 format!("local_{}_price", price_identifier),
-        //                 format!("Local Store's price value for price {}", price_identifier),
-        //                 PROMETHEUS_REGISTRY
-        //             )?,
-        //             conf:         register_gauge_with_registry!(
-        //                 format!("local_{}_conf", price_identifier),
-        //                 format!(
-        //                     "Local Store's confidence interval for price {}",
-        //                     price_identifier
-        //                 ),
-        //                 PROMETHEUS_REGISTRY
-        //             )?,
-        //             timestamp:    register_int_gauge_with_registry!(
-        //                 format!("local_{}_timestamp", price_identifier),
-        //                 format!("Local Store's timestamp for price {}", price_identifier),
-        //                 PROMETHEUS_REGISTRY
-        //             )?,
-        //             update_count: register_counter_with_registry!(
-        //                 format!("local_{}_update_count", price_identifier),
-        //                 format!(
-        //                     "Local Store's number of updates since process start for price {}",
-        //                     price_identifier
-        //                 ),
-        //                 PROMETHEUS_REGISTRY
-        //             )?,
-        //         });
-
-        // this_price_metrics.price.set(price_info.price);
-        // this_price_metrics.conf.set(price_info.conf as f64);
-        // this_price_metrics.timestamp.set(price_info.timestamp);
-        // this_price_metrics.update_count.inc();
-
         self.prices.insert(price_identifier, price_info);
 
         Ok(())
