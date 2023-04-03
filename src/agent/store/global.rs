@@ -7,7 +7,14 @@ use {
         PriceEntry,
         ProductEntry,
     },
-    crate::agent::pythd::adapter,
+    crate::agent::{
+        metrics::{
+            PriceGlobalMetrics,
+            ProductGlobalMetrics,
+            PROMETHEUS_REGISTRY,
+        },
+        pythd::adapter,
+    },
     anyhow::{
         anyhow,
         Result,
@@ -67,6 +74,7 @@ impl From<oracle::ProductEntry> for ProductAccountMetadata {
     }
 }
 
+
 /// PriceAccountMetadata contains the metadata for a price account.
 #[derive(Debug, Clone)]
 pub struct PriceAccountMetadata {
@@ -109,6 +117,12 @@ pub struct Store {
     account_data:     AllAccountsData,
     account_metadata: AllAccountsMetadata,
 
+    /// Prometheus metrics for products
+    product_metrics: ProductGlobalMetrics,
+
+    /// Prometheus metrics for prices
+    price_metrics: PriceGlobalMetrics,
+
     /// Channel on which lookup requests are received
     lookup_rx: mpsc::Receiver<Lookup>,
 
@@ -139,22 +153,27 @@ pub fn spawn_store(
             pythd_adapter_tx,
             logger,
         )
+        .await
         .run()
         .await
     })
 }
 
 impl Store {
-    pub fn new(
+    pub async fn new(
         lookup_rx: mpsc::Receiver<Lookup>,
         primary_updates_rx: mpsc::Receiver<Update>,
         secondary_updates_rx: mpsc::Receiver<Update>,
         pythd_adapter_tx: mpsc::Sender<adapter::Message>,
         logger: Logger,
     ) -> Self {
+        let prom_registry_ref = &mut &mut PROMETHEUS_REGISTRY.lock().await;
+
         Store {
             account_data: Default::default(),
             account_metadata: Default::default(),
+            product_metrics: ProductGlobalMetrics::new(prom_registry_ref),
+            price_metrics: PriceGlobalMetrics::new(prom_registry_ref),
             lookup_rx,
             primary_updates_rx,
             secondary_updates_rx,
@@ -175,7 +194,7 @@ impl Store {
         tokio::select! {
             Some(update) = self.primary_updates_rx.recv() => {
                 self.update_data(&update).await?;
-                self.update_metadata(&update).await;
+                self.update_metadata(&update)?;
             }
             Some(update) = self.secondary_updates_rx.recv() => {
                 // We only use the secondary store to update the metadata, which is
@@ -183,7 +202,7 @@ impl Store {
                 // we still have the metadata available to us. We don't update the data
                 // itself, because the aggregate prices may diverge slightly between
                 // the two networks.
-                self.update_metadata(&update).await;
+                self.update_metadata(&update)?;
             }
             Some(lookup) = self.lookup_rx.recv() => {
                 self.handle_lookup(lookup).await?
@@ -199,6 +218,13 @@ impl Store {
                 account_key,
                 account,
             } => {
+                let attr_dict = ProductAccountMetadata::from(account.clone()).attr_dict;
+
+                let maybe_symbol = attr_dict.get("symbol").cloned();
+
+                self.product_metrics.update(account_key, maybe_symbol);
+
+                // Update the stored data
                 self.account_data
                     .product_accounts
                     .insert(*account_key, account.clone());
@@ -208,15 +234,19 @@ impl Store {
                 account,
             } => {
                 // Sanity-check that we are updating with more recent data
-                if self
-                    .account_data
-                    .price_accounts
-                    .get(account_key)
-                    .map(|cur| cur.timestamp > account.timestamp)
-                    .unwrap_or_default()
-                {
-                    return Ok(());
+                if let Some(existing_price) = self.account_data.price_accounts.get(account_key) {
+                    if existing_price.timestamp > account.timestamp {
+                        warn!(self.logger, "Global store: denied stale update of an existing newer price";
+                        "price_key" => account_key.to_string(),
+                        "existing_timestamp" => existing_price.timestamp,
+                        "new_timestamp" => account.timestamp,
+                                      );
+                        return Ok(());
+                    }
                 }
+
+                // Update metrics
+                self.price_metrics.update(account_key, account);
 
                 // Update the stored data
                 self.account_data
@@ -241,7 +271,7 @@ impl Store {
         Ok(())
     }
 
-    async fn update_metadata(&mut self, update: &Update) {
+    fn update_metadata(&mut self, update: &Update) -> Result<()> {
         match update {
             Update::ProductAccountUpdate {
                 account_key,
@@ -250,6 +280,8 @@ impl Store {
                 self.account_metadata
                     .product_accounts_metadata
                     .insert(*account_key, account.clone().into());
+
+                Ok(())
             }
             Update::PriceAccountUpdate {
                 account_key,
@@ -258,6 +290,8 @@ impl Store {
                 self.account_metadata
                     .price_accounts_metadata
                     .insert(*account_key, (*account).into());
+
+                Ok(())
             }
         }
     }

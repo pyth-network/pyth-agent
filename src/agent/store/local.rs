@@ -1,9 +1,12 @@
 // The Local Store stores a copy of all the price information this local publisher
 // is contributing to the network. The Exporters will then take this data and publish
 // it to the networks.
-
 use {
     super::PriceIdentifier,
+    crate::agent::metrics::{
+        PriceLocalMetrics,
+        PROMETHEUS_REGISTRY,
+    },
     anyhow::{
         anyhow,
         Result,
@@ -44,19 +47,21 @@ pub enum Message {
 }
 
 pub fn spawn_store(rx: mpsc::Receiver<Message>, logger: Logger) -> JoinHandle<()> {
-    tokio::spawn(async move { Store::new(rx, logger).run().await })
+    tokio::spawn(async move { Store::new(rx, logger).await.run().await })
 }
 
 pub struct Store {
-    prices: HashMap<PriceIdentifier, PriceInfo>,
-    rx:     mpsc::Receiver<Message>,
-    logger: Logger,
+    prices:  HashMap<PriceIdentifier, PriceInfo>,
+    metrics: PriceLocalMetrics,
+    rx:      mpsc::Receiver<Message>,
+    logger:  Logger,
 }
 
 impl Store {
-    pub fn new(rx: mpsc::Receiver<Message>, logger: Logger) -> Self {
+    pub async fn new(rx: mpsc::Receiver<Message>, logger: Logger) -> Self {
         Store {
             prices: HashMap::new(),
+            metrics: PriceLocalMetrics::new(&mut &mut PROMETHEUS_REGISTRY.lock().await),
             rx,
             logger,
         }
@@ -76,7 +81,7 @@ impl Store {
                 price_identifier,
                 price_info,
             } => {
-                self.update(price_identifier, price_info);
+                self.update(price_identifier, price_info)?;
                 Ok(())
             }
             Message::LookupAllPriceInfo { result_tx } => result_tx
@@ -85,17 +90,28 @@ impl Store {
         }
     }
 
-    pub fn update(&mut self, price_identifier: PriceIdentifier, price_info: PriceInfo) {
+    pub fn update(
+        &mut self,
+        price_identifier: PriceIdentifier,
+        price_info: PriceInfo,
+    ) -> Result<()> {
         debug!(self.logger, "local store received price update"; "identifier" => bs58::encode(price_identifier.to_bytes()).into_string());
 
         // Drop the update if it is older than the current one stored for the price
         if let Some(current_price_info) = self.prices.get(&price_identifier) {
             if current_price_info.timestamp > price_info.timestamp {
-                return;
+                return Err(anyhow!(
+                    "Received stale timestamp for price {}",
+                    price_identifier
+                ));
             }
         }
 
+        self.metrics.update(&price_identifier, &price_info);
+
         self.prices.insert(price_identifier, price_info);
+
+        Ok(())
     }
 
     pub fn get_all_price_infos(&self) -> HashMap<PriceIdentifier, PriceInfo> {

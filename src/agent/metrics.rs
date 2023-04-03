@@ -1,50 +1,42 @@
 use {
-    super::{
+    super::store::{
+        global::Lookup,
+        local::Message,
+    },
+    crate::agent::{
         solana::oracle::PriceEntry,
         store::{
-            global::{
-                AllAccountsData,
-                AllAccountsMetadata,
-                Lookup,
-                PriceAccountMetadata,
-            },
-            local::{
-                Message,
-                PriceInfo,
-            },
+            local::PriceInfo,
+            PriceIdentifier,
         },
     },
-    chrono::NaiveDateTime,
-    pyth_sdk::{
-        Identifier,
-        PriceIdentifier,
+    lazy_static::lazy_static,
+    prometheus_client::{
+        encoding::{
+            text::encode,
+            EncodeLabelSet,
+        },
+        metrics::{
+            counter::Counter,
+            family::Family,
+            gauge::Gauge,
+        },
+        registry::Registry,
     },
     serde::Deserialize,
     slog::Logger,
     solana_sdk::pubkey::Pubkey,
     std::{
-        collections::{
-            BTreeMap,
-            BTreeSet,
-            HashMap,
-            HashSet,
-        },
         net::SocketAddr,
-        sync::Arc,
-        time::{
-            Duration,
-            Instant,
+        sync::{
+            atomic::AtomicU64,
+            Arc,
         },
+        time::Instant,
     },
     tokio::sync::{
         mpsc,
-        oneshot,
         Mutex,
-    },
-    typed_html::{
-        dom::DOMTree,
-        html,
-        text,
     },
     warp::{
         hyper::StatusCode,
@@ -73,14 +65,19 @@ impl Default for Config {
     }
 }
 
+lazy_static! {
+    pub static ref PROMETHEUS_REGISTRY: Arc<Mutex<Registry>> =
+        Arc::new(Mutex::new(<Registry>::default()));
+}
+
 /// Internal metrics server state, holds state needed for serving
 /// dashboard and metrics.
 pub struct MetricsServer {
     /// Used to pull the state of all symbols in local store
-    local_store_tx:         mpsc::Sender<Message>,
-    global_store_lookup_tx: mpsc::Sender<Lookup>,
-    start_time:             Instant,
-    logger:                 Logger,
+    pub local_store_tx:         mpsc::Sender<Message>,
+    pub global_store_lookup_tx: mpsc::Sender<Lookup>,
+    pub start_time:             Instant,
+    pub logger:                 Logger,
 }
 
 impl MetricsServer {
@@ -100,21 +97,22 @@ impl MetricsServer {
 
         let shared_state = Arc::new(Mutex::new(server));
 
+        let shared_state4dashboard = shared_state.clone();
         let dashboard_route = warp::path("dashboard")
             .and(warp::path::end())
             .and_then(move || {
-                let shared_state = shared_state.clone();
+                let shared_state = shared_state4dashboard.clone();
                 async move {
                     let locked_state = shared_state.lock().await;
                     let response = locked_state
-                        .render_dashboard()
+                        .render_dashboard() // Defined in a separate impl block near dashboard-specific code
                         .await
                         .unwrap_or_else(|e| {
                             // Add logging here
-			    error!(locked_state.logger,"Could not render dashboard"; "error" => e.to_string());
+			    error!(locked_state.logger,"Dashboard: Rendering failed"; "error" => e.to_string());
 
                             // Withhold failure details from client
-                            "Could not render dashboard!".to_owned()
+                            "Could not render dashboard! See the logs for details".to_owned()
                         });
                     Result::<Box<dyn Reply>, Rejection>::Ok(Box::new(reply::with_status(
                         reply::html(response),
@@ -123,269 +121,314 @@ impl MetricsServer {
                 }
             });
 
-        warp::serve(dashboard_route).bind(addr).await;
+        let shared_state4metrics = shared_state.clone();
+        let metrics_route = warp::path("metrics")
+            .and(warp::path::end())
+            .and_then(move || {
+                let shared_state = shared_state4metrics.clone();
+                async move {
+		    let locked_state = shared_state.lock().await;
+                    let mut buf = String::new();
+                    let response = encode(&mut buf, &&PROMETHEUS_REGISTRY.lock().await).map_err(|e| -> Box<dyn std::error::Error> {e.into()
+		    }).and_then(|_| -> Result<_, Box<dyn std::error::Error>> {
+
+			Ok(Box::new(reply::with_status(buf, StatusCode::OK)))
+		    }).unwrap_or_else(|e| {
+			error!(locked_state.logger, "Metrics: Could not gather metrics from registry"; "error" => e.to_string());
+
+			Box::new(reply::with_status("Could not gather metrics. See logs for details".to_string(), StatusCode::INTERNAL_SERVER_ERROR))
+		    });
+
+		    Result::<Box<dyn Reply>, Rejection>::Ok(response)
+                }
+            });
+
+        warp::serve(dashboard_route.or(metrics_route))
+            .bind(addr)
+            .await;
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct ProductGlobalLabels {
+    pubkey: String,
+    /// Set to "unknown_<pubkey>" if not found in the attribute set
+    symbol: String,
+}
+
+/// Product account global store metrics.
+#[derive(Default)]
+pub struct ProductGlobalMetrics {
+    /// How many times the global store has updated this product
+    update_count: Family<ProductGlobalLabels, Counter>,
+}
+
+impl ProductGlobalMetrics {
+    pub fn new(registry: &mut Registry) -> Self {
+        let metrics = Default::default();
+
+        #[deny(unused_variables)]
+        let Self { update_count } = &metrics;
+
+        registry.register(
+            "global_prod_update_count",
+            "The global store's update count for a product account",
+            update_count.clone(),
+        );
+
+        metrics
     }
 
-    /// Create an HTML view of store data
-    async fn render_dashboard(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // Prepare response channel for request
-        let (local_tx, local_rx) = oneshot::channel();
-        let (global_data_tx, global_data_rx) = oneshot::channel();
-        let (global_metadata_tx, global_metadata_rx) = oneshot::channel();
+    pub fn update(&self, product_key: &Pubkey, maybe_symbol: Option<String>) {
+        let symbol_string = maybe_symbol.unwrap_or(format!("unknown_{}", product_key.to_string()));
 
-        // Request price data from local store
-        self.local_store_tx
-            .send(Message::LookupAllPriceInfo {
-                result_tx: local_tx,
+        #[deny(unused_variables)]
+        let Self { update_count } = self;
+
+        update_count
+            .get_or_create(&ProductGlobalLabels {
+                pubkey: product_key.to_string(),
+                symbol: symbol_string,
             })
-            .await?;
+            .inc();
+    }
+}
 
-        self.global_store_lookup_tx
-            .send(Lookup::LookupAllAccountsData {
-                result_tx: global_data_tx,
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct PriceGlobalLabels {
+    pubkey: String,
+}
+
+/// Price account global store metrics. Most fields correspond with a subset of PriceEntry fields.
+#[derive(Default)]
+pub struct PriceGlobalMetrics {
+    /// Note: the exponent is not applied to this metric
+    price: Family<PriceGlobalLabels, Gauge>,
+
+    expo: Family<PriceGlobalLabels, Gauge>,
+
+    /// f64 is used to get u64 support. Official docs:
+    /// https://docs.rs/prometheus-client/latest/prometheus_client/metrics/gauge/struct.Gauge.html#using-atomicu64-as-storage-and-f64-on-the-interface
+    conf:      Family<PriceGlobalLabels, Gauge<f64, AtomicU64>>,
+    timestamp: Family<PriceGlobalLabels, Gauge>,
+
+    /// Note: the exponent is not applied to this metric
+    prev_price:     Family<PriceGlobalLabels, Gauge>,
+    prev_conf:      Family<PriceGlobalLabels, Gauge<f64, AtomicU64>>,
+    prev_timestamp: Family<PriceGlobalLabels, Gauge>,
+
+    /// How many times this Price was updated in the global store
+    update_count: Family<PriceGlobalLabels, Counter>,
+}
+
+impl PriceGlobalMetrics {
+    pub fn new(registry: &mut Registry) -> Self {
+        let metrics = Default::default();
+
+        #[deny(unused_variables)]
+        let Self {
+            price,
+            expo,
+            conf,
+            timestamp,
+            prev_price,
+            prev_conf,
+            prev_timestamp,
+            update_count,
+        } = &metrics;
+
+        registry.register(
+            "global_price_price",
+            "The global store's price value for a price account",
+            price.clone(),
+        );
+
+        registry.register(
+            "global_price_expo",
+            "The global store's exponent value for a price account",
+            expo.clone(),
+        );
+
+        registry.register(
+            "global_price_conf",
+            "The global store's confidence interval value for a price account",
+            conf.clone(),
+        );
+
+        registry.register(
+            "global_price_timestamp",
+            "The global store's publish timestamp value for a price account",
+            timestamp.clone(),
+        );
+
+        registry.register(
+            "global_price_prev_price",
+            "The global store's prev_price value for a price account",
+            prev_price.clone(),
+        );
+
+        registry.register(
+            "global_price_prev_conf",
+            "The global store's prev_conf (previous confidence interval) value for a price account",
+            prev_conf.clone(),
+        );
+
+        registry.register(
+            "global_price_prev_timestamp",
+            "The global store's prev_timestamp (last publish timestamp with status 'trading') value for a price account",
+            prev_timestamp.clone(),
+        );
+
+        registry.register(
+            "global_price_update_count",
+            "The global store's update count for a price account",
+            update_count.clone(),
+        );
+
+        metrics
+    }
+
+    pub fn update(&self, price_key: &Pubkey, price_account: &PriceEntry) {
+        #[deny(unused_variables)]
+        let Self {
+            price,
+            expo,
+            conf,
+            timestamp,
+            prev_price,
+            prev_conf,
+            prev_timestamp,
+            update_count,
+        } = self;
+
+        price
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
             })
-            .await?;
+            .set(price_account.agg.price);
 
-        self.global_store_lookup_tx
-            .send(Lookup::LookupAllAccountsMetadata {
-                result_tx: global_metadata_tx,
+        expo.get_or_create(&PriceGlobalLabels {
+            pubkey: price_key.to_string(),
+        })
+        .set(price_account.expo as i64);
+
+        conf.get_or_create(&PriceGlobalLabels {
+            pubkey: price_key.to_string(),
+        })
+        .set(price_account.agg.conf as f64);
+
+        timestamp
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
             })
-            .await?;
+            .set(price_account.timestamp);
 
-        // Await the results
-        let local_data = local_rx.await?;
-        let global_data = global_data_rx.await??;
-        let global_metadata = global_metadata_rx.await??;
+        prev_price
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .set(price_account.prev_price);
 
-        let symbol_view =
-            build_dashboard_data(local_data, global_data, global_metadata, &self.logger);
+        prev_conf
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .set(price_account.prev_conf as f64);
 
-        // uptime in whole seconds
-        let uptime = Duration::from_secs(self.start_time.elapsed().as_secs());
+        prev_timestamp
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .set(price_account.prev_timestamp);
 
-        // Build and collect table rows
-        let mut rows = vec![];
-
-        for (symbol, data) in symbol_view {
-            for (price_pubkey, price_data) in data.prices {
-                let price_string = if let Some(global_data) = price_data.global_data {
-                    let expo = global_data.expo;
-                    let price_with_expo: f64 = global_data.agg.price as f64 * 10f64.powi(expo);
-                    format!("{:.2}", price_with_expo)
-                } else {
-                    "no data".to_string()
-                };
-
-                let last_publish_string = if let Some(global_data) = price_data.global_data {
-                    if let Some(datetime) =
-                        NaiveDateTime::from_timestamp_opt(global_data.timestamp, 0)
-                    {
-                        datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-                    } else {
-                        format!("Invalid timestamp {}", global_data.timestamp)
-                    }
-                } else {
-                    "no data".to_string()
-                };
-
-                let last_local_update_string = if let Some(local_data) = price_data.local_data {
-                    if let Some(datetime) =
-                        NaiveDateTime::from_timestamp_opt(local_data.timestamp, 0)
-                    {
-                        datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-                    } else {
-                        format!("Invalid timestamp {}", local_data.timestamp)
-                    }
-                } else {
-                    "no data".to_string()
-                };
-
-                let row_snippet = html! {
-                            <tr>
-                                <td>{text!(symbol.clone())}</td>
-                                <td>{text!(data.product.to_string())}</td>
-                <td>{text!(price_pubkey.to_string())}</td>
-                <td>{text!(price_string)}</td>
-                <td>{text!(last_publish_string)}</td>
-                <td>{text!(last_local_update_string)}</td>
-                            </tr>
-                            };
-                rows.push(row_snippet);
-            }
-        }
-
-        let title_string = concat!("Pyth Agent Dashboard - ", env!("CARGO_PKG_VERSION"));
-        let res_html: DOMTree<String> = html! {
-        <html>
-            <head>
-            <title>{text!(title_string)}</title>
-        <style>
-            """
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-table, th, td {
-  border: 1px solid;
-}
-"""
-        </style>
-            </head>
-            <body>
-            <h1>{text!(title_string)}</h1>
-        {text!("Uptime: {}", humantime::format_duration(uptime))}
-            <h2>"State Overview"</h2>
-            <table>
-            <tr>
-                <th>"Symbol"</th>
-                <th>"Product ID"</th>
-                <th>"Price ID"</th>
-                <th>"Last Published Price"</th>
-        <th>"Last Publish Time"</th>
-        <th>"Last Local Update Time"</th>
-            </tr>
-            { rows }
-        </table>
-            </body>
-        </html>
-        };
-        Ok(res_html.to_string())
+        update_count
+            .get_or_create(&PriceGlobalLabels {
+                pubkey: price_key.to_string(),
+            })
+            .inc();
     }
 }
 
-#[derive(Debug)]
-pub struct DashboardSymbolView {
-    product: Pubkey,
-    prices:  BTreeMap<Pubkey, DashboardPriceView>,
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct PriceLocalLabels {
+    pubkey: String,
 }
 
-#[derive(Debug)]
-pub struct DashboardPriceView {
-    local_data:      Option<PriceInfo>,
-    global_data:     Option<PriceEntry>,
-    global_metadata: Option<PriceAccountMetadata>,
+/// Metrics exposed to Prometheus by the local store for each price
+#[derive(Default)]
+pub struct PriceLocalMetrics {
+    price:     Family<PriceLocalLabels, Gauge>,
+    /// f64 is used to get u64 support. Official docs:
+    /// https://docs.rs/prometheus-client/latest/prometheus_client/metrics/gauge/struct.Gauge.html#using-atomicu64-as-storage-and-f64-on-the-interface
+    conf:      Family<PriceLocalLabels, Gauge<f64, AtomicU64>>,
+    timestamp: Family<PriceLocalLabels, Gauge>,
+
+    /// How many times this price was updated in the local store
+    update_count: Family<PriceLocalLabels, Counter>,
 }
+impl PriceLocalMetrics {
+    pub fn new(registry: &mut Registry) -> Self {
+        let metrics = Self::default();
 
-/// Turn global/local store state into a single per-symbol view.
-///
-/// The dashboard data comes from three sources - the global store
-/// (observed on-chain state) data, global store metadata and local
-/// store data (local state possibly not yet committed to the oracle
-/// contract).
-///
-/// The view is indexed by human-readable symbol name or a stringified
-/// public key if symbol name can't be found.
-pub fn build_dashboard_data(
-    mut local_data: HashMap<PriceIdentifier, PriceInfo>,
-    mut global_data: AllAccountsData,
-    mut global_metadata: AllAccountsMetadata,
-    logger: &Logger,
-) -> BTreeMap<String, DashboardSymbolView> {
-    let mut ret = BTreeMap::new();
+        #[deny(unused_variables)]
+        let PriceLocalMetrics {
+            price,
+            conf,
+            timestamp,
+            update_count,
+        } = &metrics;
 
-    debug!(logger, "Building dashboard data";
-      "local_data_len" => local_data.len(),
-      "global_data_products_len" => global_data.product_accounts.len(),
-      "global_data_prices_len" => global_data.price_accounts.len(),
-      "global_metadata_products_len" => global_metadata.product_accounts_metadata.len(),
-      "global_metadata_prices_len" => global_metadata.price_accounts_metadata.len(),
-    );
+        registry.register(
+            "local_store_price",
+            "Price value from the local store",
+            price.clone(),
+        );
+        registry.register(
+            "local_store_conf",
+            "Confidence interval value from the local store",
+            conf.clone(),
+        );
+        registry.register(
+            "local_store_timestamp",
+            "Publish timestamp value from the local store",
+            timestamp.clone(),
+        );
+        registry.register(
+            "local_store_update_count",
+            "How many times we've seen an update for this price in the local store",
+            update_count.clone(),
+        );
 
-    // Learn all the product/price keys in the system,
-    let all_product_keys_iter = global_metadata.product_accounts_metadata.keys().cloned();
-
-    let all_product_keys_dedup = all_product_keys_iter.collect::<HashSet<Pubkey>>();
-
-    let all_price_keys_iter = global_data
-        .price_accounts
-        .keys()
-        .chain(global_metadata.price_accounts_metadata.keys())
-        .cloned()
-        .chain(local_data.keys().map(|identifier| {
-            let bytes = identifier.to_bytes();
-            Pubkey::new_from_array(bytes)
-        }));
-
-    let mut all_price_keys_dedup = all_price_keys_iter.collect::<HashSet<Pubkey>>();
-
-    // query all the keys and assemvle them into the view
-
-    let mut remaining_product_keys = all_product_keys_dedup.clone();
-
-    for product_key in all_product_keys_dedup {
-        let _product_data = global_data.product_accounts.remove(&product_key);
-
-        if let Some(mut product_metadata) = global_metadata
-            .product_accounts_metadata
-            .remove(&product_key)
-        {
-            let symbol_name = product_metadata
-                .attr_dict
-                .get("symbol")
-                .cloned()
-                // Use product key for unnamed products
-                .unwrap_or(format!("unnamed product {}", product_key));
-
-            // Sort and deduplicate prices
-            let this_product_price_keys_dedup = product_metadata
-                .price_accounts
-                .drain(0..)
-                .collect::<BTreeSet<_>>();
-
-            let mut prices = BTreeMap::new();
-
-            // Extract information about each price
-            for price_key in this_product_price_keys_dedup {
-                let price_global_data = global_data.price_accounts.remove(&price_key);
-                let price_global_metadata =
-                    global_metadata.price_accounts_metadata.remove(&price_key);
-
-                let price_identifier = Identifier::new(price_key.clone().to_bytes());
-                let price_local_data = local_data.remove(&price_identifier);
-
-                prices.insert(
-                    price_key,
-                    DashboardPriceView {
-                        local_data:      price_local_data,
-                        global_data:     price_global_data,
-                        global_metadata: price_global_metadata,
-                    },
-                );
-                // Mark this price as done
-                all_price_keys_dedup.remove(&price_key);
-            }
-
-            // Mark this product as done
-            remaining_product_keys.remove(&product_key);
-
-            let symbol_view = DashboardSymbolView {
-                product: product_key,
-                prices,
-            };
-
-            if ret.contains_key(&symbol_name) {
-                warn!(logger, "Dashboard: Duplicate symbol name detected";
-                      "symbol_name" => &symbol_name,
-                      "data" => format!("{:?}", symbol_view),
-                );
-            }
-
-            ret.insert(symbol_name, symbol_view);
-        } else {
-            // TODO(drozdziak1): log a missing product problem. We
-            // expect that missing price information is possible if no
-            // on-chain queries or publishing took place yet.
-            warn!(logger, "Dashboard: Failed to look up product metadata"; "product_id" => product_key.to_string());
-        }
+        metrics
     }
 
-    if !(all_price_keys_dedup.is_empty() && remaining_product_keys.is_empty()) {
-        let remaining_products: Vec<_> = remaining_product_keys.drain().collect();
-        let remaining_prices: Vec<_> = all_price_keys_dedup.drain().collect();
-        warn!(logger, "Dashboard: Orphaned product/price IDs detected";
-	      "remaining_product_ids" => format!("{:?}", remaining_products),
-	      "remaining_price_ids" => format!("{:?}", remaining_prices));
-    }
+    pub fn update(&self, price_id: &PriceIdentifier, price_info: &PriceInfo) {
+        #[deny(unused_variables)]
+        let Self {
+            price,
+            conf,
+            timestamp,
+            update_count,
+        } = self;
 
-    return ret;
+        price
+            .get_or_create(&PriceLocalLabels {
+                pubkey: price_id.to_string(),
+            })
+            .set(price_info.price);
+        conf.get_or_create(&PriceLocalLabels {
+            pubkey: price_id.to_string(),
+        })
+        .set(price_info.conf as f64);
+        timestamp
+            .get_or_create(&PriceLocalLabels {
+                pubkey: price_id.to_string(),
+            })
+            .set(price_info.timestamp);
+        update_count
+            .get_or_create(&PriceLocalLabels {
+                pubkey: price_id.to_string(),
+            })
+            .inc();
+    }
 }
