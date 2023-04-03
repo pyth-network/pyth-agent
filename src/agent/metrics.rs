@@ -156,10 +156,10 @@ pub struct ProductGlobalLabels {
     symbol: String,
 }
 
-/// Product account global store metrics. Most fields correspond with a subset of PriceAccount fields.
+/// Product account global store metrics.
 #[derive(Default)]
 pub struct ProductGlobalMetrics {
-    /// Trivial dummy metric, reporting the pubkey underlying the human-readable symbol
+    /// How many times the global store has updated this product
     update_count: Family<ProductGlobalLabels, Counter>,
 }
 
