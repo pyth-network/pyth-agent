@@ -1,46 +1,61 @@
 /* ###################################################### System Architecture #######################################################
 
-+-----------------------------+      +----------------------------+
-|         Primary Network     |      |      Secondary Network     |
-|                             |      |                            |
-|    +--------------------+   |      |   +--------------------+   |
-|    |     RPC Node       |   |      |   |     RPC Node       |   |
-|    +--------------------+   |      |   +--------------------+   |
-|       |              ^      |      |      ^              |      |
-|       |              |      |      |      |              |      |
-|       v              |      |      |      |              v      |
-|  +----------+  +----------+ |      | +----------+  +----------+ |
-|  |  Oracle  |  | Exporter | |      | | Exporter |  |  Oracle  | |
-|  +----------+  +----------+ |      | +----------+  +----------+ |         +---------------------------------+
-|       |              ^      |      |      ^              |      |         |                                 |
-+-------|--------------|------+      +------|--------------|------+         |       Pythd Websocket API       |       +--------+
-        |              |                    |              |                |                                 |       |        |
-        |        +--------------------------------+        |                |   +---------+    +----------+   |       |        |
-        |        |          Local Store           |<----------------------------|         |<---|          |<----------|        |
-        |        +--------------------------------+        |                |   |         |    |   JRPC   |   |       |        |
-        v                                                  v                |   | Adapter |    |    WS    |   |       |  User  |
-    +------------------------------------------------------------+          |   |         |    |  Server  |   |       |        |
-    |                      Global Store                          |------------->|         |--->|          |---------->|        |
-    +------------------------------------------------------------+          |   +---------+    +----------+   |       |        |
-                                                                            |                                 |       |        |
-                                                                            +---------------------------------+       +--------+
++--------------------------------+ +--------------------------------+
+|     RPC Node, e.g. Pythnet     | | RPC Node, e.g. Solana Mainnet  |
++--------------------------------+ +--------------------------------+
+    |                     ^            ^                     |
++---|---------------------|------+ +---|---------------------|------+
+|   |    Primary Network  |      | |      Secondary Network  |      |
+|   v                     |      | |   |                     v      |
+|  +--------+    +----------+    | |  +----------+    +--------+    |
+|  | Oracle |    | Exporter |    | |  | Exporter |    | Oracle |    |
+|  +--------+    +----------+    | |  +----------+    +--------+    |
+|      |              ^  ^       | |     ^  ^             |         |
++------|--------------|--|-------+ +-----|--|-------------|---------+
+       |              |  |               |  |             |      +------------------------+
+       |        +--------|---------------|---------+      |      |  Pythd Websocket API   |
+       |        |            Local Store |         |<---------------+-------+   +------+  |
+       |        +--------|---------------|---------+      |      |  |       |<--|JRPC  |  |
+       v                 |               |        |       v      |  |Adapter|   | WS   |  |
+    +--------------------|---------------|--------|-----------+  |  |       |-->|Server|  |
+    |                    |  Global Store |        |           |---->+-------+   +------+  |
+    +--------------------|---------------|--------|-----------+  |               ^    |   |
+                         |               |        |    |         +---------------|----|---+
+                         |               |        v    v                         |    |
+                      +---------------------+   +--------------+                 |    |
+                      |Remote Keypair Loader|   |Metrics Server|                 |    |
+                      +---------------------+   +--------------+                 |    |
+                           ^                            |                        |    |
+                           |                            v                        |    v
+                      +-------------------------------------------------------------------+
+                      |                               User                                |
+                      +-------------------------------------------------------------------+
+Generated with textik.com on 2023-04-03
 
 The arrows on the diagram above represent the direction of data flow.
 
-Write path:
+Publisher data write path:
 - The user submits fresh price data to the system using the Pythd JRPC Websocket API.
 - The Adapter then transforms this into the Pyth SDK data structures and sends it to the Local Store.
 - The Local Store holds the latest price data the user has submitted for each price feed.
 - The Exporters periodically query the Local Store for the latest user-submitted data,
   and send it to the RPC node.
 
-Read path:
+Publisher data read path:
 - The Oracles continually fetch data from the RPC node, and pass this to the Global Store.
 - The Global Store holds a unified view of the latest observed data from both networks, in the Pyth SDK data structures.
 - When a user queries for this data using the Pythd JRPC Websocket API, the Adapter fetches
   the latest data from the Global Store. It transforms this from the Pyth SDK data structures into the
   Pythd JRPC Websocket API data structures.
 - The Pythd JRPC Websocket API then sends this data to the user.
+
+Remote Keypair Loading:
+- If no keypair is found at startup, Exporters poll the Remote Keypair Loader for a signing keypair
+- When the keypair is uploaded, it is given to the Exporters
+
+Metrics Server:
+- Every update in global and local store is reflected in the metrics
+- Metrics are served using Prometheus
 
 Note that there is an Oracle and Exporter for each network, but only one Local Store and Global Store.
 
