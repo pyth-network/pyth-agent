@@ -1,5 +1,8 @@
 use {
-    anyhow::Result,
+    anyhow::{
+        Context,
+        Result,
+    },
     clap::Parser,
     pyth_agent::agent::{
         config::Config,
@@ -11,6 +14,7 @@ use {
         Drain,
         Logger,
     },
+    slog_async::Async,
     slog_envlogger::LogBuilder,
     std::{
         env,
@@ -28,29 +32,36 @@ struct Arguments {
 }
 
 #[tokio::main]
-async fn main() {
-    let logger = slog::Logger::root(
-        slog_async::Async::default(
-            LogBuilder::new(
-                slog_term::FullFormat::new(slog_term::TermDecorator::new().stdout().build())
-                    .build()
-                    .fuse(),
-            )
-            .parse(&env::var("RUST_LOG").unwrap_or("info".to_string()))
-            .build(),
-        )
-        .fuse(),
-        o!(),
-    );
+async fn main() -> Result<()> {
+    // Parse config early for logging channel capacity
+    let config = Config::new(Arguments::parse().config).context("Could not parse config")?;
 
-    if let Err(err) = start(logger.clone()).await {
+    // A plain slog drain that sits inside an async drain instance
+    let inner_drain = LogBuilder::new(
+        slog_term::FullFormat::new(slog_term::TermDecorator::new().stdout().build())
+            .build()
+            .fuse(), // Yell loud on logger internal errors
+    )
+    .parse(&env::var("RUST_LOG").unwrap_or("info".to_string()))
+    .build();
+
+    // The top level async drain
+    let async_drain = Async::new(inner_drain)
+        .chan_size(config.channel_capacities.logger_buffer)
+        .build()
+        .fuse();
+
+    let logger = slog::Logger::root(async_drain, o!());
+
+    if let Err(err) = start(config, logger.clone()).await {
         error!(logger, "{:#}", err; "error" => format!("{:?}", err));
+        return Err(err);
     }
+
+    Ok(())
 }
 
-async fn start(logger: Logger) -> Result<()> {
-    Agent::new(Config::new(Arguments::parse().config)?)
-        .start(logger)
-        .await;
+async fn start(config: Config, logger: Logger) -> Result<()> {
+    Agent::new(config).start(logger).await;
     Ok(())
 }

@@ -3,7 +3,7 @@
 +--------------------------------+ +--------------------------------+
 |     RPC Node, e.g. Pythnet     | | RPC Node, e.g. Solana Mainnet  |
 +--------------------------------+ +--------------------------------+
-    |                     ^            ^                     |
+|                     ^            ^                     |
 +---|---------------------|------+ +---|---------------------|------+
 |   |    Primary Network  |      | |      Secondary Network  |      |
 |   v                     |      | |   |                     v      |
@@ -39,14 +39,14 @@ Publisher data write path:
 - The Adapter then transforms this into the Pyth SDK data structures and sends it to the Local Store.
 - The Local Store holds the latest price data the user has submitted for each price feed.
 - The Exporters periodically query the Local Store for the latest user-submitted data,
-  and send it to the RPC node.
+and send it to the RPC node.
 
 Publisher data read path:
 - The Oracles continually fetch data from the RPC node, and pass this to the Global Store.
 - The Global Store holds a unified view of the latest observed data from both networks, in the Pyth SDK data structures.
 - When a user queries for this data using the Pythd JRPC Websocket API, the Adapter fetches
-  the latest data from the Global Store. It transforms this from the Pyth SDK data structures into the
-  Pythd JRPC Websocket API data structures.
+the latest data from the Global Store. It transforms this from the Pyth SDK data structures into the
+Pythd JRPC Websocket API data structures.
 - The Pythd JRPC Websocket API then sends this data to the user.
 
 Remote Keypair Loading:
@@ -270,6 +270,8 @@ pub mod config {
         pub local_store:              usize,
         /// Capacity of the channel on which the Pythd API Adapter receives messages
         pub pythd_adapter:            usize,
+        /// Capacity of the slog logging channel. Adjust this value if you see complaints about channel capacity from slog
+        pub logger_buffer:            usize,
     }
 
     impl Default for ChannelCapacities {
@@ -282,6 +284,7 @@ pub mod config {
                 local_store_lookup:       10000,
                 local_store:              10000,
                 pythd_adapter:            10000,
+                logger_buffer:            10000,
             }
         }
     }
