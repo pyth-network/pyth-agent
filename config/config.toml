@@ -21,7 +21,45 @@ key_store.root_path = "/path/to/keystore"
 
 ### Optional fields ###
 
-# Path to publisher identity keypair. When not found, the network will expect a remote-loaded keypair. see remote_keypair_loader options for details.
+# Channel capacities. These refer to async messaging channels
+# internally used by the agent's subroutines
+
+# Capacity of the channel used to broadcast shutdown events to all
+# components
+# channel_capacities.shutdown = 10000
+
+# Capacity of the channel used to send updates from the primary Oracle
+# to the Global Store
+# channel_capacities.primary_oracle_updates = 10000
+
+# Capacity of the channel used to send updates from the secondary
+# Oracle to the Global Store
+# channel_capacities.secondary_oracle_updates = 10000
+
+# Capacity of the channel the Pythd API Adapter uses to send lookup
+# requests to the Global Store
+# channel_capacities.global_store_lookup = 10000
+
+# Capacity of the channel the Pythd API Adapter uses to communicate
+# with the Local Store
+# channel_capacities.local_store_lookup = 10000
+
+# Capacity of the channel on which the Local Store receives messages
+# channel_capacities.local_store = 10000
+
+# Capacity of the channel on which the Pythd API Adapter receives
+# messages
+# channel_capacities.pythd_adapter = 10000
+
+# Capacity of the slog logging channel. Adjust this value if you see
+# complaints about channel capacity from slog
+# channel_capacities.logger_buffer = 10000
+
+
+# Path to publisher identity keypair. When the specified path is not
+# found on startup, the relevant primary/secondary network will expect
+# a remote-loaded keypair. See remote_keypair_loader options for
+# details.
 # key_store.publish_keypair_path = "publish_key_pair.json" # I exist, remote loading disabled
 # key_store.publish_keypair_path = "none" # I do not exist, remote loading activated for the network
 
