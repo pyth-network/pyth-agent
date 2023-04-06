@@ -99,8 +99,8 @@ impl MetricsServer {
 
         let shared_state4dashboard = shared_state.clone();
         let dashboard_route = warp::path("dashboard")
-            .and(warp::path::end())
-            .and_then(move || {
+            .or(warp::path::end())
+            .and_then(move |_| {
                 let shared_state = shared_state4dashboard.clone();
                 async move {
                     let locked_state = shared_state.lock().await;
