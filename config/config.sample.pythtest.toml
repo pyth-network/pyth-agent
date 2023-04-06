@@ -25,6 +25,9 @@ exporter.publish_interval_duration = "400ms"
 rpc_url = "https://api.testnet.solana.com"
 wss_url = "wss://api.testnet.solana.com"
 
+# Duration of the interval at which to publish updates. Default interval is 1 seconds.
+# exporter.publish_interval_duration = "1s"
+
 # Price per compute unit offered for update_price transactions.
 # This is needed for solana to be able to land transactions on the network
 # during periods of high network congestion.
