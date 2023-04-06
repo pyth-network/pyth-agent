@@ -1,0 +1,39 @@
+[pythd_api_server]
+listen_address = "127.0.0.1:8910"
+
+[primary_network]
+
+# HTTP(S) endpoint of the RPC node. Public RPC endpoints are usually rate-limited, so a private
+# endpoint should be used in most cases.
+rpc_url = "https://pythnet.rpcpool.com"
+
+# WS(S) endpoint of the RRC node. This is used to subscribe to account changes on the network.
+# This can be omitted when oracle.subscriber_enabled is set to false.
+wss_url = "wss://pythnet.rpcpool.com"
+
+# Path to the key store.
+key_store.root_path = "/path/to/keystore"
+
+# Duration of the interval at which to publish updates
+exporter.publish_interval_duration = "400ms"
+
+# Configuration for the optional secondary network this agent will publish data to.
+# In most cases this should be a Solana endpoint.
+[secondary_network]
+
+# Please use other endpoints as these are rate limited
+rpc_url = "https://api.mainnet-beta.solana.com"
+wss_url = "wss://api.mainnet-beta.solana.com"
+
+# Price per compute unit offered for update_price transactions.
+# This is needed for solana to be able to land transactions on the network
+# during periods of high network congestion.
+exporter.compute_unit_price_micro_lamports = 1000
+
+# Configuration for the JRPC API
+[pythd_adapter]
+
+# The duration of the interval at which `notify_price_sched` notifications will be sent.
+# Note that this doesn't affect the rate at which transactions are published:
+# this is soley a backwards-compatibility API feature.
+notify_price_sched_interval_duration = "400ms"
