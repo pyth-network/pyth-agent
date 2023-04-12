@@ -3,22 +3,6 @@
 # The address on which the websocket API server will listen on.
 listen_address = "127.0.0.1:8910"
 
-# Optional top-level settings
-# [metrics_server]
-# Where to serve the quick-access dashboard and metrics. Metrics live under "/metrics"
-# bind_address = "127.0.0.1:8888"
-
-# [remote_keypair_loader}
-# Where to serve the remote keypair loading endpoint, under "/primary/load_keypair" and "/secondary/load_keypair"
-#
-# NOTE: non-loopback addresses must be used carefully, making sure the
-# connection is not exposed for unauthorized access.
-# bind_address = "127.0.0.1:9001"
-
-# How much whole SOL must a keypair hold to be considered valid for use on a given network. Disabled with 0
-# primary_min_keypair_balance_sol = 1
-# secondary_min_keypair_balance_sol = 1
-
 # Configuration for the primary network this agent will publish data to. In most cases this should be a Pythnet endpoint.
 [primary_network]
 ### Required fields ###
@@ -36,6 +20,23 @@ wss_url = "wss://api.pythtest.pyth.network"
 key_store.root_path = "/path/to/keystore"
 
 ### Optional fields ###
+
+# [metrics_server]
+#
+# Where to serve the quick-access dashboard and metrics. Metrics live under "/metrics"
+# bind_address = "127.0.0.1:8888"
+
+# [remote_keypair_loader}
+# Where to serve the remote keypair loading endpoint, under "/primary/load_keypair" and "/secondary/load_keypair"
+#
+# NOTE: non-loopback addresses must be used carefully, making sure the
+# connection is not exposed for unauthorized access.
+# bind_address = "127.0.0.1:9001"
+
+# How much whole SOL must a keypair hold to be considered valid for use on a given network. Disabled with 0
+# primary_min_keypair_balance_sol = 1
+# secondary_min_keypair_balance_sol = 1
+
 
 # Channel capacities. These refer to async messaging channels
 # internally used by the agent's subroutines
