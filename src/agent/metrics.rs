@@ -411,23 +411,25 @@ impl PriceLocalMetrics {
             update_count,
         } = self;
 
+        let price_key = Pubkey::new(price_id.to_bytes().as_slice());
+
         price
             .get_or_create(&PriceLocalLabels {
-                pubkey: price_id.to_string(),
+                pubkey: price_key.to_string(),
             })
             .set(price_info.price);
         conf.get_or_create(&PriceLocalLabels {
-            pubkey: price_id.to_string(),
+            pubkey: price_key.to_string(),
         })
         .set(price_info.conf as f64);
         timestamp
             .get_or_create(&PriceLocalLabels {
-                pubkey: price_id.to_string(),
+                pubkey: price_key.to_string(),
             })
             .set(price_info.timestamp);
         update_count
             .get_or_create(&PriceLocalLabels {
-                pubkey: price_id.to_string(),
+                pubkey: price_key.to_string(),
             })
             .inc();
     }
