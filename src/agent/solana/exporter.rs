@@ -390,40 +390,21 @@ impl Exporter {
                 continue;
             }
 
-            let instruction = Instruction {
-                program_id: self.key_store.program_key,
-                accounts:   vec![
-                    AccountMeta {
-                        pubkey:      publish_keypair.pubkey(),
-                        is_signer:   true,
-                        is_writable: true,
-                    },
-                    AccountMeta {
-                        pubkey:      Pubkey::new(&identifier.to_bytes()),
-                        is_signer:   false,
-                        is_writable: true,
-                    },
-                    AccountMeta {
-                        pubkey:      clock::id(),
-                        is_signer:   false,
-                        is_writable: false,
-                    },
-                ],
-
-                data: bincode::DefaultOptions::new()
-                    .with_little_endian()
-                    .with_fixint_encoding()
-                    .serialize(
-                        &(UpdPriceCmd {
-                            version:  PYTH_ORACLE_VERSION,
-                            cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
-                            status:   price_info.status,
-                            unused_:  0,
-                            price:    price_info.price,
-                            conf:     price_info.conf,
-                            pub_slot: network_state.current_slot,
-                        }),
-                    )?,
+            let instruction = if let Some(accumulator_program_key) = self.key_store.accumulator_key {
+                self.create_instruction_with_accumulator(
+                    publish_keypair.pubkey(),
+                    Pubkey::new(&identifier.to_bytes()),
+                    &price_info,
+                    network_state.current_slot,
+                    accumulator_program_key,
+                )?
+            } else {
+                self.create_instruction_without_accumulator(
+                    publish_keypair.pubkey(),
+                    Pubkey::new(&identifier.to_bytes()),
+                    &price_info,
+                    network_state.current_slot,
+                )?
             };
 
             instructions.push(instruction);
@@ -463,6 +444,126 @@ impl Exporter {
         self.inflight_transactions_tx.send(signature).await?;
 
         Ok(())
+    }
+
+    fn create_instruction_without_accumulator(
+        &self,
+        publish_pubkey: Pubkey,
+        price_id: Pubkey,
+        price_info: &PriceInfo,
+        current_slot: u64,
+    ) -> Result<Instruction> {
+        Ok(Instruction {
+            program_id: self.key_store.program_key,
+            accounts:   vec![
+                AccountMeta {
+                    pubkey:      publish_pubkey,
+                    is_signer:   true,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey:      price_id,
+                    is_signer:   false,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey:      clock::id(),
+                    is_signer:   false,
+                    is_writable: false,
+                },
+            ],
+            data:       bincode::DefaultOptions::new()
+                .with_little_endian()
+                .with_fixint_encoding()
+                .serialize(
+                    &(UpdPriceCmd {
+                        version:  PYTH_ORACLE_VERSION,
+                        cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
+                        status:   price_info.status,
+                        unused_:  0,
+                        price:    price_info.price,
+                        conf:     price_info.conf,
+                        pub_slot: current_slot,
+                    }),
+                )?,
+        })
+    }
+
+    fn create_instruction_with_accumulator(
+        &self,
+        publish_pubkey: Pubkey,
+        price_id: Pubkey,
+        price_info: &PriceInfo,
+        current_slot: u64,
+        accumulator_program_key: Pubkey,
+    ) -> Result<Instruction> {
+        let (whitelist_pubkey, _whitelist_bump) = Pubkey::find_program_address(&["accumulator".as_bytes(), "whitelist".as_bytes()] , &accumulator_program_key);
+        let (accumulator_data_pubkey, _accumulator_data_pubkey) = Pubkey::find_program_address(&[&self.key_store.program_key.to_bytes(), "accumulator".as_bytes(), &price_id.to_bytes()] , &accumulator_program_key);
+
+        Ok(Instruction {
+            program_id: self.key_store.program_key,
+            accounts:   vec![
+                AccountMeta {
+                    pubkey:      publish_pubkey,
+                    is_signer:   true,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey:      price_id,
+                    is_signer:   false,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey:      clock::id(),
+                    is_signer:   false,
+                    is_writable: false,
+                },
+                // accumulator program key
+                AccountMeta {
+                    pubkey:      accumulator_program_key,
+                    is_signer:   false,
+                    is_writable: false,
+                },
+                // whitelist
+                AccountMeta {
+                    pubkey:      whitelist_pubkey,
+                    is_signer:   false,
+                    is_writable: false,
+                },
+                // system program
+                AccountMeta {
+                    pubkey:      solana_sdk::system_program::ID,
+                    is_signer:   false,
+                    is_writable: false,
+                },
+                // ixs_sysvar
+                AccountMeta {
+                    pubkey:      solana_sdk::sysvar::instructions::ID,
+                    is_signer:   false,
+                    is_writable: false,
+                },
+                // accumulator_data
+                AccountMeta {
+                    pubkey:      accumulator_data_pubkey,
+                    is_signer:   false,
+                    is_writable: false,
+                },
+            ],
+            data:       bincode::DefaultOptions::new()
+                .with_little_endian()
+                .with_fixint_encoding()
+                .serialize(
+                    &(UpdPriceCmd {
+                        version:  PYTH_ORACLE_VERSION,
+                        cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
+                        status:   price_info.status,
+                        unused_:  0,
+                        price:    price_info.price,
+                        conf:     price_info.conf,
+                        pub_slot: current_slot,
+                    }),
+                )?,
+        })
     }
 }
 
