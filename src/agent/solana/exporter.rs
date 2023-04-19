@@ -390,7 +390,8 @@ impl Exporter {
                 continue;
             }
 
-            let instruction = if let Some(accumulator_program_key) = self.key_store.accumulator_key {
+            let instruction = if let Some(accumulator_program_key) = self.key_store.accumulator_key
+            {
                 self.create_instruction_with_accumulator(
                     publish_keypair.pubkey(),
                     Pubkey::new(&identifier.to_bytes()),
@@ -434,7 +435,7 @@ impl Exporter {
             .send_transaction_with_config(
                 &transaction,
                 RpcSendTransactionConfig {
-                    skip_preflight: true,
+                    skip_preflight: false,
                     ..RpcSendTransactionConfig::default()
                 },
             )
@@ -497,8 +498,18 @@ impl Exporter {
         current_slot: u64,
         accumulator_program_key: Pubkey,
     ) -> Result<Instruction> {
-        let (whitelist_pubkey, _whitelist_bump) = Pubkey::find_program_address(&["accumulator".as_bytes(), "whitelist".as_bytes()] , &accumulator_program_key);
-        let (accumulator_data_pubkey, _accumulator_data_pubkey) = Pubkey::find_program_address(&[&self.key_store.program_key.to_bytes(), "accumulator".as_bytes(), &price_id.to_bytes()] , &accumulator_program_key);
+        let (whitelist_pubkey, _whitelist_bump) = Pubkey::find_program_address(
+            &["accumulator".as_bytes(), "whitelist".as_bytes()],
+            &accumulator_program_key,
+        );
+        let (accumulator_data_pubkey, _accumulator_data_pubkey) = Pubkey::find_program_address(
+            &[
+                &self.key_store.program_key.to_bytes(),
+                "accumulator".as_bytes(),
+                &price_id.to_bytes(),
+            ],
+            &accumulator_program_key,
+        );
 
         Ok(Instruction {
             program_id: self.key_store.program_key,
@@ -546,7 +557,7 @@ impl Exporter {
                 AccountMeta {
                     pubkey:      accumulator_data_pubkey,
                     is_signer:   false,
-                    is_writable: false,
+                    is_writable: true,
                 },
             ],
             data:       bincode::DefaultOptions::new()
@@ -759,19 +770,34 @@ mod transaction_monitor {
                 return Ok(());
             }
 
+            let signatures_contiguous = self.sent_transactions.make_contiguous();
+
             // Poll the status of each transaction, in a single RPC request
             let statuses = self
                 .rpc_client
-                .get_signature_statuses(self.sent_transactions.make_contiguous())
+                .get_signature_statuses(signatures_contiguous)
                 .await?
                 .value;
+
+            debug!(self.logger, "Processing Signature Statuses"; "statuses" => format!("{:?}", statuses));
 
             // Determine the percentage of the recently sent transactions that have successfully been committed
             // TODO: expose as metric
             let confirmed = statuses
                 .into_iter()
+                .zip(signatures_contiguous)
+                .map(|(status, sig)| status.map(|some_status| (some_status, sig))) // Collate Some() statuses with their tx signatures before flatten()
                 .flatten()
-                .filter(|s| s.satisfies_commitment(CommitmentConfig::confirmed()))
+                .filter(|(status, sig)| {
+                    if let Some(err) = status.err.as_ref() {
+                        warn!(self.logger, "TX status has err value";
+                        "error" => err.to_string(),
+                        "tx_signature" => sig.to_string(),
+                                          )
+                    }
+
+                    status.satisfies_commitment(CommitmentConfig::confirmed())
+                })
                 .count();
             let percentage_confirmed =
                 ((confirmed as f64) / (self.sent_transactions.len() as f64)) * 100.0;

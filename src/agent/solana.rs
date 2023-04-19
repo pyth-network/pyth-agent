@@ -188,11 +188,15 @@ mod key_store {
                 }
             };
 
-            let accumulator_key: Option<Pubkey> = if let Some(key_path) = config.accumulator_key_path {
-                Some(Self::pubkey_from_path(config.root_path.join(key_path)).context("Reading accumulator key")?)
-            } else {
-                None
-            };
+            let accumulator_key: Option<Pubkey> =
+                if let Some(key_path) = config.accumulator_key_path {
+                    Some(
+                        Self::pubkey_from_path(config.root_path.join(key_path))
+                            .context("Reading accumulator key")?,
+                    )
+                } else {
+                    None
+                };
 
             Ok(KeyStore {
                 publish_keypair,
