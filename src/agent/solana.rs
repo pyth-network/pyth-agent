@@ -144,6 +144,8 @@ mod key_store {
         pub program_key_path:     PathBuf,
         /// Path to the public key of the root mapping account, relative to the root
         pub mapping_key_path:     PathBuf,
+        /// Path to the public key of the accumulator program, relative to the root.
+        pub accumulator_key_path: Option<PathBuf>,
     }
 
     impl Default for Config {
@@ -153,6 +155,7 @@ mod key_store {
                 publish_keypair_path: "publish_key_pair.json".into(),
                 program_key_path:     "program_key.json".into(),
                 mapping_key_path:     "mapping_key.json".into(),
+                accumulator_key_path: None,
             }
         }
     }
@@ -166,6 +169,8 @@ mod key_store {
         pub program_key:     Pubkey,
         /// Public key of the root mapping account
         pub mapping_key:     Pubkey,
+        /// Public key of the accumulator program (if provided)
+        pub accumulator_key: Option<Pubkey>,
     }
 
     impl KeyStore {
@@ -188,6 +193,10 @@ mod key_store {
                     .context("reading program key")?,
                 mapping_key: Self::pubkey_from_path(config.root_path.join(config.mapping_key_path))
                     .context("reading mapping key")?,
+                accumulator_key: config.accumulator_key_path.map(|key| {
+                    Self::pubkey_from_path(config.root_path.join(key))
+                        .context("reading accumulator key")?
+                }),
             })
         }
 
