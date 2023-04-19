@@ -155,7 +155,8 @@ mod key_store {
                 publish_keypair_path: "publish_key_pair.json".into(),
                 program_key_path:     "program_key.json".into(),
                 mapping_key_path:     "mapping_key.json".into(),
-                accumulator_key_path: None,
+                // FIXME: Temporary for the accumulator demo. Should be None
+                accumulator_key_path: Some("accumulator_program_key.json".into()),
             }
         }
     }
@@ -187,16 +188,19 @@ mod key_store {
                 }
             };
 
+            let accumulator_key: Option<Pubkey> = if let Some(key_path) = config.accumulator_key_path {
+                Some(Self::pubkey_from_path(config.root_path.join(key_path)).context("Reading accumulator key")?)
+            } else {
+                None
+            };
+
             Ok(KeyStore {
                 publish_keypair,
                 program_key: Self::pubkey_from_path(config.root_path.join(config.program_key_path))
                     .context("reading program key")?,
                 mapping_key: Self::pubkey_from_path(config.root_path.join(config.mapping_key_path))
                     .context("reading mapping key")?,
-                accumulator_key: config.accumulator_key_path.map(|key| {
-                    Self::pubkey_from_path(config.root_path.join(key))
-                        .context("reading accumulator key")?
-                }),
+                accumulator_key,
             })
         }
 
