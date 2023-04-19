@@ -24,8 +24,10 @@ LOGGER = logging.getLogger(__name__)
 
 # Keypairs
 # BujGr9ChcuaCJhxeFEvGvaCFTxSV1CUCSVHL1SVFpU4i
-PROGRAM_KEYPAIR = [28, 50, 87, 251, 247, 251, 45, 91, 139, 128, 72, 197, 172, 61, 15, 60, 76, 81, 6, 13, 94, 109, 212, 28, 40, 110, 61, 207, 40, 34, 37,
+ORACLE_PROGRAM_KEYPAIR = [28, 50, 87, 251, 247, 251, 45, 91, 139, 128, 72, 197, 172, 61, 15, 60, 76, 81, 6, 13, 94, 109, 212, 28, 40, 110, 61, 207, 40, 34, 37,
                    216, 162, 22, 222, 173, 4, 56, 58, 79, 253, 77, 93, 134, 47, 144, 105, 188, 77, 237, 92, 194, 133, 54, 94, 129, 10, 19, 192, 115, 215, 209, 28, 155]
+# 85CXHH71gNyww8NJ5FQQBBvB7UbMdSMMH4ihi2xXgen
+ACCUMULATOR_PROGRAM_KEYPAIR = [45, 111, 143, 39, 152, 138, 98, 40, 154, 129, 91, 96, 35, 101, 3, 136, 81, 98, 141, 137, 60, 146, 48, 146, 236, 24, 5, 172, 112, 26, 95, 196, 1, 207, 208, 39, 76, 16, 10, 233, 1, 116, 49, 73, 132, 124, 54, 77, 113, 53, 27, 231, 243, 21, 236, 116, 224, 180, 137, 227, 121, 65, 249, 11]
 # BTJKZngp3vzeJiRmmT9PitQH4H29dhQZ1GNhxFfDi4kw
 MAPPING_KEYPAIR = [62, 251, 237, 123, 32, 23, 77, 112, 75, 109, 141, 142, 101, 235, 231, 46, 82, 224, 124, 182, 136, 15, 157, 13, 130, 60, 8, 251, 212, 255,
                    116, 8, 155, 81, 141, 223, 90, 30, 205, 238, 119, 249, 130, 159, 191, 87, 136, 130, 225, 86, 103, 26, 255, 105, 59, 48, 101, 66, 157, 174, 106, 186, 51, 72]
@@ -199,10 +201,18 @@ class PythTest:
                         f"{sync_key_path}/account_{pubkey}.json")
 
     @pytest.fixture
-    def deploy_program_keypair(self, tmp_path):
+    def deploy_oracle_program_keypair(self, tmp_path):
         path = os.path.join(tmp_path, "program_keypair.json")
         with open(path, 'w') as f:
-            f.write(json.dumps(PROGRAM_KEYPAIR))
+            f.write(json.dumps(ORACLE_PROGRAM_KEYPAIR))
+            f.flush()
+        yield path
+
+    @pytest.fixture
+    def deploy_accumulator_program_keypair(self, tmp_path):
+        path = os.path.join(tmp_path, "accumulator_keypair.json")
+        with open(path, 'w') as f:
+            f.write(json.dumps(ACCUMULATOR_PROGRAM_KEYPAIR))
             f.flush()
         yield path
 
@@ -249,18 +259,23 @@ class PythTest:
         yield path
 
     @pytest.fixture
-    def oracle_program(self, funding_keypair, deploy_program_keypair, validator, validator_logs):
+    def oracle_program(self, funding_keypair, deploy_oracle_program_keypair, deploy_accumulator_program_keypair, validator, validator_logs):
         LOGGER.debug("Airdropping SOL to funding keypair at %s",
                      funding_keypair)
         self.run(f"solana airdrop 100 -k {funding_keypair} -u localhost")
 
         LOGGER.debug("Deploying Oracle program")
         _, _, program_account = self.run(
-            f"solana program deploy -k {funding_keypair} -u localhost --program-id {deploy_program_keypair} oracle.so").stdout.split()
+            f"solana program deploy -k {funding_keypair} -u localhost --program-id {deploy_oracle_program_keypair} oracle.so").stdout.split()
 
         LOGGER.info("Oracle program account: %s", program_account)
-
         os.environ["PROGRAM_KEY"] = program_account
+
+        LOGGER.debug("Deploying Accumulator program")
+        _, _, accumulator_program_account = self.run(
+            f"solana program deploy -k {funding_keypair} -u localhost --program-id {deploy_accumulator_program_keypair} oracle.so").stdout.split()
+
+        LOGGER.info("Accumulator program account: %s", accumulator_program_account)
 
         yield program_account
 
@@ -305,6 +320,13 @@ class PythTest:
     def agent_keystore(self, agent_keystore_path, agent_publish_keypair):
         self.run(
             f"../scripts/init_key_store.sh localnet {agent_keystore_path}")
+        # TODO: Integrate with init_key_store.sh
+        accumulator_address = "85CXHH71gNyww8NJ5FQQBBvB7UbMdSMMH4ihi2xXgen"
+        path = os.path.join(agent_keystore_path, "accumulator_program_key.json")
+
+        with open(path, 'w') as f:
+            f.write(accumulator_address)
+
         if os.path.exists("keystore"):
             os.remove("keystore")
         os.symlink(agent_keystore_path, "keystore")
