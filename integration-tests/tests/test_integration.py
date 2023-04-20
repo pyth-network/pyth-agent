@@ -404,6 +404,9 @@ class TestUpdatePrice(PythTest):
         # Confirm that the price account has been updated with the values from the first "update_price" request
         product = await client.get_product(product_account)
         price_account = product["price_accounts"][0]
+
+        await asyncio.sleep(6000)
+
         assert price_account["price"] == 42
         assert price_account["conf"] == 2
         assert price_account["status"] == "trading"

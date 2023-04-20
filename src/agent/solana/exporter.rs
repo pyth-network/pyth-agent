@@ -390,14 +390,15 @@ impl Exporter {
                 continue;
             }
 
+            /*
             let instruction = self.create_instruction_without_accumulator(
                 publish_keypair.pubkey(),
                 Pubkey::new(&identifier.to_bytes()),
                 &price_info,
                 network_state.current_slot,
             )?;
+             */
 
-            /*
             let instruction = if let Some(accumulator_program_key) = self.key_store.accumulator_key
             {
                 self.create_instruction_with_accumulator(
@@ -415,7 +416,6 @@ impl Exporter {
                     network_state.current_slot,
                 )?
             };
-             */
 
             instructions.push(instruction);
         }
@@ -444,7 +444,7 @@ impl Exporter {
             .send_transaction_with_config(
                 &transaction,
                 RpcSendTransactionConfig {
-                    skip_preflight: false,
+                    skip_preflight: true,
                     ..RpcSendTransactionConfig::default()
                 },
             )
