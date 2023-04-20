@@ -46,7 +46,7 @@ BTC_USD = {
         "generic_symbol": "BTCUSD",
         "description": "BTC/USD",
     },
-    "metadata": {"jump_id": "78876709", "jump_symbol": "BTCUSD", "price_exp": -8},
+    "metadata": {"jump_id": "78876709", "jump_symbol": "BTCUSD", "price_exp": -8, "min_publishers": 1},
 }
 AAPL_USD = {
     "account": "",
@@ -61,7 +61,7 @@ AAPL_USD = {
         "symbol": "Equity.US.AAPL/USD",
         "base": "AAPL",
     },
-    "metadata": {"jump_id": "186", "jump_symbol": "AAPL", "price_exp": -5},
+    "metadata": {"jump_id": "186", "jump_symbol": "AAPL", "price_exp": -5, "min_publishers": 1},
 }
 ETH_USD = {
     "account": "",
@@ -73,7 +73,7 @@ ETH_USD = {
         "generic_symbol": "ETHUSD",
         "description": "ETH/USD",
     },
-    "metadata": {"jump_id": "12345", "jump_symbol": "ETHUSD", "price_exp": -8},
+    "metadata": {"jump_id": "12345", "jump_symbol": "ETHUSD", "price_exp": -8, "min_publishers": 1},
 }
 
 asyncio.set_event_loop(asyncio.new_event_loop())
