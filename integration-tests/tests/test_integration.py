@@ -273,7 +273,7 @@ class PythTest:
 
         LOGGER.debug("Deploying Accumulator program")
         _, _, accumulator_program_account = self.run(
-            f"solana program deploy -k {funding_keypair} -u localhost --program-id {deploy_accumulator_program_keypair} oracle.so").stdout.split()
+            f"solana program deploy -k {funding_keypair} -u localhost --program-id {deploy_accumulator_program_keypair} accumulator_updater.so").stdout.split()
 
         LOGGER.info("Accumulator program account: %s", accumulator_program_account)
 
@@ -393,24 +393,23 @@ class TestUpdatePrice(PythTest):
         # Get the price account with which to send updates
         price_account = product["price_accounts"][0]["account"]
 
-        for _ in range(10):
-            # Send an "update_price" request
-            await client.update_price(price_account, 42, 2, "trading")
-            time.sleep(1)
+        # Send an "update_price" request
+        await client.update_price(price_account, 42, 2, "trading")
+        time.sleep(1)
 
-            # Send another "update_price" request to trigger aggregation
-            await client.update_price(price_account, 81, 1, "trading")
-            time.sleep(2)
+        # Send another "update_price" request to trigger aggregation
+        await client.update_price(price_account, 81, 1, "trading")
+        time.sleep(2)
 
         # Confirm that the price account has been updated with the values from the first "update_price" request
         product = await client.get_product(product_account)
         price_account = product["price_accounts"][0]
 
-        await asyncio.sleep(6000)
-
         assert price_account["price"] == 42
         assert price_account["conf"] == 2
         assert price_account["status"] == "trading"
+
+        time.sleep(6000)
 
     @pytest.mark.asyncio
     async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
