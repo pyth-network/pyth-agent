@@ -10,12 +10,17 @@ packages = [{ include = "integration_tests" }]
 python = "~3.10"
 
 [tool.poetry.dev-dependencies]
-program-admin = { git = "https://github.com/pyth-network/program-admin.git", branch = "main" }
+anchorpy = "^0.16.0"
+program-admin = { git = "https://github.com/drozdziak1/program-admin.git", branch = "drozdziak1/bump-solana" }
 pytest = "^7.2"
-pytest-asyncio = "^0.18.3"
 pre-commit = "^2.21.0"
 requests = "^2.28.2"
 jsonrpc_websocket = "^3.1.4"
+pytest-asyncio = "^0.20.0"
+
+[tool.poetry.group.dev.dependencies]
+solana = "^0.29.2"
+solders = "^0.14.4"
 
 [build-system]
 requires = ["poetry-core"]

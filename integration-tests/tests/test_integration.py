@@ -18,6 +18,9 @@ from pathlib import Path
 from contextlib import contextmanager
 import shutil
 from solana.keypair import Keypair
+from solders.pubkey import Pubkey
+from solders.system_program import ID as SYSTEM_PROGRAM_ID
+from anchorpy import Idl, Program
 from jsonrpc_websocket import Server
 
 LOGGER = logging.getLogger(__name__)
@@ -27,7 +30,7 @@ LOGGER = logging.getLogger(__name__)
 ORACLE_PROGRAM_KEYPAIR = [28, 50, 87, 251, 247, 251, 45, 91, 139, 128, 72, 197, 172, 61, 15, 60, 76, 81, 6, 13, 94, 109, 212, 28, 40, 110, 61, 207, 40, 34, 37,
                    216, 162, 22, 222, 173, 4, 56, 58, 79, 253, 77, 93, 134, 47, 144, 105, 188, 77, 237, 92, 194, 133, 54, 94, 129, 10, 19, 192, 115, 215, 209, 28, 155]
 # 85CXHH71gNyww8NJ5FQQBBvB7UbMdSMMH4ihi2xXgen
-ACCUMULATOR_PROGRAM_KEYPAIR = [45, 111, 143, 39, 152, 138, 98, 40, 154, 129, 91, 96, 35, 101, 3, 136, 81, 98, 141, 137, 60, 146, 48, 146, 236, 24, 5, 172, 112, 26, 95, 196, 1, 207, 208, 39, 76, 16, 10, 233, 1, 116, 49, 73, 132, 124, 54, 77, 113, 53, 27, 231, 243, 21, 236, 116, 224, 180, 137, 227, 121, 65, 249, 11]
+MESSAGE_BUFFER_PROGRAM_KEYPAIR = [45, 111, 143, 39, 152, 138, 98, 40, 154, 129, 91, 96, 35, 101, 3, 136, 81, 98, 141, 137, 60, 146, 48, 146, 236, 24, 5, 172, 112, 26, 95, 196, 1, 207, 208, 39, 76, 16, 10, 233, 1, 116, 49, 73, 132, 124, 54, 77, 113, 53, 27, 231, 243, 21, 236, 116, 224, 180, 137, 227, 121, 65, 249, 11]
 # BTJKZngp3vzeJiRmmT9PitQH4H29dhQZ1GNhxFfDi4kw
 MAPPING_KEYPAIR = [62, 251, 237, 123, 32, 23, 77, 112, 75, 109, 141, 142, 101, 235, 231, 46, 82, 224, 124, 182, 136, 15, 157, 13, 130, 60, 8, 251, 212, 255,
                    116, 8, 155, 81, 141, 223, 90, 30, 205, 238, 119, 249, 130, 159, 191, 87, 136, 130, 225, 86, 103, 26, 255, 105, 59, 48, 101, 66, 157, 174, 106, 186, 51, 72]
@@ -209,10 +212,10 @@ class PythTest:
         yield path
 
     @pytest.fixture
-    def deploy_accumulator_program_keypair(self, tmp_path):
-        path = os.path.join(tmp_path, "accumulator_keypair.json")
+    def deploy_message_buffer_program_keypair(self, tmp_path):
+        path = os.path.join(tmp_path, "message_buffer_keypair.json")
         with open(path, 'w') as f:
-            f.write(json.dumps(ACCUMULATOR_PROGRAM_KEYPAIR))
+            f.write(json.dumps(MESSAGE_BUFFER_PROGRAM_KEYPAIR))
             f.flush()
         yield path
 
@@ -259,7 +262,7 @@ class PythTest:
         yield path
 
     @pytest.fixture
-    def oracle_program(self, funding_keypair, deploy_oracle_program_keypair, deploy_accumulator_program_keypair, validator, validator_logs):
+    def oracle_program(self, funding_keypair, deploy_oracle_program_keypair, deploy_message_buffer_program_keypair, validator, validator_logs):
         LOGGER.debug("Airdropping SOL to funding keypair at %s",
                      funding_keypair)
         self.run(f"solana airdrop 100 -k {funding_keypair} -u localhost")
@@ -271,13 +274,13 @@ class PythTest:
         LOGGER.info("Oracle program account: %s", program_account)
         os.environ["PROGRAM_KEY"] = program_account
 
-        LOGGER.debug("Deploying Accumulator program")
-        _, _, accumulator_program_account = self.run(
-            f"solana program deploy -k {funding_keypair} -u localhost --program-id {deploy_accumulator_program_keypair} accumulator_updater.so").stdout.split()
+        LOGGER.debug("Deploying Accumulator Message Buffer program")
+        _, _, message_buffer_program_account = self.run(
+            f"solana program deploy -k {funding_keypair} -u localhost --program-id {deploy_message_buffer_program_keypair} message_buffer.so").stdout.split()
 
-        LOGGER.info("Accumulator program account: %s", accumulator_program_account)
+        LOGGER.info("Accumulator Message Buffer program account: %s", message_buffer_program_account)
 
-        yield program_account
+        yield (program_account, message_buffer_program_account)
 
     @pytest_asyncio.fixture
     async def sync_accounts(self, oracle_program, sync_key_path, sync_mapping_keypair, refdata_products, refdata_publishers, refdata_permissions):
@@ -286,7 +289,7 @@ class PythTest:
         await ProgramAdmin(
             network="localhost",
             key_dir=sync_key_path,
-            program_key=oracle_program,
+            program_key=oracle_program[0],
             commitment="confirmed",
         ).sync(
             parse_products_json(Path(refdata_products)),
@@ -301,6 +304,36 @@ class PythTest:
         os.makedirs(path)
         LOGGER.debug("Agent keystore path: %s", path)
         yield path
+
+    @pytest_asyncio.fixture
+    async def initialize_message_buffer_program(self, oracle_program, funding_keypair):
+        (oracle_address, msg_buf_address) = oracle_program
+
+        # Construct Anchor client classes
+        keypair_raw = open(funding_keypair).read()
+
+        parsed_funding_keypair = Keypair.from_json(keypair_raw)
+
+        client = AsyncClient("http://localhost:8899/")
+        provider = Provider(client, Wallet(parsed_funding_keypair))
+
+        # Construct IDL
+        idl_file = open("message_buffer.json")
+        raw_idl = json.joad(idl_file)
+
+        idl = Idl.from_json(raw_idl)
+
+        program_id = Pubkey(msg_buf_address)
+
+        # Prepare arguments for program call
+        accounts = {
+            "payer": parsed_funding_keypair.pubkey(),
+            "system_program": SYSTEM_PROGRAM_ID,
+            }
+
+        async with Program(idl, program_id, provider) as prog:
+            await prog.rpc["initialize"](accounts)
+
 
     @pytest.fixture
     def agent_publish_keypair(self, agent_keystore_path, sync_accounts):
@@ -321,11 +354,11 @@ class PythTest:
         self.run(
             f"../scripts/init_key_store.sh localnet {agent_keystore_path}")
         # TODO: Integrate with init_key_store.sh
-        accumulator_address = "85CXHH71gNyww8NJ5FQQBBvB7UbMdSMMH4ihi2xXgen"
+        message_buffer_address = "85CXHH71gNyww8NJ5FQQBBvB7UbMdSMMH4ihi2xXgen"
         path = os.path.join(agent_keystore_path, "accumulator_program_key.json")
 
         with open(path, 'w') as f:
-            f.write(accumulator_address)
+            f.write(message_buffer_address)
 
         if os.path.exists("keystore"):
             os.remove("keystore")

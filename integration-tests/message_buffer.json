@@ -1,0 +1,398 @@
+{
+  "version": "0.1.0",
+  "name": "message_buffer",
+  "instructions": [
+    {
+      "name": "initialize",
+      "docs": [
+        "Initializes the whitelist and sets it's authority to the provided pubkey",
+        "Once initialized, the authority must sign all further changes to the whitelist."
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "whitelist",
+          "isMut": true,
+          "isSigner": false,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "message"
+              },
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "whitelist"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "authority",
+          "type": "publicKey"
+        }
+      ]
+    },
+    {
+      "name": "setAllowedPrograms",
+      "docs": [
+        "Seics the programs that are allowed to invoke this program through CPI",
+        "",
+        "* `allowed_programs` - Entire list of programs that are allowed to",
+        "invoke this program through CPI"
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "whitelist",
+          "isMut": true,
+          "isSigner": false,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "message"
+              },
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "whitelist"
+              }
+            ]
+          },
+          "relations": [
+            "authority"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "allowedPrograms",
+          "type": {
+            "vec": "publicKey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateWhitelistAuthority",
+      "docs": [
+        "Sets the new authority for the whitelist"
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "whitelist",
+          "isMut": true,
+          "isSigner": false,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "message"
+              },
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "whitelist"
+              }
+            ]
+          },
+          "relations": [
+            "authority"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "newAuthority",
+          "type": "publicKey"
+        }
+      ]
+    },
+    {
+      "name": "putAll",
+      "docs": [
+        "Insert messages/inputs for the Accumulator. All inputs derived from the",
+        "`base_account_key` will go into the same PDA. The PDA is derived with",
+        "seeds = [cpi_caller_auth, b\"accumulator\", base_account_key]",
+        "",
+        "",
+        "",
+        "* `base_account_key`    - Pubkey of the original account the",
+        "`MessageBuffer` is derived from",
+        "(e.g. pyth price account)",
+        "* `messages`            - Vec of vec of bytes, each representing a message",
+        "to be hashed and accumulated",
+        "",
+        "This ix will write as many of the messages up to the length",
+        "of the `accumulator_input.data`.",
+        "If `accumulator_input.data.len() < messages.map(|x| x.len()).sum()`",
+        "then the remaining messages will be ignored.",
+        "",
+        "The current implementation assumes that each invocation of this",
+        "ix is independent of any previous invocations. It will overwrite",
+        "any existing contents.",
+        "",
+        "TODO:",
+        "- try handling re-allocation of the accumulator_input space",
+        "- handle updates (\"paging/batches of messages\")",
+        ""
+      ],
+      "accounts": [
+        {
+          "name": "fund",
+          "isMut": true,
+          "isSigner": false,
+          "docs": [
+            "`Fund` is a system account that holds",
+            "the lamports that will be used to fund",
+            "`AccumulatorInput` account initialization"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "fund"
+              }
+            ]
+          }
+        },
+        {
+          "name": "whitelistVerifier",
+          "accounts": [
+            {
+              "name": "whitelist",
+              "isMut": false,
+              "isSigner": false,
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "type": "string",
+                    "value": "message"
+                  },
+                  {
+                    "kind": "const",
+                    "type": "string",
+                    "value": "whitelist"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "cpiCallerAuth",
+              "isMut": false,
+              "isSigner": true,
+              "docs": [
+                "PDA representing authorized cpi caller"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "baseAccountKey",
+          "type": "publicKey"
+        },
+        {
+          "name": "messages",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "MessageBuffer",
+      "docs": [
+        "`MessageBuffer` is an arbitrary set of bytes",
+        "that will be included in the AccumulatorSysvar",
+        "",
+        "",
+        "The actual contents of data are set/handled by",
+        "the CPI calling program (e.g. Pyth Oracle)",
+        "",
+        "TODO: implement custom serialization & set alignment"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "header",
+            "type": {
+              "defined": "BufferHeader"
+            }
+          },
+          {
+            "name": "messages",
+            "type": {
+              "array": [
+                "u8",
+                9718
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Whitelist",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "type": "publicKey"
+          },
+          {
+            "name": "allowedPrograms",
+            "type": {
+              "vec": "publicKey"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "BufferHeader",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "headerLen",
+            "type": "u16"
+          },
+          {
+            "name": "endOffsets",
+            "docs": [
+              "endpoints of every message.",
+              "ex: [10, 14]",
+              "=> msg1 = account_info.data[(header_len + 0)..(header_len + 10)]",
+              "=> msg2 = account_info.data[(header_len + 10)..(header_len + 14)]"
+            ],
+            "type": {
+              "array": [
+                "u16",
+                255
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "CallerNotAllowed",
+      "msg": "CPI Caller not allowed"
+    },
+    {
+      "code": 6001,
+      "name": "DuplicateAllowedProgram",
+      "msg": "Whitelist already contains program"
+    },
+    {
+      "code": 6002,
+      "name": "ConversionError",
+      "msg": "Conversion Error"
+    },
+    {
+      "code": 6003,
+      "name": "SerializeError",
+      "msg": "Serialization Error"
+    },
+    {
+      "code": 6004,
+      "name": "WhitelistAdminRequired",
+      "msg": "Whitelist admin required on initialization"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidAllowedProgram",
+      "msg": "Invalid allowed program"
+    },
+    {
+      "code": 6006,
+      "name": "MaximumAllowedProgramsExceeded",
+      "msg": "Maximum number of allowed programs exceeded"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidPDA",
+      "msg": "Invalid PDA"
+    },
+    {
+      "code": 6008,
+      "name": "CurrentDataLengthExceeded",
+      "msg": "Update data exceeds current length"
+    },
+    {
+      "code": 6009,
+      "name": "MessageBufferNotProvided",
+      "msg": "Message Buffer not provided"
+    },
+    {
+      "code": 6010,
+      "name": "FundBumpNotFound",
+      "msg": "Fund Bump not found"
+    }
+  ]
+}
