@@ -14,7 +14,7 @@ from ..program_id import PROGRAM_ID
 
 class WhitelistJSON(typing.TypedDict):
     bump: int
-    authority: str
+    admin: str
     allowed_programs: list[str]
 
 
@@ -23,11 +23,11 @@ class Whitelist:
     discriminator: typing.ClassVar = b"\xcc\xb04O\x92y6\xf7"
     layout: typing.ClassVar = borsh.CStruct(
         "bump" / borsh.U8,
-        "authority" / BorshPubkey,
+        "admin" / BorshPubkey,
         "allowed_programs" / borsh.Vec(typing.cast(Construct, BorshPubkey)),
     )
     bump: int
-    authority: PublicKey
+    admin: PublicKey
     allowed_programs: list[PublicKey]
 
     @classmethod
@@ -75,14 +75,14 @@ class Whitelist:
         dec = Whitelist.layout.parse(data[ACCOUNT_DISCRIMINATOR_SIZE:])
         return cls(
             bump=dec.bump,
-            authority=dec.authority,
+            admin=dec.admin,
             allowed_programs=dec.allowed_programs,
         )
 
     def to_json(self) -> WhitelistJSON:
         return {
             "bump": self.bump,
-            "authority": str(self.authority),
+            "admin": str(self.admin),
             "allowed_programs": list(
                 map(lambda item: str(item), self.allowed_programs)
             ),
@@ -92,7 +92,7 @@ class Whitelist:
     def from_json(cls, obj: WhitelistJSON) -> "Whitelist":
         return cls(
             bump=obj["bump"],
-            authority=PublicKey(obj["authority"]),
+            admin=PublicKey(obj["admin"]),
             allowed_programs=list(
                 map(lambda item: PublicKey(item), obj["allowed_programs"])
             ),

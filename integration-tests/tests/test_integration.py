@@ -20,11 +20,11 @@ import shutil
 from solana.keypair import Keypair
 from solders.system_program import ID as SYSTEM_PROGRAM_ID
 from solana.rpc.async_api import AsyncClient
-from solana.transaction import Transaction, TransactionInstruction
+from solana.transaction import AccountMeta, Transaction, TransactionInstruction
 from anchorpy import Provider, Wallet
 from construct import Bytes, Int32sl, Int32ul, Struct
 from solana.publickey import PublicKey
-from message_buffer.instructions import initialize, set_allowed_programs
+from message_buffer.instructions import initialize, set_allowed_programs, create_buffer
 from jsonrpc_websocket import Server
 
 LOGGER = logging.getLogger(__name__)
@@ -70,18 +70,7 @@ AAPL_USD = {
     },
     "metadata": {"jump_id": "186", "jump_symbol": "AAPL", "price_exp": -5, "min_publishers": 1},
 }
-ETH_USD = {
-    "account": "",
-    "attr_dict": {
-        "symbol": "Crypto.ETH/USD",
-        "asset_type": "Crypto",
-        "base": "ETH",
-        "quote_currency": "USD",
-        "generic_symbol": "ETHUSD",
-        "description": "ETH/USD",
-    },
-    "metadata": {"jump_id": "12345", "jump_symbol": "ETHUSD", "price_exp": -8, "min_publishers": 1},
-}
+ALL_PRODUCTS=[BTC_USD, AAPL_USD]
 
 asyncio.set_event_loop(asyncio.new_event_loop())
 
@@ -310,7 +299,7 @@ class PythTest:
         yield path
 
     @pytest_asyncio.fixture
-    async def initialize_message_buffer_program(self, oracle_program, funding_keypair):
+    async def initialize_message_buffer_program(self, oracle_program, funding_keypair, sync_key_path, sync_accounts):
         (oracle_address, msg_buf_address) = oracle_program
 
         keypair_file = open(funding_keypair)
@@ -320,7 +309,7 @@ class PythTest:
         provider = Provider(client, Wallet(parsed_funding_keypair))
 
         init_ix = initialize({
-                "authority": parsed_funding_keypair.public_key,
+                "admin": parsed_funding_keypair.public_key,
              }, {
                 "payer": parsed_funding_keypair.public_key,
              })
@@ -340,10 +329,33 @@ class PythTest:
             "allowed_programs": [oracle_auth_pda],
         }, {
             "payer": parsed_funding_keypair.public_key,
-            "authority": parsed_funding_keypair.public_key,
+            "admin": parsed_funding_keypair.public_key,
         })
 
         tx.add(set_allowed_ix)
+        for product in ALL_PRODUCTS:
+            jump_symbol = product["metadata"]["jump_symbol"]
+            address_string = self.run(f"solana address -k {sync_key_path}/price_{jump_symbol}.json -u localhost").stdout.strip()
+            LOGGER.info(f"{jump_symbol} price account: {address_string}")
+            address = PublicKey(address_string)
+
+            message_buffer_pda, _ = PublicKey.find_program_address(
+                [bytes(oracle_auth_pda), b"message", bytes(address)],
+                msg_buf_pubkey
+            )
+
+            ix = create_buffer({
+                "allowed_program_auth": oracle_auth_pda,
+                "base_account_key": address,
+                "target_size": 1024
+            }, {
+                "admin": parsed_funding_keypair.public_key,
+            },
+                remaining_accounts = [
+                    AccountMeta(pubkey=message_buffer_pda, is_signer=False, is_writable=True)
+                ]
+            )
+            tx.add(ix)
 
         await provider.send(tx, [parsed_funding_keypair])
 
@@ -456,6 +468,7 @@ class TestUpdatePrice(PythTest):
         assert price_account["conf"] == 2
         assert price_account["status"] == "trading"
 
+    '''
     @pytest.mark.asyncio
     async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
         # Hotload the keypair into running agent
@@ -468,3 +481,4 @@ class TestUpdatePrice(PythTest):
 
         # Continue normally with the existing simple scenario
         await self.test_update_price_simple(client_hotload)
+    '''

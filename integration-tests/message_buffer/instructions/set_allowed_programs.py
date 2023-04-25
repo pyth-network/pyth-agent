@@ -23,7 +23,7 @@ SET_ALLOWED_PROGRAMS_ACCOUNTS_WHITELIST = PublicKey.find_program_address(
 
 class SetAllowedProgramsAccounts(typing.TypedDict):
     payer: PublicKey
-    authority: PublicKey
+    admin: PublicKey
 
 
 def set_allowed_programs(
@@ -34,7 +34,7 @@ def set_allowed_programs(
 ) -> TransactionInstruction:
     keys: list[AccountMeta] = [
         AccountMeta(pubkey=accounts["payer"], is_signer=True, is_writable=True),
-        AccountMeta(pubkey=accounts["authority"], is_signer=True, is_writable=False),
+        AccountMeta(pubkey=accounts["admin"], is_signer=True, is_writable=False),
         AccountMeta(
             pubkey=SET_ALLOWED_PROGRAMS_ACCOUNTS_WHITELIST,
             is_signer=False,

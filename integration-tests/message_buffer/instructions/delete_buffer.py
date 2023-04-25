@@ -3,59 +3,51 @@ import typing
 from solana.publickey import PublicKey
 from solana.transaction import TransactionInstruction, AccountMeta
 from anchorpy.borsh_extension import BorshPubkey
-from construct import Construct
 import borsh_construct as borsh
 from ..program_id import PROGRAM_ID
 
 
-class PutAllArgs(typing.TypedDict):
+class DeleteBufferArgs(typing.TypedDict):
+    allowed_program_auth: PublicKey
     base_account_key: PublicKey
-    messages: list[bytes]
+    buffer_bump: int
 
 
 layout = borsh.CStruct(
+    "allowed_program_auth" / BorshPubkey,
     "base_account_key" / BorshPubkey,
-    "messages" / borsh.Vec(typing.cast(Construct, borsh.Bytes)),
+    "buffer_bump" / borsh.U8,
 )
-WHITELIST_VERIFIER_NESTED_WHITELIST = PublicKey.find_program_address(
+DELETE_BUFFER_ACCOUNTS_WHITELIST = PublicKey.find_program_address(
     seeds=[b"message", b"whitelist"],
     program_id=PROGRAM_ID,
 )[0]
 
 
-class PutAllAccounts(typing.TypedDict):
-    whitelist_verifier: WhitelistVerifierNested
+class DeleteBufferAccounts(typing.TypedDict):
+    admin: PublicKey
 
 
-class WhitelistVerifierNested(typing.TypedDict):
-    cpi_caller_auth: PublicKey
-
-
-def put_all(
-    args: PutAllArgs,
-    accounts: PutAllAccounts,
+def delete_buffer(
+    args: DeleteBufferArgs,
+    accounts: DeleteBufferAccounts,
     program_id: PublicKey = PROGRAM_ID,
     remaining_accounts: typing.Optional[typing.List[AccountMeta]] = None,
 ) -> TransactionInstruction:
     keys: list[AccountMeta] = [
         AccountMeta(
-            pubkey=WHITELIST_VERIFIER_NESTED_WHITELIST,
-            is_signer=False,
-            is_writable=False,
+            pubkey=DELETE_BUFFER_ACCOUNTS_WHITELIST, is_signer=False, is_writable=False
         ),
-        AccountMeta(
-            pubkey=accounts["whitelist_verifier"]["cpi_caller_auth"],
-            is_signer=True,
-            is_writable=False,
-        ),
+        AccountMeta(pubkey=accounts["admin"], is_signer=True, is_writable=True),
     ]
     if remaining_accounts is not None:
         keys += remaining_accounts
-    identifier = b"\xd4\xe1\xc1[\x97\xee\x14]"
+    identifier = b"\xb8\xc2\xe5a\xdc\n\xe7Z"
     encoded_args = layout.build(
         {
+            "allowed_program_auth": args["allowed_program_auth"],
             "base_account_key": args["base_account_key"],
-            "messages": args["messages"],
+            "buffer_bump": args["buffer_bump"],
         }
     )
     data = identifier + encoded_args

@@ -8,22 +8,28 @@ from anchorpy.coder.accounts import ACCOUNT_DISCRIMINATOR_SIZE
 from anchorpy.error import AccountInvalidDiscriminator
 from anchorpy.utils.rpc import get_multiple_accounts
 from ..program_id import PROGRAM_ID
-from .. import types
 
 
 class MessageBufferJSON(typing.TypedDict):
-    header: types.buffer_header.BufferHeaderJSON
-    messages: list[int]
+    bump: int
+    version: int
+    header_len: int
+    end_offsets: list[int]
 
 
 @dataclass
 class MessageBuffer:
     discriminator: typing.ClassVar = b"\x19\xf4\x03\x05\xe1\xa5\x1d\xfa"
     layout: typing.ClassVar = borsh.CStruct(
-        "header" / types.buffer_header.BufferHeader.layout, "messages" / borsh.U8[9718]
+        "bump" / borsh.U8,
+        "version" / borsh.U8,
+        "header_len" / borsh.U16,
+        "end_offsets" / borsh.U16[255],
     )
-    header: types.buffer_header.BufferHeader
-    messages: list[int]
+    bump: int
+    version: int
+    header_len: int
+    end_offsets: list[int]
 
     @classmethod
     async def fetch(
@@ -69,19 +75,25 @@ class MessageBuffer:
             )
         dec = MessageBuffer.layout.parse(data[ACCOUNT_DISCRIMINATOR_SIZE:])
         return cls(
-            header=types.buffer_header.BufferHeader.from_decoded(dec.header),
-            messages=dec.messages,
+            bump=dec.bump,
+            version=dec.version,
+            header_len=dec.header_len,
+            end_offsets=dec.end_offsets,
         )
 
     def to_json(self) -> MessageBufferJSON:
         return {
-            "header": self.header.to_json(),
-            "messages": self.messages,
+            "bump": self.bump,
+            "version": self.version,
+            "header_len": self.header_len,
+            "end_offsets": self.end_offsets,
         }
 
     @classmethod
     def from_json(cls, obj: MessageBufferJSON) -> "MessageBuffer":
         return cls(
-            header=types.buffer_header.BufferHeader.from_json(obj["header"]),
-            messages=obj["messages"],
+            bump=obj["bump"],
+            version=obj["version"],
+            header_len=obj["header_len"],
+            end_offsets=obj["end_offsets"],
         )

@@ -129,7 +129,7 @@ impl Default for Config {
             inflight_transactions_channel_capacity:  10000,
             transaction_monitor:                     Default::default(),
             // The largest transactions appear to be about ~12000 CUs. We leave ourselves some breathing room.
-            compute_unit_limit:                      20000,
+            compute_unit_limit:                      40000,
             compute_unit_price_micro_lamports:       None,
         }
     }
@@ -445,7 +445,7 @@ impl Exporter {
             .send_transaction_with_config(
                 &transaction,
                 RpcSendTransactionConfig {
-                    skip_preflight: false,
+                    skip_preflight: true,
                     ..RpcSendTransactionConfig::default()
                 },
             )
@@ -509,21 +509,22 @@ impl Exporter {
         accumulator_program_key: Pubkey,
     ) -> Result<Instruction> {
         let (whitelist_pubkey, _whitelist_bump) = Pubkey::find_program_address(
-            &["accumulator".as_bytes(), "whitelist".as_bytes()],
-            &accumulator_program_key,
-        );
-        let (accumulator_data_pubkey, _accumulator_data_pubkey) = Pubkey::find_program_address(
-            &[
-                &self.key_store.program_key.to_bytes(),
-                "accumulator".as_bytes(),
-                &price_id.to_bytes(),
-            ],
+            &["message".as_bytes(), "whitelist".as_bytes()],
             &accumulator_program_key,
         );
 
         let (oracle_auth_pda, _) = Pubkey::find_program_address(
             &[b"upd_price_write", &accumulator_program_key.to_bytes()],
             &self.key_store.program_key,
+        );
+
+        let (accumulator_data_pubkey, _accumulator_data_pubkey) = Pubkey::find_program_address(
+            &[
+                &oracle_auth_pda.to_bytes(),
+                "message".as_bytes(),
+                &price_id.to_bytes(),
+            ],
+            &accumulator_program_key,
         );
 
         debug!(self.logger, "Oracle Auth PDA"; "address" => oracle_auth_pda.to_string());

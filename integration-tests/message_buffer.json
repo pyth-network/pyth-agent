@@ -5,7 +5,7 @@
     {
       "name": "initialize",
       "docs": [
-        "Initializes the whitelist and sets it's authority to the provided pubkey",
+        "Initializes the whitelist and sets it's admin to the provided pubkey",
         "Once initialized, the authority must sign all further changes to the whitelist."
       ],
       "accounts": [
@@ -41,7 +41,7 @@
       ],
       "args": [
         {
-          "name": "authority",
+          "name": "admin",
           "type": "publicKey"
         }
       ]
@@ -49,7 +49,7 @@
     {
       "name": "setAllowedPrograms",
       "docs": [
-        "Seics the programs that are allowed to invoke this program through CPI",
+        "Sets the programs that are allowed to invoke this program through CPI",
         "",
         "* `allowed_programs` - Entire list of programs that are allowed to",
         "invoke this program through CPI"
@@ -61,7 +61,7 @@
           "isSigner": true
         },
         {
-          "name": "authority",
+          "name": "admin",
           "isMut": false,
           "isSigner": true
         },
@@ -84,7 +84,7 @@
             ]
           },
           "relations": [
-            "authority"
+            "admin"
           ]
         }
       ],
@@ -98,9 +98,9 @@
       ]
     },
     {
-      "name": "updateWhitelistAuthority",
+      "name": "updateWhitelistAdmin",
       "docs": [
-        "Sets the new authority for the whitelist"
+        "Sets the new admin for the whitelist"
       ],
       "accounts": [
         {
@@ -109,7 +109,7 @@
           "isSigner": true
         },
         {
-          "name": "authority",
+          "name": "admin",
           "isMut": false,
           "isSigner": true
         },
@@ -132,13 +132,13 @@
             ]
           },
           "relations": [
-            "authority"
+            "admin"
           ]
         }
       ],
       "args": [
         {
-          "name": "newAuthority",
+          "name": "newAdmin",
           "type": "publicKey"
         }
       ]
@@ -146,11 +146,10 @@
     {
       "name": "putAll",
       "docs": [
-        "Insert messages/inputs for the Accumulator. All inputs derived from the",
-        "`base_account_key` will go into the same PDA. The PDA is derived with",
-        "seeds = [cpi_caller_auth, b\"accumulator\", base_account_key]",
-        "",
-        "",
+        "Put messages into the Accumulator. All messages put for the same",
+        "`base_account_key` go into the same buffer PDA. The PDA's address is",
+        "`[allowed_program_auth, MESSAGE, base_account_key]`, where `allowed_program_auth`",
+        "is the whitelisted pubkey who authorized this call.",
         "",
         "* `base_account_key`    - Pubkey of the original account the",
         "`MessageBuffer` is derived from",
@@ -168,30 +167,10 @@
         "any existing contents.",
         "",
         "TODO:",
-        "- try handling re-allocation of the accumulator_input space",
         "- handle updates (\"paging/batches of messages\")",
         ""
       ],
       "accounts": [
-        {
-          "name": "fund",
-          "isMut": true,
-          "isSigner": false,
-          "docs": [
-            "`Fund` is a system account that holds",
-            "the lamports that will be used to fund",
-            "`AccumulatorInput` account initialization"
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "type": "string",
-                "value": "fund"
-              }
-            ]
-          }
-        },
         {
           "name": "whitelistVerifier",
           "accounts": [
@@ -223,11 +202,6 @@
               ]
             }
           ]
-        },
-        {
-          "name": "systemProgram",
-          "isMut": false,
-          "isSigner": false
         }
       ],
       "args": [
@@ -242,68 +216,220 @@
           }
         }
       ]
+    },
+    {
+      "name": "createBuffer",
+      "docs": [
+        "Initializes the buffer account with the `target_size`",
+        "",
+        "*`allowed_program_auth` - The whitelisted pubkey representing an",
+        "allowed program. Used as one of the seeds",
+        "for deriving the `MessageBuffer` PDA.",
+        "* `base_account_key`    - Pubkey of the original account the",
+        "`MessageBuffer` is derived from",
+        "(e.g. pyth price account)",
+        "*`target_size`          - Initial size to allocate for the",
+        "`MessageBuffer` PDA. `target_size`",
+        "must be >= HEADER_LEN && <= 10240"
+      ],
+      "accounts": [
+        {
+          "name": "whitelist",
+          "isMut": false,
+          "isSigner": false,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "message"
+              },
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "whitelist"
+              }
+            ]
+          },
+          "relations": [
+            "admin"
+          ]
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "allowedProgramAuth",
+          "type": "publicKey"
+        },
+        {
+          "name": "baseAccountKey",
+          "type": "publicKey"
+        },
+        {
+          "name": "targetSize",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "resizeBuffer",
+      "docs": [
+        "Resizes the buffer account to the `target_size`",
+        "",
+        "*`allowed_program_auth` - The whitelisted pubkey representing an",
+        "allowed program. Used as one of the seeds",
+        "for deriving the `MessageBuffer` PDA.",
+        "* `base_account_key`    - Pubkey of the original account the",
+        "`MessageBuffer` is derived from",
+        "(e.g. pyth price account)",
+        "*`target_size`          -  Size to re-allocate for the",
+        "`MessageBuffer` PDA. If increasing the size,",
+        "max delta of current_size & target_size is 10240",
+        "*`buffer_bump`          -  Bump seed for the `MessageBuffer` PDA"
+      ],
+      "accounts": [
+        {
+          "name": "whitelist",
+          "isMut": false,
+          "isSigner": false,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "message"
+              },
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "whitelist"
+              }
+            ]
+          },
+          "relations": [
+            "admin"
+          ]
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "allowedProgramAuth",
+          "type": "publicKey"
+        },
+        {
+          "name": "baseAccountKey",
+          "type": "publicKey"
+        },
+        {
+          "name": "bufferBump",
+          "type": "u8"
+        },
+        {
+          "name": "targetSize",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "deleteBuffer",
+      "docs": [
+        "Closes the buffer account and transfers the remaining lamports to the",
+        "`admin` account",
+        "",
+        "*`allowed_program_auth` - The whitelisted pubkey representing an",
+        "allowed program. Used as one of the seeds",
+        "for deriving the `MessageBuffer` PDA.",
+        "* `base_account_key`    - Pubkey of the original account the",
+        "`MessageBuffer` is derived from",
+        "(e.g. pyth price account)",
+        "*`buffer_bump`          -  Bump seed for the `MessageBuffer` PDA"
+      ],
+      "accounts": [
+        {
+          "name": "whitelist",
+          "isMut": false,
+          "isSigner": false,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "message"
+              },
+              {
+                "kind": "const",
+                "type": "string",
+                "value": "whitelist"
+              }
+            ]
+          },
+          "relations": [
+            "admin"
+          ]
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "allowedProgramAuth",
+          "type": "publicKey"
+        },
+        {
+          "name": "baseAccountKey",
+          "type": "publicKey"
+        },
+        {
+          "name": "bufferBump",
+          "type": "u8"
+        }
+      ]
     }
   ],
   "accounts": [
     {
       "name": "MessageBuffer",
       "docs": [
-        "`MessageBuffer` is an arbitrary set of bytes",
-        "that will be included in the AccumulatorSysvar",
+        "A MessageBuffer will have the following structure",
+        "```ignore",
+        "struct MessageBuffer {",
+        "header: BufferHeader,",
+        "messages: [u8; accountInfo.data.len - header.header_len]",
+        "}",
+        "```",
         "",
+        "where `MESSAGES_LEN` can be dynamic. There is actual",
+        "no messages field in the `MessageBuffer` struct definition due to messages",
+        "needing to be a dynamic length while supporting zero_copy",
+        "at the same time.",
         "",
-        "The actual contents of data are set/handled by",
-        "the CPI calling program (e.g. Pyth Oracle)",
-        "",
-        "TODO: implement custom serialization & set alignment"
+        "A `MessageBuffer` AccountInfo.data will look like:",
+        "[  <discrimintator>, <buffer_header>, <messages> ]",
+        "(0..8)       (8..header_len) (header_len...accountInfo.data.len)"
       ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "header",
-            "type": {
-              "defined": "BufferHeader"
-            }
-          },
-          {
-            "name": "messages",
-            "type": {
-              "array": [
-                "u8",
-                9718
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "Whitelist",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "bump",
-            "type": "u8"
-          },
-          {
-            "name": "authority",
-            "type": "publicKey"
-          },
-          {
-            "name": "allowedPrograms",
-            "type": {
-              "vec": "publicKey"
-            }
-          }
-        ]
-      }
-    }
-  ],
-  "types": [
-    {
-      "name": "BufferHeader",
       "type": {
         "kind": "struct",
         "fields": [
@@ -332,6 +458,28 @@
                 "u16",
                 255
               ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Whitelist",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "admin",
+            "type": "publicKey"
+          },
+          {
+            "name": "allowedPrograms",
+            "type": {
+              "vec": "publicKey"
             }
           }
         ]
@@ -391,8 +539,28 @@
     },
     {
       "code": 6010,
+      "name": "MessageBufferTooSmall",
+      "msg": "Message Buffer is not sufficiently large"
+    },
+    {
+      "code": 6011,
       "name": "FundBumpNotFound",
       "msg": "Fund Bump not found"
+    },
+    {
+      "code": 6012,
+      "name": "ReallocFailed",
+      "msg": "Reallocation failed"
+    },
+    {
+      "code": 6013,
+      "name": "TargetSizeDeltaExceeded",
+      "msg": "Target size too large for reallocation/initialization. Max delta is 10240"
+    },
+    {
+      "code": 6014,
+      "name": "MessageBufferUninitialized",
+      "msg": "MessageBuffer Uninitialized"
     }
   ]
 }

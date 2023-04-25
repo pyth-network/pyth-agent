@@ -92,13 +92,52 @@ class MessageBufferNotProvided(ProgramError):
     msg = "Message Buffer not provided"
 
 
-class FundBumpNotFound(ProgramError):
+class MessageBufferTooSmall(ProgramError):
     def __init__(self) -> None:
-        super().__init__(6010, "Fund Bump not found")
+        super().__init__(6010, "Message Buffer is not sufficiently large")
 
     code = 6010
+    name = "MessageBufferTooSmall"
+    msg = "Message Buffer is not sufficiently large"
+
+
+class FundBumpNotFound(ProgramError):
+    def __init__(self) -> None:
+        super().__init__(6011, "Fund Bump not found")
+
+    code = 6011
     name = "FundBumpNotFound"
     msg = "Fund Bump not found"
+
+
+class ReallocFailed(ProgramError):
+    def __init__(self) -> None:
+        super().__init__(6012, "Reallocation failed")
+
+    code = 6012
+    name = "ReallocFailed"
+    msg = "Reallocation failed"
+
+
+class TargetSizeDeltaExceeded(ProgramError):
+    def __init__(self) -> None:
+        super().__init__(
+            6013,
+            "Target size too large for reallocation/initialization. Max delta is 10240",
+        )
+
+    code = 6013
+    name = "TargetSizeDeltaExceeded"
+    msg = "Target size too large for reallocation/initialization. Max delta is 10240"
+
+
+class MessageBufferUninitialized(ProgramError):
+    def __init__(self) -> None:
+        super().__init__(6014, "MessageBuffer Uninitialized")
+
+    code = 6014
+    name = "MessageBufferUninitialized"
+    msg = "MessageBuffer Uninitialized"
 
 
 CustomError = typing.Union[
@@ -112,7 +151,11 @@ CustomError = typing.Union[
     InvalidPDA,
     CurrentDataLengthExceeded,
     MessageBufferNotProvided,
+    MessageBufferTooSmall,
     FundBumpNotFound,
+    ReallocFailed,
+    TargetSizeDeltaExceeded,
+    MessageBufferUninitialized,
 ]
 CUSTOM_ERROR_MAP: dict[int, CustomError] = {
     6000: CallerNotAllowed(),
@@ -125,7 +168,11 @@ CUSTOM_ERROR_MAP: dict[int, CustomError] = {
     6007: InvalidPDA(),
     6008: CurrentDataLengthExceeded(),
     6009: MessageBufferNotProvided(),
-    6010: FundBumpNotFound(),
+    6010: MessageBufferTooSmall(),
+    6011: FundBumpNotFound(),
+    6012: ReallocFailed(),
+    6013: TargetSizeDeltaExceeded(),
+    6014: MessageBufferUninitialized(),
 }
 
 
