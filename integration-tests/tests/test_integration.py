@@ -167,16 +167,22 @@ class PythTest:
     @pytest.fixture
     def validator(self, ledger_path):
         log_dir = os.path.join(ledger_path, "validator_log")
-        with self.spawn(f"solana-test-validator --ledger {ledger_path}", log_dir=log_dir):
+
+        # command = f"solana-test-validator --ledger {ledger_path}"
+        validator_dir="/Users/jayant/git/pythnet/"
+        command = f"{validator_dir}/target/debug/solana-test-validator"
+        with self.spawn(command, log_dir=log_dir):
             time.sleep(3)
             yield
 
+    '''
     @pytest.fixture
     def validator_logs(self, ledger_path, validator):
         log_dir = os.path.join(ledger_path, "solana_logs")
         with self.spawn("solana logs --url localhost", log_dir=log_dir):
             LOGGER.debug("Capturing solana logs at %s", log_dir)
             yield
+    '''
 
     @pytest.fixture
     def sync_key_path(self, tmp_path):
@@ -255,7 +261,7 @@ class PythTest:
         yield path
 
     @pytest.fixture
-    def oracle_program(self, funding_keypair, deploy_oracle_program_keypair, deploy_message_buffer_program_keypair, validator, validator_logs):
+    def oracle_program(self, funding_keypair, deploy_oracle_program_keypair, deploy_message_buffer_program_keypair, validator):
         LOGGER.debug("Airdropping SOL to funding keypair at %s",
                      funding_keypair)
         self.run(f"solana airdrop 100 -k {funding_keypair} -u localhost")
