@@ -10,9 +10,10 @@ packages = [{ include = "integration_tests" }]
 python = "~3.10"
 
 [tool.poetry.dev-dependencies]
+anchorpy = "0.14.0"
 program-admin = { git = "https://github.com/pyth-network/program-admin.git", branch = "main" }
 pytest = "^7.2"
-pytest-asyncio = "^0.18.3"
+pytest-asyncio = "^0.20.0"
 pre-commit = "^2.21.0"
 requests = "^2.28.2"
 jsonrpc_websocket = "^3.1.4"
