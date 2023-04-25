@@ -20,7 +20,10 @@ import shutil
 from solana.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.system_program import ID as SYSTEM_PROGRAM_ID
-from anchorpy import Idl, Program
+from construct import Bytes, Int32sl, Int32ul, Struct
+from solana.publickey import PublicKey
+from solana.transaction import AccountMeta, TransactionInstruction
+from message_buffer.instructions import initialize
 from jsonrpc_websocket import Server
 
 LOGGER = logging.getLogger(__name__)
@@ -309,31 +312,26 @@ class PythTest:
     async def initialize_message_buffer_program(self, oracle_program, funding_keypair):
         (oracle_address, msg_buf_address) = oracle_program
 
-        # Construct Anchor client classes
         keypair_raw = open(funding_keypair).read()
-
+        # FIXME: this function doesn't exist.
         parsed_funding_keypair = Keypair.from_json(keypair_raw)
 
         client = AsyncClient("http://localhost:8899/")
         provider = Provider(client, Wallet(parsed_funding_keypair))
 
-        # Construct IDL
-        idl_file = open("message_buffer.json")
-        raw_idl = json.joad(idl_file)
+        whitelist_account = Pubkey.find_program_address([["message", "whitelist"]], msg_buf_address)
 
-        idl = Idl.from_json(raw_idl)
+        ix = initialize({
+                "authority": parsed_funding_keypair.pubkey(),
+             }, {
+                "payer": parsed_funding_keypair.pubkey(),
+                "whitelist": whitelist_account,
+             })
 
-        program_id = Pubkey(msg_buf_address)
+        tx = Transaction().add(ix)
+        await provider.send(tx, [parsed_funding_keypair, whitelist_account])
 
-        # Prepare arguments for program call
-        accounts = {
-            "payer": parsed_funding_keypair.pubkey(),
-            "system_program": SYSTEM_PROGRAM_ID,
-            }
-
-        async with Program(idl, program_id, provider) as prog:
-            await prog.rpc["initialize"](accounts)
-
+        # NOTE: we need to add an allowed program to the whitelist after this initialize call.
 
     @pytest.fixture
     def agent_publish_keypair(self, agent_keystore_path, sync_accounts):
@@ -365,7 +363,7 @@ class PythTest:
         os.symlink(agent_keystore_path, "keystore")
 
     @pytest.fixture
-    def agent(self, sync_accounts, agent_keystore, tmp_path):
+    def agent(self, sync_accounts, agent_keystore, tmp_path, initialize_message_buffer_program):
         LOGGER.debug("Building agent binary")
         self.run("cargo build --release")
 
@@ -379,7 +377,7 @@ class PythTest:
             yield
 
     @pytest.fixture
-    def agent_hotload(self, sync_accounts, agent_keystore, agent_keystore_path, tmp_path):
+    def agent_hotload(self, sync_accounts, agent_keystore, agent_keystore_path, tmp_path, initialize_message_buffer_program):
         """
         Spawns an agent without a publish keypair, used for keypair hotloading testing
         """
@@ -438,11 +436,11 @@ class TestUpdatePrice(PythTest):
         product = await client.get_product(product_account)
         price_account = product["price_accounts"][0]
 
+        time.sleep(6000)
+
         assert price_account["price"] == 42
         assert price_account["conf"] == 2
         assert price_account["status"] == "trading"
-
-        time.sleep(6000)
 
     @pytest.mark.asyncio
     async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
