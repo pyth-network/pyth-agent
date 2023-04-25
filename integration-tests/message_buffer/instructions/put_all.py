@@ -1,8 +1,8 @@
 from __future__ import annotations
 import typing
-from solders.pubkey import Pubkey
-from solders.system_program import ID as SYS_PROGRAM_ID
-from solders.instruction import Instruction, AccountMeta
+from solana.publickey import PublicKey
+from solana.system_program import SYS_PROGRAM_ID
+from solana.transaction import TransactionInstruction, AccountMeta
 from anchorpy.borsh_extension import BorshPubkey
 from construct import Construct
 import borsh_construct as borsh
@@ -10,7 +10,7 @@ from ..program_id import PROGRAM_ID
 
 
 class PutAllArgs(typing.TypedDict):
-    base_account_key: Pubkey
+    base_account_key: PublicKey
     messages: list[bytes]
 
 
@@ -18,28 +18,34 @@ layout = borsh.CStruct(
     "base_account_key" / BorshPubkey,
     "messages" / borsh.Vec(typing.cast(Construct, borsh.Bytes)),
 )
+WHITELIST_VERIFIER_NESTED_WHITELIST = PublicKey.find_program_address(
+    seeds=[b"message", b"whitelist"],
+    program_id=PROGRAM_ID,
+)[0]
+PUT_ALL_ACCOUNTS_FUND = PublicKey.find_program_address(
+    seeds=[b"fund"],
+    program_id=PROGRAM_ID,
+)[0]
 
 
 class PutAllAccounts(typing.TypedDict):
-    fund: Pubkey
     whitelist_verifier: WhitelistVerifierNested
 
 
 class WhitelistVerifierNested(typing.TypedDict):
-    whitelist: Pubkey
-    cpi_caller_auth: Pubkey
+    cpi_caller_auth: PublicKey
 
 
 def put_all(
     args: PutAllArgs,
     accounts: PutAllAccounts,
-    program_id: Pubkey = PROGRAM_ID,
+    program_id: PublicKey = PROGRAM_ID,
     remaining_accounts: typing.Optional[typing.List[AccountMeta]] = None,
-) -> Instruction:
+) -> TransactionInstruction:
     keys: list[AccountMeta] = [
-        AccountMeta(pubkey=accounts["fund"], is_signer=False, is_writable=True),
+        AccountMeta(pubkey=PUT_ALL_ACCOUNTS_FUND, is_signer=False, is_writable=True),
         AccountMeta(
-            pubkey=accounts["whitelist_verifier"]["whitelist"],
+            pubkey=WHITELIST_VERIFIER_NESTED_WHITELIST,
             is_signer=False,
             is_writable=False,
         ),
@@ -60,4 +66,4 @@ def put_all(
         }
     )
     data = identifier + encoded_args
-    return Instruction(program_id, data, keys)
+    return TransactionInstruction(keys, program_id, data)

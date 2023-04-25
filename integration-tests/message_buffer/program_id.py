@@ -1,3 +1,3 @@
-from solders.pubkey import Pubkey
+from solana.publickey import PublicKey
 
-PROGRAM_ID = Pubkey.from_string("85CXHH71gNyww8NJ5FQQBBvB7UbMdSMMH4ihi2xXgen")
+PROGRAM_ID = PublicKey("85CXHH71gNyww8NJ5FQQBBvB7UbMdSMMH4ihi2xXgen")

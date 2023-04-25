@@ -1,34 +1,39 @@
 from __future__ import annotations
 import typing
-from solders.pubkey import Pubkey
-from solders.system_program import ID as SYS_PROGRAM_ID
-from solders.instruction import Instruction, AccountMeta
+from solana.publickey import PublicKey
+from solana.system_program import SYS_PROGRAM_ID
+from solana.transaction import TransactionInstruction, AccountMeta
 from anchorpy.borsh_extension import BorshPubkey
 import borsh_construct as borsh
 from ..program_id import PROGRAM_ID
 
 
 class InitializeArgs(typing.TypedDict):
-    authority: Pubkey
+    authority: PublicKey
 
 
 layout = borsh.CStruct("authority" / BorshPubkey)
+INITIALIZE_ACCOUNTS_WHITELIST = PublicKey.find_program_address(
+    seeds=[b"message", b"whitelist"],
+    program_id=PROGRAM_ID,
+)[0]
 
 
 class InitializeAccounts(typing.TypedDict):
-    payer: Pubkey
-    whitelist: Pubkey
+    payer: PublicKey
 
 
 def initialize(
     args: InitializeArgs,
     accounts: InitializeAccounts,
-    program_id: Pubkey = PROGRAM_ID,
+    program_id: PublicKey = PROGRAM_ID,
     remaining_accounts: typing.Optional[typing.List[AccountMeta]] = None,
-) -> Instruction:
+) -> TransactionInstruction:
     keys: list[AccountMeta] = [
         AccountMeta(pubkey=accounts["payer"], is_signer=True, is_writable=True),
-        AccountMeta(pubkey=accounts["whitelist"], is_signer=False, is_writable=True),
+        AccountMeta(
+            pubkey=INITIALIZE_ACCOUNTS_WHITELIST, is_signer=False, is_writable=True
+        ),
         AccountMeta(pubkey=SYS_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
     if remaining_accounts is not None:
@@ -40,4 +45,4 @@ def initialize(
         }
     )
     data = identifier + encoded_args
-    return Instruction(program_id, data, keys)
+    return TransactionInstruction(keys, program_id, data)

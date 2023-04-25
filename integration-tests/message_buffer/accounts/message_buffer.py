@@ -1,6 +1,6 @@
 import typing
 from dataclasses import dataclass
-from solders.pubkey import Pubkey
+from solana.publickey import PublicKey
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Commitment
 import borsh_construct as borsh
@@ -29,15 +29,15 @@ class MessageBuffer:
     async def fetch(
         cls,
         conn: AsyncClient,
-        address: Pubkey,
+        address: PublicKey,
         commitment: typing.Optional[Commitment] = None,
-        program_id: Pubkey = PROGRAM_ID,
+        program_id: PublicKey = PROGRAM_ID,
     ) -> typing.Optional["MessageBuffer"]:
         resp = await conn.get_account_info(address, commitment=commitment)
         info = resp.value
         if info is None:
             return None
-        if info.owner != program_id:
+        if info.owner != program_id.to_solders():
             raise ValueError("Account does not belong to this program")
         bytes_data = info.data
         return cls.decode(bytes_data)
@@ -46,9 +46,9 @@ class MessageBuffer:
     async def fetch_multiple(
         cls,
         conn: AsyncClient,
-        addresses: list[Pubkey],
+        addresses: list[PublicKey],
         commitment: typing.Optional[Commitment] = None,
-        program_id: Pubkey = PROGRAM_ID,
+        program_id: PublicKey = PROGRAM_ID,
     ) -> typing.List[typing.Optional["MessageBuffer"]]:
         infos = await get_multiple_accounts(conn, addresses, commitment=commitment)
         res: typing.List[typing.Optional["MessageBuffer"]] = []

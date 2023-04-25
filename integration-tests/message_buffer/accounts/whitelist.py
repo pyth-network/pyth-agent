@@ -1,7 +1,7 @@
 import typing
 from dataclasses import dataclass
 from construct import Construct
-from solders.pubkey import Pubkey
+from solana.publickey import PublicKey
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Commitment
 import borsh_construct as borsh
@@ -27,22 +27,22 @@ class Whitelist:
         "allowed_programs" / borsh.Vec(typing.cast(Construct, BorshPubkey)),
     )
     bump: int
-    authority: Pubkey
-    allowed_programs: list[Pubkey]
+    authority: PublicKey
+    allowed_programs: list[PublicKey]
 
     @classmethod
     async def fetch(
         cls,
         conn: AsyncClient,
-        address: Pubkey,
+        address: PublicKey,
         commitment: typing.Optional[Commitment] = None,
-        program_id: Pubkey = PROGRAM_ID,
+        program_id: PublicKey = PROGRAM_ID,
     ) -> typing.Optional["Whitelist"]:
         resp = await conn.get_account_info(address, commitment=commitment)
         info = resp.value
         if info is None:
             return None
-        if info.owner != program_id:
+        if info.owner != program_id.to_solders():
             raise ValueError("Account does not belong to this program")
         bytes_data = info.data
         return cls.decode(bytes_data)
@@ -51,9 +51,9 @@ class Whitelist:
     async def fetch_multiple(
         cls,
         conn: AsyncClient,
-        addresses: list[Pubkey],
+        addresses: list[PublicKey],
         commitment: typing.Optional[Commitment] = None,
-        program_id: Pubkey = PROGRAM_ID,
+        program_id: PublicKey = PROGRAM_ID,
     ) -> typing.List[typing.Optional["Whitelist"]]:
         infos = await get_multiple_accounts(conn, addresses, commitment=commitment)
         res: typing.List[typing.Optional["Whitelist"]] = []
@@ -92,8 +92,8 @@ class Whitelist:
     def from_json(cls, obj: WhitelistJSON) -> "Whitelist":
         return cls(
             bump=obj["bump"],
-            authority=Pubkey.from_string(obj["authority"]),
+            authority=PublicKey(obj["authority"]),
             allowed_programs=list(
-                map(lambda item: Pubkey.from_string(item), obj["allowed_programs"])
+                map(lambda item: PublicKey(item), obj["allowed_programs"])
             ),
         )

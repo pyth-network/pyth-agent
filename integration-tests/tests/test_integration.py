@@ -18,12 +18,13 @@ from pathlib import Path
 from contextlib import contextmanager
 import shutil
 from solana.keypair import Keypair
-from solders.pubkey import Pubkey
 from solders.system_program import ID as SYSTEM_PROGRAM_ID
+from solana.rpc.async_api import AsyncClient
+from solana.transaction import Transaction, TransactionInstruction
+from anchorpy import Provider, Wallet
 from construct import Bytes, Int32sl, Int32ul, Struct
 from solana.publickey import PublicKey
-from solana.transaction import AccountMeta, TransactionInstruction
-from message_buffer.instructions import initialize
+from message_buffer.instructions import initialize, set_allowed_programs
 from jsonrpc_websocket import Server
 
 LOGGER = logging.getLogger(__name__)
@@ -312,26 +313,39 @@ class PythTest:
     async def initialize_message_buffer_program(self, oracle_program, funding_keypair):
         (oracle_address, msg_buf_address) = oracle_program
 
-        keypair_raw = open(funding_keypair).read()
-        # FIXME: this function doesn't exist.
-        parsed_funding_keypair = Keypair.from_json(keypair_raw)
+        keypair_file = open(funding_keypair)
+        parsed_funding_keypair = Keypair.from_secret_key(json.load(keypair_file))
 
         client = AsyncClient("http://localhost:8899/")
         provider = Provider(client, Wallet(parsed_funding_keypair))
 
-        whitelist_account = Pubkey.find_program_address([["message", "whitelist"]], msg_buf_address)
-
-        ix = initialize({
-                "authority": parsed_funding_keypair.pubkey(),
+        init_ix = initialize({
+                "authority": parsed_funding_keypair.public_key,
              }, {
-                "payer": parsed_funding_keypair.pubkey(),
-                "whitelist": whitelist_account,
+                "payer": parsed_funding_keypair.public_key,
              })
 
-        tx = Transaction().add(ix)
-        await provider.send(tx, [parsed_funding_keypair, whitelist_account])
+        tx = Transaction().add(init_ix)
 
-        # NOTE: we need to add an allowed program to the whitelist after this initialize call.
+        oracle_pubkey = PublicKey(oracle_address)
+        msg_buf_pubkey = PublicKey(msg_buf_address)
+        oracle_auth_pda, _ = PublicKey.find_program_address(
+            [b"upd_price_write", bytes(msg_buf_pubkey)],
+            oracle_pubkey
+        )
+
+        LOGGER.info(f"Oracle Auth PDA: {oracle_auth_pda}")
+
+        set_allowed_ix = set_allowed_programs({
+            "allowed_programs": [oracle_auth_pda],
+        }, {
+            "payer": parsed_funding_keypair.public_key,
+            "authority": parsed_funding_keypair.public_key,
+        })
+
+        tx.add(set_allowed_ix)
+
+        await provider.send(tx, [parsed_funding_keypair])
 
     @pytest.fixture
     def agent_publish_keypair(self, agent_keystore_path, sync_accounts):

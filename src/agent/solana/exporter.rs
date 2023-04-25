@@ -521,6 +521,13 @@ impl Exporter {
             &accumulator_program_key,
         );
 
+        let (oracle_auth_pda, _) = Pubkey::find_program_address(
+            &[b"upd_price_write", &accumulator_program_key.to_bytes()],
+            &self.key_store.program_key,
+        );
+
+        debug!(self.logger, "Oracle Auth PDA"; "address" => oracle_auth_pda.to_string());
+
         Ok(Instruction {
             program_id: self.key_store.program_key,
             accounts:   vec![
@@ -551,15 +558,9 @@ impl Exporter {
                     is_signer:   false,
                     is_writable: false,
                 },
-                // system program
+                // oracle_auth_pda
                 AccountMeta {
-                    pubkey:      solana_sdk::system_program::ID,
-                    is_signer:   false,
-                    is_writable: false,
-                },
-                // ixs_sysvar
-                AccountMeta {
-                    pubkey:      solana_sdk::sysvar::instructions::ID,
+                    pubkey:      oracle_auth_pda,
                     is_signer:   false,
                     is_writable: false,
                 },
