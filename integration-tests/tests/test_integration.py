@@ -169,10 +169,11 @@ class PythTest:
         log_dir = os.path.join(ledger_path, "validator_log")
 
         # command = f"solana-test-validator --ledger {ledger_path}"
-        validator_dir="/Users/jayant/git/pythnet/"
-        command = f"{validator_dir}/target/debug/solana-test-validator"
+        # validator_exec="/Users/jayant/git/pythnet/target/debug/solana-test-validator"
+        validator_exec="/home/drozdziak1/work/pythnet/target/debug/solana-test-validator"
+        command = f"{validator_exec} --ledger {ledger_path}"
         with self.spawn(command, log_dir=log_dir):
-            time.sleep(3)
+            time.sleep(5) # The debug binary needs a couple seconds to start accepting connections
             yield
 
     '''
