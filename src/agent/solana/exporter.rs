@@ -77,7 +77,7 @@ use {
 
 const PYTH_ORACLE_VERSION: u32 = 2;
 const UPDATE_PRICE_NO_FAIL_ON_ERROR: i32 = 13;
-const UPDATE_PRICE: i32 = 7;
+// const UPDATE_PRICE: i32 = 7; // Useful for making tx errors more visible in place of UPDATE_PRICE_NO_FAIL_ON_ERROR
 
 #[repr(C)]
 #[derive(Serialize, PartialEq, Debug, Clone)]
@@ -445,7 +445,7 @@ impl Exporter {
             .send_transaction_with_config(
                 &transaction,
                 RpcSendTransactionConfig {
-                    skip_preflight: false,
+                    skip_preflight: true,
                     ..RpcSendTransactionConfig::default()
                 },
             )
@@ -489,7 +489,7 @@ impl Exporter {
                 .serialize(
                     &(UpdPriceCmd {
                         version:  PYTH_ORACLE_VERSION,
-                        cmd:      UPDATE_PRICE,
+                        cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
                         status:   price_info.status,
                         unused_:  0,
                         price:    price_info.price,
