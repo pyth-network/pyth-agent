@@ -578,7 +578,7 @@ impl Exporter {
                 .serialize(
                     &(UpdPriceCmd {
                         version:  PYTH_ORACLE_VERSION,
-                        cmd:      UPDATE_PRICE,
+                        cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
                         status:   price_info.status,
                         unused_:  0,
                         price:    price_info.price,
