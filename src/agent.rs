@@ -240,12 +240,7 @@ pub mod config {
             // overridden by those in the config_file or "AGENT_"-prefixed environment
             // variables.
             config_rs::Config::builder()
-                .add_source(File::with_name(
-                    config_file
-                        .as_ref()
-                        .to_str()
-                        .ok_or_else(|| anyhow!("invalid path to config file"))?,
-                ))
+                .add_source(File::from(config_file.as_ref()))
                 .add_source(Environment::with_prefix("agent"))
                 .build()?
                 .try_deserialize()

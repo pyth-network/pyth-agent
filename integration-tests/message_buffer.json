@@ -428,7 +428,14 @@
         "",
         "A `MessageBuffer` AccountInfo.data will look like:",
         "[  <discrimintator>, <buffer_header>, <messages> ]",
-        "(0..8)       (8..header_len) (header_len...accountInfo.data.len)"
+        "(0..8)       (8..header_len) (header_len...accountInfo.data.len)",
+        "",
+        "<br>",
+        "",
+        "NOTE: The defined fields are read as *Little Endian*. The actual messages",
+        "are read as *Big Endian*. The MessageBuffer fields are only ever read",
+        "by the Pythnet validator & Hermes so don't need to be in Big Endian",
+        "for cross-platform compatibility."
       ],
       "type": {
         "kind": "struct",

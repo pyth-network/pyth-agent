@@ -155,8 +155,7 @@ mod key_store {
                 publish_keypair_path: "publish_key_pair.json".into(),
                 program_key_path:     "program_key.json".into(),
                 mapping_key_path:     "mapping_key.json".into(),
-                // FIXME: Temporary for the accumulator demo. Should be None
-                accumulator_key_path: Some("accumulator_program_key.json".into()),
+                accumulator_key_path: None,
             }
         }
     }
