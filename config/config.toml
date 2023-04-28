@@ -73,12 +73,17 @@ key_store.root_path = "/path/to/keystore"
 # channel_capacities.logger_buffer = 10000
 
 
-# Path to publisher identity keypair. When the specified path is not
-# found on startup, the relevant primary/secondary network will expect
-# a remote-loaded keypair. See remote_keypair_loader options for
+# Relative path to publisher identity keypair
+# w.r.t. `key_store.root_path`. When the specified file is not found
+# on startup, the relevant primary/secondary network will expect a
+# remote-loaded keypair. See remote_keypair_loader options for
 # details.
 # key_store.publish_keypair_path = "publish_key_pair.json" # I exist, remote loading disabled
 # key_store.publish_keypair_path = "none" # I do not exist, remote loading activated for the network
+
+# Relative path to accumulator message buffer program ID. Setting this
+# value enables accumulator support on publishing transactions.
+# key_store.accumulator_program_key = <not set by default>
 
 # The interval with which to poll account information.
 # oracle.poll_interval_duration = "2m"
@@ -86,14 +91,14 @@ key_store.root_path = "/path/to/keystore"
 # Whether subscribing to account updates over websocket is enabled
 # oracle.subscriber_enabled = true
 
-# Ask the RPC for up to this many product/price accounts in a
-# single request. Tune this setting if you're experiencing
-# timeouts on data fetching. In order to keep concurrent open
-# socket count at bay, the batches are looked up sequentially,
-# trading off overall time it takes to fetch all symbols.
+# Ask the Solana RPC for up to this many product/price accounts in a
+# single request. Tune this setting if you're experiencing timeouts on
+# data fetching. In order to keep concurrent open socket count at bay,
+# the batches are looked up sequentially, trading off overall time it
+# takes to fetch all symbols.
 # oracle.max_lookup_batch_size = 100
 
-# Duration of the interval at which to refresh the cached network state (current slot and blockhash).
+# How often to refresh the cached network state (current slot and blockhash).
 # It is recommended to set this to slightly less than the network's block time,
 # as the slot fetched will be used as the time of the price update.
 # exporter.refresh_network_state_interval_duration = "200ms"
