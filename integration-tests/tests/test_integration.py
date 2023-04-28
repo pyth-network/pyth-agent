@@ -182,14 +182,12 @@ class PythTest:
             time.sleep(15) # Debug-built binaries need a little more time
             yield
 
-    '''
     @pytest.fixture
     def validator_logs(self, ledger_path, validator):
         log_dir = os.path.join(ledger_path, "solana_logs")
         with self.spawn("solana logs --url localhost", log_dir=log_dir):
             LOGGER.debug("Capturing solana logs at %s", log_dir)
             yield
-    '''
 
     @pytest.fixture
     def sync_key_path(self, tmp_path):
@@ -257,7 +255,7 @@ class PythTest:
 
 
     @pytest_asyncio.fixture
-    async def sync_accounts(self, validator, funding_keypair, sync_key_path, sync_mapping_keypair, refdata_products, refdata_publishers, refdata_permissions):
+    async def sync_accounts(self, validator, validator_logs, funding_keypair, sync_key_path, sync_mapping_keypair, refdata_products, refdata_publishers, refdata_permissions):
         LOGGER.debug("Syncing Oracle program accounts")
         os.environ["TEST_MODE"] = "1"
         await ProgramAdmin(
