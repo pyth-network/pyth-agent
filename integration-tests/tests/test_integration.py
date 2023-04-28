@@ -24,7 +24,7 @@ from solana.transaction import AccountMeta, Transaction, TransactionInstruction
 from anchorpy import Provider, Wallet
 from construct import Bytes, Int32sl, Int32ul, Struct
 from solana.publickey import PublicKey
-from message_buffer.instructions import initialize, set_allowed_programs, create_buffer
+from message_buffer_client_codegen.instructions import initialize, set_allowed_programs, create_buffer
 from jsonrpc_websocket import Server
 
 LOGGER = logging.getLogger(__name__)
@@ -175,9 +175,9 @@ class PythTest:
     def validator(self, ledger_path):
         log_dir = os.path.join(ledger_path, "validator_log")
 
-        maybe_message_buffer = f"--bpf-program {MESSAGE_BUFFER_PROGRAM} message_buffer.so" if USE_ACCUMULATOR else ""
+        maybe_message_buffer = f"--bpf-program {MESSAGE_BUFFER_PROGRAM} program-binaries/message_buffer.so" if USE_ACCUMULATOR else ""
 
-        command = f"{SOLANA_TEST_VALIDATOR} --ledger {ledger_path} --bpf-program {ORACLE_PROGRAM} oracle.so {maybe_message_buffer}"
+        command = f"{SOLANA_TEST_VALIDATOR} --ledger {ledger_path} --bpf-program {ORACLE_PROGRAM} program-binaries/oracle.so {maybe_message_buffer}"
         with self.spawn(command, log_dir=log_dir):
             time.sleep(15) # Debug-built binaries need a little more time
             yield
