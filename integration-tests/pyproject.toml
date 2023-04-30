@@ -3,7 +3,7 @@ name = "integration-tests"
 version = "0.1.0"
 description = ""
 authors = ["Pyth Data Association <contact@pyth.network>"]
-readme = "README.md"
+readme = "../README.md"
 packages = [{ include = "integration_tests" }]
 
 [tool.poetry.dependencies]
