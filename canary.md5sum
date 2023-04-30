@@ -1,0 +1,3 @@
+b213ae5b2a4137238c47bdc5951fc95d  integration-tests/program-binaries/message_buffer_idl.json
+1d5b5e43be31e10f6e747b20ef77f4e9  integration-tests/program-binaries/message_buffer.so
+7c2782f6f58e9c91a95ce7c310a47927  integration-tests/program-binaries/oracle.so

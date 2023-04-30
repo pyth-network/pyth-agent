@@ -1,5 +1,6 @@
 use {
     anyhow::{
+        anyhow,
         Context,
         Result,
     },
@@ -9,6 +10,7 @@ use {
         Agent,
     },
     slog::{
+        debug,
         error,
         o,
         Drain,
@@ -33,8 +35,16 @@ struct Arguments {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = Arguments::parse();
+
+    if !args.config.as_path().exists() {
+        return Err(anyhow!("No config found under {:?}", args.config.to_str()));
+    }
+
+    println!("Loading config from {:?}", args.config.display());
+
     // Parse config early for logging channel capacity
-    let config = Config::new(Arguments::parse().config).context("Could not parse config")?;
+    let config = Config::new(args.config).context("Could not parse config")?;
 
     // A plain slog drain that sits inside an async drain instance
     let inner_drain = LogBuilder::new(
@@ -50,8 +60,11 @@ async fn main() -> Result<()> {
         .chan_size(config.channel_capacities.logger_buffer)
         .build()
         .fuse();
-
     let logger = slog::Logger::root(async_drain, o!());
+
+    let cwd = std::env::current_dir()?;
+
+    debug!(&logger, "Current working directory"; "cwd" => cwd.display());
 
     if let Err(err) = start(config, logger.clone()).await {
         error!(logger, "{:#}", err; "error" => format!("{:?}", err));

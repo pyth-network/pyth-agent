@@ -77,6 +77,7 @@ use {
 
 const PYTH_ORACLE_VERSION: u32 = 2;
 const UPDATE_PRICE_NO_FAIL_ON_ERROR: i32 = 13;
+// const UPDATE_PRICE: i32 = 7; // Useful for making tx errors more visible in place of UPDATE_PRICE_NO_FAIL_ON_ERROR
 
 #[repr(C)]
 #[derive(Serialize, PartialEq, Debug, Clone)]
@@ -128,7 +129,7 @@ impl Default for Config {
             inflight_transactions_channel_capacity:  10000,
             transaction_monitor:                     Default::default(),
             // The largest transactions appear to be about ~12000 CUs. We leave ourselves some breathing room.
-            compute_unit_limit:                      20000,
+            compute_unit_limit:                      40000,
             compute_unit_price_micro_lamports:       None,
         }
     }
@@ -390,40 +391,22 @@ impl Exporter {
                 continue;
             }
 
-            let instruction = Instruction {
-                program_id: self.key_store.program_key,
-                accounts:   vec![
-                    AccountMeta {
-                        pubkey:      publish_keypair.pubkey(),
-                        is_signer:   true,
-                        is_writable: true,
-                    },
-                    AccountMeta {
-                        pubkey:      Pubkey::new(&identifier.to_bytes()),
-                        is_signer:   false,
-                        is_writable: true,
-                    },
-                    AccountMeta {
-                        pubkey:      clock::id(),
-                        is_signer:   false,
-                        is_writable: false,
-                    },
-                ],
-
-                data: bincode::DefaultOptions::new()
-                    .with_little_endian()
-                    .with_fixint_encoding()
-                    .serialize(
-                        &(UpdPriceCmd {
-                            version:  PYTH_ORACLE_VERSION,
-                            cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
-                            status:   price_info.status,
-                            unused_:  0,
-                            price:    price_info.price,
-                            conf:     price_info.conf,
-                            pub_slot: network_state.current_slot,
-                        }),
-                    )?,
+            let instruction = if let Some(accumulator_program_key) = self.key_store.accumulator_key
+            {
+                self.create_instruction_with_accumulator(
+                    publish_keypair.pubkey(),
+                    Pubkey::new(&identifier.to_bytes()),
+                    &price_info,
+                    network_state.current_slot,
+                    accumulator_program_key,
+                )?
+            } else {
+                self.create_instruction_without_accumulator(
+                    publish_keypair.pubkey(),
+                    Pubkey::new(&identifier.to_bytes()),
+                    &price_info,
+                    network_state.current_slot,
+                )?
             };
 
             instructions.push(instruction);
@@ -463,6 +446,136 @@ impl Exporter {
         self.inflight_transactions_tx.send(signature).await?;
 
         Ok(())
+    }
+
+    fn create_instruction_without_accumulator(
+        &self,
+        publish_pubkey: Pubkey,
+        price_id: Pubkey,
+        price_info: &PriceInfo,
+        current_slot: u64,
+    ) -> Result<Instruction> {
+        Ok(Instruction {
+            program_id: self.key_store.program_key,
+            accounts:   vec![
+                AccountMeta {
+                    pubkey:      publish_pubkey,
+                    is_signer:   true,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey:      price_id,
+                    is_signer:   false,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey:      clock::id(),
+                    is_signer:   false,
+                    is_writable: false,
+                },
+            ],
+            data:       bincode::DefaultOptions::new()
+                .with_little_endian()
+                .with_fixint_encoding()
+                .serialize(
+                    &(UpdPriceCmd {
+                        version:  PYTH_ORACLE_VERSION,
+                        cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
+                        status:   price_info.status,
+                        unused_:  0,
+                        price:    price_info.price,
+                        conf:     price_info.conf,
+                        pub_slot: current_slot,
+                    }),
+                )?,
+        })
+    }
+
+    fn create_instruction_with_accumulator(
+        &self,
+        publish_pubkey: Pubkey,
+        price_id: Pubkey,
+        price_info: &PriceInfo,
+        current_slot: u64,
+        accumulator_program_key: Pubkey,
+    ) -> Result<Instruction> {
+        let (whitelist_pubkey, _whitelist_bump) = Pubkey::find_program_address(
+            &["message".as_bytes(), "whitelist".as_bytes()],
+            &accumulator_program_key,
+        );
+
+        let (oracle_auth_pda, _) = Pubkey::find_program_address(
+            &[b"upd_price_write", &accumulator_program_key.to_bytes()],
+            &self.key_store.program_key,
+        );
+
+        let (accumulator_data_pubkey, _accumulator_data_pubkey) = Pubkey::find_program_address(
+            &[
+                &oracle_auth_pda.to_bytes(),
+                "message".as_bytes(),
+                &price_id.to_bytes(),
+            ],
+            &accumulator_program_key,
+        );
+
+        Ok(Instruction {
+            program_id: self.key_store.program_key,
+            accounts:   vec![
+                AccountMeta {
+                    pubkey:      publish_pubkey,
+                    is_signer:   true,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey:      price_id,
+                    is_signer:   false,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey:      clock::id(),
+                    is_signer:   false,
+                    is_writable: false,
+                },
+                // accumulator program key
+                AccountMeta {
+                    pubkey:      accumulator_program_key,
+                    is_signer:   false,
+                    is_writable: false,
+                },
+                // whitelist
+                AccountMeta {
+                    pubkey:      whitelist_pubkey,
+                    is_signer:   false,
+                    is_writable: false,
+                },
+                // oracle_auth_pda
+                AccountMeta {
+                    pubkey:      oracle_auth_pda,
+                    is_signer:   false,
+                    is_writable: false,
+                },
+                // accumulator_data
+                AccountMeta {
+                    pubkey:      accumulator_data_pubkey,
+                    is_signer:   false,
+                    is_writable: true,
+                },
+            ],
+            data:       bincode::DefaultOptions::new()
+                .with_little_endian()
+                .with_fixint_encoding()
+                .serialize(
+                    &(UpdPriceCmd {
+                        version:  PYTH_ORACLE_VERSION,
+                        cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
+                        status:   price_info.status,
+                        unused_:  0,
+                        price:    price_info.price,
+                        conf:     price_info.conf,
+                        pub_slot: current_slot,
+                    }),
+                )?,
+        })
     }
 }
 
@@ -658,19 +771,34 @@ mod transaction_monitor {
                 return Ok(());
             }
 
+            let signatures_contiguous = self.sent_transactions.make_contiguous();
+
             // Poll the status of each transaction, in a single RPC request
             let statuses = self
                 .rpc_client
-                .get_signature_statuses(self.sent_transactions.make_contiguous())
+                .get_signature_statuses(signatures_contiguous)
                 .await?
                 .value;
+
+            debug!(self.logger, "Processing Signature Statuses"; "statuses" => format!("{:?}", statuses));
 
             // Determine the percentage of the recently sent transactions that have successfully been committed
             // TODO: expose as metric
             let confirmed = statuses
                 .into_iter()
+                .zip(signatures_contiguous)
+                .map(|(status, sig)| status.map(|some_status| (some_status, sig))) // Collate Some() statuses with their tx signatures before flatten()
                 .flatten()
-                .filter(|s| s.satisfies_commitment(CommitmentConfig::confirmed()))
+                .filter(|(status, sig)| {
+                    if let Some(err) = status.err.as_ref() {
+                        warn!(self.logger, "TX status has err value";
+                        "error" => err.to_string(),
+                        "tx_signature" => sig.to_string(),
+                                          )
+                    }
+
+                    status.satisfies_commitment(CommitmentConfig::confirmed())
+                })
                 .count();
             let percentage_confirmed =
                 ((confirmed as f64) / (self.sent_transactions.len() as f64)) * 100.0;

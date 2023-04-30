@@ -18,20 +18,34 @@ from pathlib import Path
 from contextlib import contextmanager
 import shutil
 from solana.keypair import Keypair
+from solders.system_program import ID as SYSTEM_PROGRAM_ID
+from solana.rpc.async_api import AsyncClient
+from solana.transaction import AccountMeta, Transaction, TransactionInstruction
+from anchorpy import Provider, Wallet
+from construct import Bytes, Int32sl, Int32ul, Struct
+from solana.publickey import PublicKey
+from message_buffer_client_codegen.instructions import initialize, set_allowed_programs, create_buffer
 from jsonrpc_websocket import Server
 
 LOGGER = logging.getLogger(__name__)
 
-# Keypairs
-# BujGr9ChcuaCJhxeFEvGvaCFTxSV1CUCSVHL1SVFpU4i
-PROGRAM_KEYPAIR = [28, 50, 87, 251, 247, 251, 45, 91, 139, 128, 72, 197, 172, 61, 15, 60, 76, 81, 6, 13, 94, 109, 212, 28, 40, 110, 61, 207, 40, 34, 37,
-                   216, 162, 22, 222, 173, 4, 56, 58, 79, 253, 77, 93, 134, 47, 144, 105, 188, 77, 237, 92, 194, 133, 54, 94, 129, 10, 19, 192, 115, 215, 209, 28, 155]
+# The core Pyth oracle address
+ORACLE_PROGRAM = "BujGr9ChcuaCJhxeFEvGvaCFTxSV1CUCSVHL1SVFpU4i"
+# The pythnet-specific accumulator message buffer address
+MESSAGE_BUFFER_PROGRAM = "Vbmv1jt4vyuqBZcpYPpnVhrqVe5e6ZPb6JxDcffRHUM"
+
 # BTJKZngp3vzeJiRmmT9PitQH4H29dhQZ1GNhxFfDi4kw
 MAPPING_KEYPAIR = [62, 251, 237, 123, 32, 23, 77, 112, 75, 109, 141, 142, 101, 235, 231, 46, 82, 224, 124, 182, 136, 15, 157, 13, 130, 60, 8, 251, 212, 255,
                    116, 8, 155, 81, 141, 223, 90, 30, 205, 238, 119, 249, 130, 159, 191, 87, 136, 130, 225, 86, 103, 26, 255, 105, 59, 48, 101, 66, 157, 174, 106, 186, 51, 72]
 # 5F1MvPpfXytDPJb7beKiFEzdMacbzc5DmKrHzvzEorH8
 PUBLISHER_KEYPAIR = [28, 188, 185, 140, 54, 34, 203, 52, 83, 136, 217, 69, 104, 188, 165, 215, 42, 23, 73, 14, 87, 84, 155, 47, 91, 166, 208, 129, 10,
                      67, 4, 72, 63, 5, 73, 112, 194, 37, 117, 20, 46, 66, 102, 78, 196, 75, 127, 90, 40, 85, 69, 209, 12, 237, 118, 39, 218, 157, 86, 251, 112, 61, 104, 235]
+
+# NOTE: Set to a value to run agent with accumulator support. Should be used with a pythnet validator, set below.
+USE_ACCUMULATOR = os.environ.get("USE_ACCUMULATOR") is not None
+
+# NOTE: Set to a local pythnet solana-test-validator binary for accumulator integration testing. Does not imply USE_ACCUMULATOR
+SOLANA_TEST_VALIDATOR = os.environ.get("SOLANA_TEST_VALIDATOR", "solana-test-validator")
 
 # Product account metadata
 BTC_USD = {
@@ -44,7 +58,7 @@ BTC_USD = {
         "generic_symbol": "BTCUSD",
         "description": "BTC/USD",
     },
-    "metadata": {"jump_id": "78876709", "jump_symbol": "BTCUSD", "price_exp": -8},
+    "metadata": {"jump_id": "78876709", "jump_symbol": "BTCUSD", "price_exp": -8, "min_publishers": 1},
 }
 AAPL_USD = {
     "account": "",
@@ -59,20 +73,9 @@ AAPL_USD = {
         "symbol": "Equity.US.AAPL/USD",
         "base": "AAPL",
     },
-    "metadata": {"jump_id": "186", "jump_symbol": "AAPL", "price_exp": -5},
+    "metadata": {"jump_id": "186", "jump_symbol": "AAPL", "price_exp": -5, "min_publishers": 1},
 }
-ETH_USD = {
-    "account": "",
-    "attr_dict": {
-        "symbol": "Crypto.ETH/USD",
-        "asset_type": "Crypto",
-        "base": "ETH",
-        "quote_currency": "USD",
-        "generic_symbol": "ETHUSD",
-        "description": "ETH/USD",
-    },
-    "metadata": {"jump_id": "12345", "jump_symbol": "ETHUSD", "price_exp": -8},
-}
+ALL_PRODUCTS=[BTC_USD, AAPL_USD]
 
 asyncio.set_event_loop(asyncio.new_event_loop())
 
@@ -107,11 +110,13 @@ class PythAgentClient:
         await self.server.update_price(account=account, price=price, conf=conf, status=status)
 
     async def get_all_products(self) -> List:
+        LOGGER.info("sending get_all_products()")
         products = await self.server.get_all_products()
         LOGGER.info("get_all_products result: %s", products)
         return products
 
     async def get_product(self, account) -> Any:
+        LOGGER.info(f"sending get_product({account})")
         product = await self.server.get_product(account=account)
         LOGGER.info("get_product(%s) result: %s", account, product)
         return product
@@ -169,8 +174,12 @@ class PythTest:
     @pytest.fixture
     def validator(self, ledger_path):
         log_dir = os.path.join(ledger_path, "validator_log")
-        with self.spawn(f"solana-test-validator --ledger {ledger_path}", log_dir=log_dir):
-            time.sleep(3)
+
+        maybe_message_buffer = f"--bpf-program {MESSAGE_BUFFER_PROGRAM} program-binaries/message_buffer.so" if USE_ACCUMULATOR else ""
+
+        command = f"{SOLANA_TEST_VALIDATOR} --ledger {ledger_path} --bpf-program {ORACLE_PROGRAM} program-binaries/oracle.so {maybe_message_buffer}"
+        with self.spawn(command, log_dir=log_dir):
+            time.sleep(15) # Debug-built binaries need a little more time
             yield
 
     @pytest.fixture
@@ -198,13 +207,6 @@ class PythTest:
         shutil.copyfile(f"{sync_key_path}/mapping_0.json",
                         f"{sync_key_path}/account_{pubkey}.json")
 
-    @pytest.fixture
-    def deploy_program_keypair(self, tmp_path):
-        path = os.path.join(tmp_path, "program_keypair.json")
-        with open(path, 'w') as f:
-            f.write(json.dumps(PROGRAM_KEYPAIR))
-            f.flush()
-        yield path
 
     @pytest.fixture
     def refdata_path(self, tmp_path):
@@ -246,32 +248,20 @@ class PythTest:
         path = os.path.join(sync_key_path, "funding.json")
         self.run(
             f"solana-keygen new --no-bip39-passphrase --outfile {path}")
+        self.run(
+            f"solana airdrop 1000 -k {path} -u localhost")
+
         yield path
 
-    @pytest.fixture
-    def oracle_program(self, funding_keypair, deploy_program_keypair, validator, validator_logs):
-        LOGGER.debug("Airdropping SOL to funding keypair at %s",
-                     funding_keypair)
-        self.run(f"solana airdrop 100 -k {funding_keypair} -u localhost")
-
-        LOGGER.debug("Deploying Oracle program")
-        _, _, program_account = self.run(
-            f"solana program deploy -k {funding_keypair} -u localhost --program-id {deploy_program_keypair} oracle.so").stdout.split()
-
-        LOGGER.info("Oracle program account: %s", program_account)
-
-        os.environ["PROGRAM_KEY"] = program_account
-
-        yield program_account
 
     @pytest_asyncio.fixture
-    async def sync_accounts(self, oracle_program, sync_key_path, sync_mapping_keypair, refdata_products, refdata_publishers, refdata_permissions):
+    async def sync_accounts(self, validator, validator_logs, funding_keypair, sync_key_path, sync_mapping_keypair, refdata_products, refdata_publishers, refdata_permissions):
         LOGGER.debug("Syncing Oracle program accounts")
         os.environ["TEST_MODE"] = "1"
         await ProgramAdmin(
             network="localhost",
             key_dir=sync_key_path,
-            program_key=oracle_program,
+            program_key=ORACLE_PROGRAM,
             commitment="confirmed",
         ).sync(
             parse_products_json(Path(refdata_products)),
@@ -295,7 +285,7 @@ class PythTest:
             f.flush()
 
         LOGGER.debug("Airdropping SOL to publish keypair at %s", path)
-        self.run(f"solana airdrop 100 -k {path} -u localhost")
+        self.run(f"solana airdrop 1000 -k {path} -u localhost")
         address = self.run(f"solana address -k {path} -u localhost")
         balance = self.run(f"solana balance -k {path} -u localhost")
         LOGGER.debug(f"Publisher {address.stdout.strip()} balance: {balance.stdout.strip()}")
@@ -305,12 +295,101 @@ class PythTest:
     def agent_keystore(self, agent_keystore_path, agent_publish_keypair):
         self.run(
             f"../scripts/init_key_store.sh localnet {agent_keystore_path}")
+
+        if USE_ACCUMULATOR:
+            path = os.path.join(agent_keystore_path, "accumulator_program_key.json")
+
+            with open(path, 'w') as f:
+                f.write(MESSAGE_BUFFER_PROGRAM)
+
         if os.path.exists("keystore"):
             os.remove("keystore")
         os.symlink(agent_keystore_path, "keystore")
 
+    @pytest_asyncio.fixture
+    async def initialize_message_buffer_program(self, funding_keypair, sync_key_path, sync_accounts):
+
+        if not USE_ACCUMULATOR:
+            return
+
+        keypair_file = open(funding_keypair)
+        parsed_funding_keypair = Keypair.from_secret_key(json.load(keypair_file))
+
+        client = AsyncClient("http://localhost:8899/")
+        provider = Provider(client, Wallet(parsed_funding_keypair))
+
+        init_ix = initialize({
+                "admin": parsed_funding_keypair.public_key,
+             }, {
+                "payer": parsed_funding_keypair.public_key,
+             })
+
+        tx = Transaction().add(init_ix)
+
+        oracle_pubkey = PublicKey(ORACLE_PROGRAM)
+        msg_buf_pubkey = PublicKey(MESSAGE_BUFFER_PROGRAM)
+        oracle_auth_pda, _ = PublicKey.find_program_address(
+            [b"upd_price_write", bytes(msg_buf_pubkey)],
+            oracle_pubkey
+        )
+
+        LOGGER.info(f"Oracle Auth PDA: {oracle_auth_pda}")
+
+        set_allowed_ix = set_allowed_programs({
+            "allowed_programs": [oracle_auth_pda],
+        }, {
+            "payer": parsed_funding_keypair.public_key,
+            "admin": parsed_funding_keypair.public_key,
+        })
+
+        tx.add(set_allowed_ix)
+
+        for product in ALL_PRODUCTS:
+            jump_symbol = product["metadata"]["jump_symbol"]
+            address_string = self.run(f"solana address -k {sync_key_path}/price_{jump_symbol}.json -u localhost").stdout.strip()
+            LOGGER.info(f"{jump_symbol} price account: {address_string}")
+            address = PublicKey(address_string)
+
+            message_buffer_pda, _ = PublicKey.find_program_address(
+                [bytes(oracle_auth_pda), b"message", bytes(address)],
+                msg_buf_pubkey
+            )
+
+            ix = create_buffer({
+                "allowed_program_auth": oracle_auth_pda,
+                "base_account_key": address,
+                "target_size": 1024
+            }, {
+                "admin": parsed_funding_keypair.public_key,
+            },
+                remaining_accounts = [
+                    AccountMeta(pubkey=message_buffer_pda, is_signer=False, is_writable=True)
+                ]
+            )
+            tx.add(ix)
+
+        await provider.send(tx, [parsed_funding_keypair])
+
     @pytest.fixture
-    def agent(self, sync_accounts, agent_keystore, tmp_path):
+    def agent_config(self, agent_keystore, tmp_path):
+        with open("agent_conf.toml") as config_file:
+            agent_config = config_file.read()
+
+            # Add accumulator setting if option is enabled
+            if USE_ACCUMULATOR:
+                agent_config += '\nkey_store.accumulator_key_path = "accumulator_program_key.json"'
+
+            path = os.path.join(tmp_path, "agent_conf.toml")
+
+            with open(path, 'w') as f:
+                f.write(agent_config)
+
+            return path
+
+
+
+    @pytest.fixture
+    def agent(self, sync_accounts, agent_keystore, tmp_path, initialize_message_buffer_program, agent_config):
         LOGGER.debug("Building agent binary")
         self.run("cargo build --release")
 
@@ -319,12 +398,12 @@ class PythTest:
 
         os.environ["RUST_BACKTRACE"] = "full"
         os.environ["RUST_LOG"] = "debug"
-        with self.spawn("../target/release/agent --config agent_conf.toml", log_dir=log_dir):
+        with self.spawn(f"../target/release/agent --config {agent_config}", log_dir=log_dir):
             time.sleep(3)
             yield
 
     @pytest.fixture
-    def agent_hotload(self, sync_accounts, agent_keystore, agent_keystore_path, tmp_path):
+    def agent_hotload(self, sync_accounts, agent_keystore, agent_keystore_path, tmp_path, initialize_message_buffer_program, agent_config):
         """
         Spawns an agent without a publish keypair, used for keypair hotloading testing
         """
@@ -338,7 +417,7 @@ class PythTest:
 
         os.environ["RUST_BACKTRACE"] = "full"
         os.environ["RUST_LOG"] = "debug"
-        with self.spawn("../target/release/agent --config agent_conf.toml", log_dir=log_dir):
+        with self.spawn(f"../target/release/agent --config {agent_config}", log_dir=log_dir):
             time.sleep(3)
             yield
 
@@ -373,18 +452,19 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(3)
+        time.sleep(1)
 
         # Send another "update_price" request to trigger aggregation
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(3)
+        time.sleep(2)
 
         # Confirm that the price account has been updated with the values from the first "update_price" request
-        product = await client.get_product(product_account)
-        price_account = product["price_accounts"][0]
-        assert price_account["price"] == 42
-        assert price_account["conf"] == 2
-        assert price_account["status"] == "trading"
+        final_product_state = await client.get_product(product_account)
+
+        final_price_account = final_product_state["price_accounts"][0]
+        assert final_price_account["price"] == 42
+        assert final_price_account["conf"] == 2
+        assert final_price_account["status"] == "trading"
 
     @pytest.mark.asyncio
     async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
@@ -398,3 +478,28 @@ class TestUpdatePrice(PythTest):
 
         # Continue normally with the existing simple scenario
         await self.test_update_price_simple(client_hotload)
+
+    @pytest.mark.asyncio
+    @pytest.mark.skip(reason="Test not meant for automatic CI")
+    async def test_publish_forever(self, client: PythAgentClient):
+        '''
+        Convenience test routine for manual experiments on a running test setup.
+        '''
+        # Fetch all products
+        products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
+
+        # Find the product account ID corresponding to the BTC/USD symbol
+        product = products[BTC_USD["attr_dict"]["symbol"]]
+        product_account = product["account"]
+
+        # Get the price account with which to send updates
+        price_account = product["price_accounts"][0]["account"]
+
+        while True:
+            # Send an "update_price" request
+            await client.update_price(price_account, 47, 2, "trading")
+            time.sleep(1)
+
+            # Send another "update_price" request to trigger aggregation
+            await client.update_price(price_account, 81, 1, "trading")
+            time.sleep(2)

@@ -1,7 +1,7 @@
+[metrics_server]
+bind_address="0.0.0.0:8888"
+
 [primary_network]
 key_store.root_path = "keystore"
 oracle.poll_interval_duration = "1s"
 exporter.transaction_monitor.poll_interval_duration = "1s"
-
-[metrics_server]
-bind_address="0.0.0.0:8888"

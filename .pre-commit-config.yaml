@@ -12,3 +12,9 @@ repos:
         language: "rust"
         entry: cargo +nightly fmt
         pass_filenames: false
+      - id: integration-test-checksums
+        name: Integration Test Artifact Checksums
+        language: "system"
+        files: integration-tests/program-binaries/.*\.(json|so|md5sum)$
+        entry: md5sum --check canary.md5sum
+        pass_filenames: false
