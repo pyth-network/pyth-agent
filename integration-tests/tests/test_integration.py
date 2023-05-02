@@ -7,6 +7,7 @@ from typing import Any, List
 import pytest
 import subprocess
 import logging
+import struct
 from program_admin import ProgramAdmin
 from program_admin.parsing import (
     parse_permissions_json,
@@ -20,11 +21,13 @@ import shutil
 from solana.keypair import Keypair
 from solders.system_program import ID as SYSTEM_PROGRAM_ID
 from solana.rpc.async_api import AsyncClient
+from solana.rpc import commitment
 from solana.transaction import AccountMeta, Transaction, TransactionInstruction
 from anchorpy import Provider, Wallet
 from construct import Bytes, Int32sl, Int32ul, Struct
 from solana.publickey import PublicKey
 from message_buffer_client_codegen.instructions import initialize, set_allowed_programs, create_buffer
+from message_buffer_client_codegen.accounts.message_buffer import MessageBuffer
 from jsonrpc_websocket import Server
 
 LOGGER = logging.getLogger(__name__)
@@ -79,6 +82,21 @@ ALL_PRODUCTS=[BTC_USD, AAPL_USD]
 
 asyncio.set_event_loop(asyncio.new_event_loop())
 
+
+# Useful derivations of the constants above
+oracle_pubkey = PublicKey(ORACLE_PROGRAM)
+msg_buf_pubkey = PublicKey(MESSAGE_BUFFER_PROGRAM)
+oracle_auth_pda, _ = PublicKey.find_program_address(
+    [b"upd_price_write", bytes(msg_buf_pubkey)],
+    oracle_pubkey
+)
+
+def get_buffer_pubkey(base_account: PublicKey) -> PublicKey:
+    pubkey, _ = PublicKey.find_program_address(
+        [bytes(oracle_auth_pda), b"message", bytes(base_account)],
+        msg_buf_pubkey
+    )
+    return pubkey
 
 class PythAgentClient:
 
@@ -326,13 +344,6 @@ class PythTest:
 
         tx = Transaction().add(init_ix)
 
-        oracle_pubkey = PublicKey(ORACLE_PROGRAM)
-        msg_buf_pubkey = PublicKey(MESSAGE_BUFFER_PROGRAM)
-        oracle_auth_pda, _ = PublicKey.find_program_address(
-            [b"upd_price_write", bytes(msg_buf_pubkey)],
-            oracle_pubkey
-        )
-
         LOGGER.info(f"Oracle Auth PDA: {oracle_auth_pda}")
 
         set_allowed_ix = set_allowed_programs({
@@ -350,10 +361,7 @@ class PythTest:
             LOGGER.info(f"{jump_symbol} price account: {address_string}")
             address = PublicKey(address_string)
 
-            message_buffer_pda, _ = PublicKey.find_program_address(
-                [bytes(oracle_auth_pda), b"message", bytes(address)],
-                msg_buf_pubkey
-            )
+            message_buffer_pda = get_buffer_pubkey(address)
 
             ix = create_buffer({
                 "allowed_program_auth": oracle_auth_pda,
@@ -465,6 +473,35 @@ class TestUpdatePrice(PythTest):
         assert final_price_account["price"] == 42
         assert final_price_account["conf"] == 2
         assert final_price_account["status"] == "trading"
+
+        if USE_ACCUMULATOR:
+            # Confirm that message buffer has been updated with the values from the BTC/USD price update
+
+            btc_usd_message_buffer_pubkey = get_buffer_pubkey(PublicKey(price_account))
+            sol_client = AsyncClient("http://localhost:8899", commitment=commitment.Confirmed)
+            buffer = (await sol_client.get_account_info(btc_usd_message_buffer_pubkey)).value
+
+            assert buffer is not None
+
+            # MessageBuffer class only contains the header of the data
+            # the rest of the data is not structured and is just a byte array
+            # separated by end_offsets.
+            message_buffer_header = MessageBuffer.decode(buffer.data)
+            header_len = message_buffer_header.header_len
+            first_message = buffer.data[header_len: header_len + message_buffer_header.end_offsets[0]]
+
+            # Confirm that the first message in the buffer is the expected one
+            message_type = first_message[0]
+            assert message_type == 0 # Type 0 is PriceFeed
+
+            price_id = first_message[1:33]
+            assert PublicKey(price_id) == PublicKey(price_account)
+
+            # > means big endian, q means i64, Q means u64
+            price, conf = struct.unpack_from(">qQ", first_message, 33)
+
+            assert price == 42
+            assert conf == 2
 
     @pytest.mark.asyncio
     async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
