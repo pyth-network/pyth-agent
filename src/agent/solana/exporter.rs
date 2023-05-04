@@ -57,13 +57,19 @@ use {
         transaction::Transaction,
     },
     std::{
-        collections::HashMap,
+        collections::{
+            HashMap,
+            HashSet,
+        },
         time::Duration,
     },
     tokio::{
         sync::{
             mpsc,
-            mpsc::Sender,
+            mpsc::{
+                error::TryRecvError,
+                Sender,
+            },
             oneshot,
             watch,
         },
@@ -139,6 +145,7 @@ pub fn spawn_exporter(
     config: Config,
     rpc_url: &str,
     rpc_timeout: Duration,
+    perm_price_rx: mpsc::Receiver<HashSet<Pubkey>>,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     keypair_request_tx: mpsc::Sender<KeypairRequest>,
@@ -176,6 +183,7 @@ pub fn spawn_exporter(
         local_store_tx,
         network_state_rx,
         transactions_tx,
+        perm_price_rx,
         keypair_request_tx,
         logger,
     );
@@ -213,6 +221,12 @@ pub struct Exporter {
     // Channel on which to send inflight transactions to the transaction monitor
     inflight_transactions_tx: Sender<Signature>,
 
+    /// Permissioned symbols as read by the oracle module
+    perm_price_rx: mpsc::Receiver<HashSet<Pubkey>>,
+
+    /// Symbols we are permissioned to publish
+    perm_price_accounts: HashSet<Pubkey>,
+
     keypair_request_tx: Sender<KeypairRequest>,
 
     logger: Logger,
@@ -227,6 +241,7 @@ impl Exporter {
         local_store_tx: Sender<store::local::Message>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
+        perm_price_rx: mpsc::Receiver<HashSet<Pubkey>>,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Self {
@@ -240,6 +255,8 @@ impl Exporter {
             last_published_at: HashMap::new(),
             network_state_rx,
             inflight_transactions_tx,
+            perm_price_rx,
+            perm_price_accounts: HashSet::new(),
             keypair_request_tx,
             logger,
         }
@@ -289,8 +306,48 @@ impl Exporter {
             return Ok(());
         }
 
+        // Update permissioned accounts of this publisher from the oracle
+        match self.perm_price_rx.try_recv() {
+            Ok(perm_price_accounts) => {
+                self.perm_price_accounts = perm_price_accounts;
+            }
+            // Expected failures between updates from oracle
+            Err(TryRecvError::Empty) => {
+                debug!(
+                    self.logger,
+                    "Exporter: No new permissioned price accounts in channel, using cached value";
+                    "cached_value" => format!("{:?}", self.perm_price_accounts),
+                );
+            }
+            // Unexpected failures (channel closed, internal errors etc.)
+            Err(other) => {
+                warn!(
+                    self.logger,
+                    "Exporter: Updating permissioned price accounts failed unexpectedly, using cached value";
+                    "cached_value" => format!("{:?}", self.perm_price_accounts),
+                    "error" => other.to_string(),
+                );
+            }
+        }
+
+        // Filter out price accounts we're not permissioned to update
+        let permissioned_updates = fresh_updates
+            .into_iter()
+            .filter(|(id, _data)| {
+                let key_from_id = Pubkey::new(id.clone().to_bytes().as_slice());
+                if self.perm_price_accounts.contains(&key_from_id) {
+                    true
+                } else {
+                    warn!(self.logger, "Attempted to publish a price without permission, skipping";
+			  "price_account" => key_from_id.to_string(),
+			  "perm_price_accounts" => format!("{:?}", self.perm_price_accounts),);
+                    false
+                }
+            })
+            .collect::<Vec<_>>();
+
         // Split the updates up into batches
-        let batches = fresh_updates.chunks(self.config.max_batch_size);
+        let batches = permissioned_updates.chunks(self.config.max_batch_size);
 
         // Publish all the batches, staggering the requests over the publish interval
         let num_batches = batches.len();

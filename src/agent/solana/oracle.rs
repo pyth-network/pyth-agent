@@ -1,10 +1,13 @@
+use crate::agent::remote_keypair_loader::KeypairRequest;
 // This module is responsible for loading the current state of the
 // on-chain Oracle program accounts from Solana.
-
 use {
     self::subscriber::Subscriber,
     super::key_store::KeyStore,
-    crate::agent::store::global,
+    crate::agent::{
+        remote_keypair_loader::RemoteKeypairLoader,
+        store::global,
+    },
     anyhow::{
         anyhow,
         Context,
@@ -28,6 +31,10 @@ use {
             CommitmentLevel,
         },
         pubkey::Pubkey,
+        signer::{
+            keypair::Keypair,
+            Signer,
+        },
     },
     std::{
         collections::{
@@ -45,9 +52,10 @@ use {
 
 #[derive(Default, Debug, Clone)]
 pub struct Data {
-    pub mapping_accounts: HashMap<Pubkey, MappingAccount>,
-    pub product_accounts: HashMap<Pubkey, ProductEntry>,
-    pub price_accounts:   HashMap<Pubkey, PriceEntry>,
+    pub mapping_accounts:    HashMap<Pubkey, MappingAccount>,
+    pub product_accounts:    HashMap<Pubkey, ProductEntry>,
+    pub price_accounts:      HashMap<Pubkey, PriceEntry>,
+    pub perm_price_accounts: HashSet<Pubkey>,
 }
 
 impl Data {
@@ -55,11 +63,13 @@ impl Data {
         mapping_accounts: HashMap<Pubkey, MappingAccount>,
         product_accounts: HashMap<Pubkey, ProductEntry>,
         price_accounts: HashMap<Pubkey, PriceEntry>,
+        perm_price_accounts: HashSet<Pubkey>,
     ) -> Self {
         Data {
             mapping_accounts,
             product_accounts,
             price_accounts,
+            perm_price_accounts,
         }
     }
 }
@@ -74,16 +84,16 @@ pub type PriceEntry = pyth_sdk_solana::state::PriceAccount;
 
 // Oracle is responsible for fetching Solana account data stored in the Pyth on-chain Oracle.
 pub struct Oracle {
-    // The Solana account data
+    /// The Solana account data
     data: Data,
 
-    // Channel on which polled data are received from the Poller
+    /// Channel on which polled data are received from the Poller
     data_rx: mpsc::Receiver<Data>,
 
-    // Channel on which account updates are received from the Subscriber
+    /// Channel on which account updates are received from the Subscriber
     updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
 
-    // Channel on which updates are sent to the global store
+    /// Channel on which updates are sent to the global store
     global_store_tx: mpsc::Sender<global::Update>,
 
     logger: Logger,
@@ -130,8 +140,10 @@ pub fn spawn_oracle(
     rpc_url: &str,
     wss_url: &str,
     rpc_timeout: Duration,
-    key_store: KeyStore,
     global_store_update_tx: mpsc::Sender<global::Update>,
+    perm_price_tx: mpsc::Sender<HashSet<Pubkey>>,
+    key_store: KeyStore,
+    keypair_request_tx: mpsc::Sender<KeypairRequest>,
     logger: Logger,
 ) -> Vec<JoinHandle<()>> {
     let mut jhs = vec![];
@@ -155,12 +167,14 @@ pub fn spawn_oracle(
     let (data_tx, data_rx) = mpsc::channel(config.data_channel_capacity);
     let mut poller = Poller::new(
         data_tx,
-        key_store.mapping_key,
+        perm_price_tx,
         rpc_url,
         rpc_timeout,
         config.commitment,
         config.poll_interval_duration,
         config.max_lookup_batch_size,
+        key_store,
+        keypair_request_tx,
         logger.clone(),
     );
     jhs.push(tokio::spawn(async move { poller.run().await }));
@@ -243,6 +257,12 @@ impl Oracle {
                 .keys()
                 .cloned()
                 .collect::<HashSet<_>>().difference(&previous_price_accounts)), "total" => data.price_accounts.len());
+
+        let previous_perm_price_accounts = &self.data.perm_price_accounts;
+        info!(self.logger, "updated permissioned price accounts";
+              "new" => format!("{:?}", data.perm_price_accounts.difference(&previous_perm_price_accounts)),
+              "total" => data.perm_price_accounts.len()
+        );
 
         // Update the data with the new data structs
         self.data = data;
@@ -329,8 +349,8 @@ struct Poller {
     /// The channel on which to send polled update data
     data_tx: mpsc::Sender<Data>,
 
-    /// The root mapping account key to fetch data from
-    mapping_account_key: Pubkey,
+    /// Updates about permissioned price accounts from oracle to exporter
+    perm_price_tx: mpsc::Sender<HashSet<Pubkey>>,
 
     /// The RPC client to use to poll data from the RPC node
     rpc_client: RpcClient,
@@ -341,6 +361,12 @@ struct Poller {
     /// Passed from Oracle config
     max_lookup_batch_size: usize,
 
+    /// Used for permissioned symbol detection and
+    key_store: KeyStore,
+
+    /// For detecting permissioned prices of remotely loaded keypairs
+    keypair_request_tx: mpsc::Sender<KeypairRequest>,
+
     /// Logger
     logger: Logger,
 }
@@ -348,12 +374,14 @@ struct Poller {
 impl Poller {
     pub fn new(
         data_tx: mpsc::Sender<Data>,
-        mapping_account_key: Pubkey,
+        perm_price_tx: mpsc::Sender<HashSet<Pubkey>>,
         rpc_url: &str,
         rpc_timeout: Duration,
         commitment: CommitmentLevel,
         poll_interval_duration: Duration,
         max_lookup_batch_size: usize,
+        key_store: KeyStore,
+        keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Self {
         let rpc_client = RpcClient::new_with_timeout_and_commitment(
@@ -365,10 +393,12 @@ impl Poller {
 
         Poller {
             data_tx,
-            mapping_account_key,
+            perm_price_tx,
             rpc_client,
             poll_interval,
             max_lookup_batch_size,
+            key_store,
+            keypair_request_tx,
             logger,
         }
     }
@@ -384,24 +414,73 @@ impl Poller {
     }
 
     async fn poll_and_send(&mut self) -> Result<()> {
-        self.data_tx
-            .send(self.poll().await?)
+        let fresh_data = self.poll().await?;
+
+        self.perm_price_tx
+            .send(fresh_data.perm_price_accounts.clone())
             .await
-            .map_err(|_| anyhow!("failed to send data to oracle"))
+            .context("Updating permissioned price accounts for exporter")?;
+
+        self.data_tx
+            .send(fresh_data)
+            .await
+            .context("failed to send data to oracle")?;
+
+        Ok(())
     }
 
     async fn poll(&self) -> Result<Data> {
         let mapping_accounts = self
-            .fetch_mapping_accounts(self.mapping_account_key)
+            .fetch_mapping_accounts(self.key_store.mapping_key)
             .await?;
         let (product_accounts, price_accounts) = self
             .fetch_product_and_price_accounts(mapping_accounts.values())
             .await?;
 
+        let publish_keypair = if let Some(kp) = self.key_store.publish_keypair.as_ref() {
+            // It's impossible to sanely return a &Keypair in the
+            // other if branch, so we clone the reference.
+            Keypair::from_bytes(&kp.to_bytes())
+                .context("INTERNAL: Could not convert keypair to bytes and back")?
+        } else {
+            // Request the keypair from remote keypair loader.  Doing
+            // this here guarantees that the up to date loaded keypair
+            // is being used.
+            //
+            // Currently, we're guaranteed not to clog memory or block
+            // the keypair loader under the following assumptions:
+            // - The Oracle's polling loop waits for a poll
+            //   attempt to finish before beginning the next
+            //   one. Currently realized in run()
+            // - The Remote Key Loader does not read channels for
+            //   keypairs it does not have. Currently expressed in
+            //   handle_key_requests() in remote_keypair_loader.rs
+
+            debug!(
+                self.logger,
+                "Oracle: Publish keypair is None, requesting remote loaded key"
+            );
+            let kp = RemoteKeypairLoader::request_keypair(&self.keypair_request_tx).await?;
+            debug!(self.logger, "Oracle: Keypair received");
+            kp
+        };
+
+        let mut permissioned_price_accounts = HashSet::new();
+
+        for (price_key, price_entry) in price_accounts.iter() {
+            for component in price_entry.comp {
+                if component.publisher == publish_keypair.pubkey() {
+                    permissioned_price_accounts.insert(price_key.clone());
+                    break;
+                }
+            }
+        }
+
         Ok(Data::new(
             mapping_accounts,
             product_accounts,
             price_accounts,
+            permissioned_price_accounts,
         ))
     }
 

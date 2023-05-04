@@ -208,10 +208,7 @@ pub mod config {
             remote_keypair_loader,
             solana::network,
         },
-        anyhow::{
-            anyhow,
-            Result,
-        },
+        anyhow::Result,
         config as config_rs,
         config_rs::{
             Environment,
