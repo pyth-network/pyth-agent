@@ -304,7 +304,7 @@ impl Exporter {
 
         // Update permissioned accounts of this publisher from the
         // oracle. The loop ensures that we clear the channel and use
-        // only the final, latest message.
+        // only the final, latest message; try_recv() is non-blocking.
         loop {
             match self.perm_price_rx.try_recv() {
                 Ok(perm_price_accounts) => {
