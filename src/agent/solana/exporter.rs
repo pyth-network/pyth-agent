@@ -302,10 +302,6 @@ impl Exporter {
             })
             .collect::<Vec<_>>();
 
-        if fresh_updates.is_empty() {
-            return Ok(());
-        }
-
         // Update permissioned accounts of this publisher from the
         // oracle. The loop ensures that we clear the channel and use
         // only the final, latest message.
@@ -356,6 +352,10 @@ impl Exporter {
                 }
             })
             .collect::<Vec<_>>();
+
+        if permissioned_updates.is_empty() {
+            return Ok(());
+        }
 
         // Split the updates up into batches
         let batches = permissioned_updates.chunks(self.config.max_batch_size);
