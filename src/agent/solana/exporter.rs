@@ -306,27 +306,38 @@ impl Exporter {
             return Ok(());
         }
 
-        // Update permissioned accounts of this publisher from the oracle
-        match self.perm_price_rx.try_recv() {
-            Ok(perm_price_accounts) => {
-                self.perm_price_accounts = perm_price_accounts;
-            }
-            // Expected failures between updates from oracle
-            Err(TryRecvError::Empty) => {
-                debug!(
-                    self.logger,
-                    "Exporter: No new permissioned price accounts in channel, using cached value";
-                    "cached_value" => format!("{:?}", self.perm_price_accounts),
-                );
-            }
-            // Unexpected failures (channel closed, internal errors etc.)
-            Err(other) => {
-                warn!(
-                    self.logger,
-                    "Exporter: Updating permissioned price accounts failed unexpectedly, using cached value";
-                    "cached_value" => format!("{:?}", self.perm_price_accounts),
-                    "error" => other.to_string(),
-                );
+        // Update permissioned accounts of this publisher from the
+        // oracle. The loop ensures that we clear the channel and use
+        // only the final, latest message.
+        loop {
+            match self.perm_price_rx.try_recv() {
+                Ok(perm_price_accounts) => {
+                    self.perm_price_accounts = perm_price_accounts;
+                    trace!(
+                        self.logger,
+                        "Exporter: read permissioned price accounts from channel";
+                        "new_value" => format!("{:?}", self.perm_price_accounts),
+                    );
+                }
+                // Expected failures when channel is empty
+                Err(TryRecvError::Empty) => {
+                    debug!(
+                        self.logger,
+                        "Exporter: No more permissioned price accounts in channel, using cached value";
+                        "cached_value" => format!("{:?}", self.perm_price_accounts),
+                    );
+                    break;
+                }
+                // Unexpected failures (channel closed, internal errors etc.)
+                Err(other) => {
+                    warn!(
+                        self.logger,
+                        "Exporter: Updating permissioned price accounts failed unexpectedly, using cached value";
+                        "cached_value" => format!("{:?}", self.perm_price_accounts),
+                        "error" => other.to_string(),
+                    );
+                    break;
+                }
             }
         }
 
@@ -338,7 +349,7 @@ impl Exporter {
                 if self.perm_price_accounts.contains(&key_from_id) {
                     true
                 } else {
-                    warn!(self.logger, "Attempted to publish a price without permission, skipping";
+                    warn!(self.logger, "Exporter: Attempted to publish a price without permission, skipping";
 			  "price_account" => key_from_id.to_string(),
 			  "perm_price_accounts" => format!("{:?}", self.perm_price_accounts),);
                     false
