@@ -554,6 +554,9 @@ class TestUpdatePrice(PythTest):
         product_account_unperm = product_unperm["account"]
         price_account_unperm = product_unperm["price_accounts"][0]["account"]
 
+
+        balance_before = self.run(f"solana balance -k {tmp_path}/agent_keystore/publish_key_pair.json -u localhost").stdout
+
         # Send an "update_price" request for the valid symbol
         await client.update_price(price_account, 42, 2, "trading")
         time.sleep(1)
@@ -561,6 +564,13 @@ class TestUpdatePrice(PythTest):
         # Send another "update_price" request to trigger aggregation
         await client.update_price(price_account, 81, 1, "trading")
         time.sleep(2)
+
+        balance_after = self.run(f"solana balance -k {tmp_path}/agent_keystore/publish_key_pair.json -u localhost").stdout
+
+        # Confirm that a valid update triggers a transaction that charges the publishing keypair
+        assert balance_before != balance_after
+
+        balance_before_unperm = balance_after
 
         # Send an "update_price" request for the invalid symbol
         await client.update_price(price_account_unperm, 48, 2, "trading")
@@ -570,7 +580,12 @@ class TestUpdatePrice(PythTest):
         await client.update_price(price_account_unperm, 81, 1, "trading")
         time.sleep(2)
 
-        # Confirm that the valid price account has been updated with the values from the first "update_price" request
+        balance_after_unperm = self.run(f"solana balance -k {tmp_path}/agent_keystore/publish_key_pair.json -u localhost").stdout
+
+        # Confirm that no SOL was charged during unpermissioned symbol updates
+        assert balance_before_unperm == balance_after_unperm
+
+        # Confirm that the valid symbol was updated
         final_product_state = await client.get_product(product_account)
 
         final_price_account = final_product_state["price_accounts"][0]
