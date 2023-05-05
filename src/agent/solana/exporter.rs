@@ -345,7 +345,8 @@ impl Exporter {
                 if self.perm_price_accounts.contains(&key_from_id) {
                     true
                 } else {
-                    warn!(self.logger, "Exporter: Attempted to publish a price without permission, skipping";
+		    // Note: This message is not an error. Some publishers have different permissions on primary/secondary networks
+                    info!(self.logger, "Exporter: Attempted to publish a price without permission, skipping";
 			  "price_account" => key_from_id.to_string(),
 			  "perm_price_accounts" => format!("{:?}", self.perm_price_accounts),);
                     false
