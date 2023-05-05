@@ -635,16 +635,7 @@ class TestUpdatePrice(PythTest):
         # Get the price account with which to send updates
         price_account = product["price_accounts"][0]["account"]
 
-        product_unperm = products[ETH_USD["attr_dict"]["symbol"]]
-        product_account_unperm = product_unperm["account"]
-        # Get the price account with which to send updates
-        price_account_unperm = product_unperm["price_accounts"][0]["account"]
-
         while True:
             # Send an "update_price" request
             await client.update_price(price_account, 47, 2, "trading")
             time.sleep(1)
-
-            # Send another "update_price" request to trigger aggregation
-            await client.update_price(price_account_unperm, 81, 1, "trading")
-            time.sleep(2)
