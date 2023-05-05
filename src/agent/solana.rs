@@ -75,8 +75,9 @@ pub mod network {
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Result<Vec<JoinHandle<()>>> {
-        // Permissioned price account updates between oracle and exporter
-        let (perm_price_tx, perm_price_rx) = mpsc::channel(config.oracle.updates_channel_capacity);
+        // Publisher permissions updates between oracle and exporter
+        let (publisher_permissions_tx, publisher_permissions_rx) =
+            mpsc::channel(config.oracle.updates_channel_capacity);
 
         // Spawn the Oracle
         let mut jhs = oracle::spawn_oracle(
@@ -85,9 +86,8 @@ pub mod network {
             &config.wss_url,
             config.rpc_timeout,
             global_store_update_tx.clone(),
-            perm_price_tx,
+            publisher_permissions_tx,
             KeyStore::new(config.key_store.clone(), &logger)?,
-            keypair_request_tx.clone(),
             logger.clone(),
         );
 
@@ -96,7 +96,7 @@ pub mod network {
             config.exporter,
             &config.rpc_url,
             config.rpc_timeout,
-            perm_price_rx,
+            publisher_permissions_rx,
             KeyStore::new(config.key_store.clone(), &logger)?,
             local_store_tx,
             keypair_request_tx,
