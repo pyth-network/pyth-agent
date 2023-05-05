@@ -475,7 +475,7 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(1)
+        time.sleep(2)
 
         # Send another "update_price" request to trigger aggregation
         await client.update_price(price_account, 81, 1, "trading")
