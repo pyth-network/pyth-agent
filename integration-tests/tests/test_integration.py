@@ -444,26 +444,24 @@ class PythTest:
             yield
 
     @pytest_asyncio.fixture
-    async def client(self, agent, tmp_path):
+    async def client(self, agent):
         client = PythAgentClient(address="ws://localhost:8910")
         await client.connect()
-        yield (client, tmp_path)
+        yield client
         await client.close()
 
     @pytest_asyncio.fixture
     async def client_hotload(self, agent_hotload):
         client = PythAgentClient(address="ws://localhost:8910")
         await client.connect()
-        yield (client, tmp_path)
+        yield client
         await client.close()
 
 
 class TestUpdatePrice(PythTest):
 
     @pytest.mark.asyncio
-    async def test_update_price_simple(self, client: (PythAgentClient, str)):
-
-        (client, tmp_path) = client
+    async def test_update_price_simple(self, client: PythAgentClient):
 
         # Fetch all products
         products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
@@ -521,7 +519,7 @@ class TestUpdatePrice(PythTest):
             assert conf == 2
 
     @pytest.mark.asyncio
-    async def test_update_price_simple_with_keypair_hotload(self, client_hotload: (PythAgentClient, str)):
+    async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
 
         # Hotload the keypair into running agent
         hl_request = requests.post("http://localhost:9001/primary/load_keypair", json=PUBLISHER_KEYPAIR)
@@ -531,13 +529,13 @@ class TestUpdatePrice(PythTest):
 
         LOGGER.info("Publisher keypair hotload OK")
 
+        time.sleep(3)
+
         # Continue normally with the existing simple scenario
         await self.test_update_price_simple(client_hotload)
 
     @pytest.mark.asyncio
-    async def test_update_price_discards_unpermissioned(self, client: (PythAgentClient, str)):
-
-        (client, tmp_path) = client
+    async def test_update_price_discards_unpermissioned(self, client: PythAgentClient, tmp_path):
 
         # Fetch all products
         products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
@@ -618,15 +616,14 @@ class TestUpdatePrice(PythTest):
 
 
 
-
     @pytest.mark.asyncio
     @pytest.mark.skip(reason="Test not meant for automatic CI")
-    async def test_publish_forever(self, client: (PythAgentClient, str)):
+    async def test_publish_forever(self, client: PythAgentClient, tmp_path):
         '''
-        Convenience test routine for manual experiments on a running test setup.
+        Convenience test routine for manual experiments on a running
+        test setup. Comment out the skip to enable. use `-k "forever"`
+        in pytest command line to only run this scenario.
         '''
-
-        (client, tmp_path) = client
 
         # Fetch all products
         products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
