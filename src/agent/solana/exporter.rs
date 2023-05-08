@@ -57,13 +57,19 @@ use {
         transaction::Transaction,
     },
     std::{
-        collections::HashMap,
+        collections::{
+            HashMap,
+            HashSet,
+        },
         time::Duration,
     },
     tokio::{
         sync::{
             mpsc,
-            mpsc::Sender,
+            mpsc::{
+                error::TryRecvError,
+                Sender,
+            },
             oneshot,
             watch,
         },
@@ -139,6 +145,7 @@ pub fn spawn_exporter(
     config: Config,
     rpc_url: &str,
     rpc_timeout: Duration,
+    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashSet<Pubkey>>>,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     keypair_request_tx: mpsc::Sender<KeypairRequest>,
@@ -176,6 +183,7 @@ pub fn spawn_exporter(
         local_store_tx,
         network_state_rx,
         transactions_tx,
+        publisher_permissions_rx,
         keypair_request_tx,
         logger,
     );
@@ -213,6 +221,12 @@ pub struct Exporter {
     // Channel on which to send inflight transactions to the transaction monitor
     inflight_transactions_tx: Sender<Signature>,
 
+    /// Permissioned symbols as read by the oracle module
+    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashSet<Pubkey>>>,
+
+    /// Currently known permissioned prices of this publisher
+    our_prices: HashSet<Pubkey>,
+
     keypair_request_tx: Sender<KeypairRequest>,
 
     logger: Logger,
@@ -227,6 +241,7 @@ impl Exporter {
         local_store_tx: Sender<store::local::Message>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
+        publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashSet<Pubkey>>>,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Self {
@@ -240,6 +255,8 @@ impl Exporter {
             last_published_at: HashMap::new(),
             network_state_rx,
             inflight_transactions_tx,
+            publisher_permissions_rx,
+            our_prices: HashSet::new(),
             keypair_request_tx,
             logger,
         }
@@ -285,56 +302,6 @@ impl Exporter {
             })
             .collect::<Vec<_>>();
 
-        if fresh_updates.is_empty() {
-            return Ok(());
-        }
-
-        // Split the updates up into batches
-        let batches = fresh_updates.chunks(self.config.max_batch_size);
-
-        // Publish all the batches, staggering the requests over the publish interval
-        let num_batches = batches.len();
-        let mut batch_send_interval = time::interval(
-            self.config
-                .publish_interval_duration
-                .div_f64(num_batches as f64),
-        );
-        let mut batch_timestamps = HashMap::new();
-        let mut batch_futures = vec![];
-        for batch in batches {
-            batch_futures.push(self.publish_batch(batch));
-
-            for (identifier, info) in batch {
-                batch_timestamps.insert(**identifier, info.timestamp);
-            }
-
-            batch_send_interval.tick().await;
-        }
-
-        // Wait for all the update requests to complete. Note that this doesn't wait for the
-        // transactions themselves to be processed or confirmed, just the RPC requests to return.
-        join_all(batch_futures)
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
-
-        self.last_published_at.extend(batch_timestamps);
-
-        Ok(())
-    }
-
-    async fn fetch_local_store_contents(&self) -> Result<HashMap<PriceIdentifier, PriceInfo>> {
-        let (result_tx, result_rx) = oneshot::channel();
-        self.local_store_tx
-            .send(store::local::Message::LookupAllPriceInfo { result_tx })
-            .await
-            .map_err(|_| anyhow!("failed to send lookup price info message to local store"))?;
-        result_rx
-            .await
-            .map_err(|_| anyhow!("failed to fetch from local store"))
-    }
-
-    async fn publish_batch(&self, batch: &[(&Identifier, &PriceInfo)]) -> Result<()> {
         let publish_keypair = if let Some(kp) = self.key_store.publish_keypair.as_ref() {
             // It's impossible to sanely return a &Keypair in the
             // other if branch, so we clone the reference.
@@ -363,6 +330,143 @@ impl Exporter {
             kp
         };
 
+        self.update_our_prices(&publish_keypair.pubkey());
+
+        debug!(self.logger, "Exporter: filtering prices permissioned to us";
+               "our_prices" => format!("{:?}", self.our_prices),
+               "publish_pubkey" => publish_keypair.pubkey().to_string(),
+        );
+
+        // Filter out price accounts we're not permissioned to update
+        let permissioned_updates = fresh_updates
+            .into_iter()
+            .filter(|(id, _data)| {
+                let key_from_id = Pubkey::new(id.clone().to_bytes().as_slice());
+                if self.our_prices.contains(&key_from_id) {
+                    true
+                } else {
+                    // Note: This message is not an error. Some
+                    // publishers have different permissions on
+                    // primary/secondary networks
+                    info!(
+                    self.logger,
+                    "Exporter: Attempted to publish a price without permission, skipping";
+                    "unpermissioned_price_account" => key_from_id.to_string(),
+                    "permissioned_accounts" => format!("{:?}", self.our_prices)
+                            );
+                    false
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if permissioned_updates.is_empty() {
+            return Ok(());
+        }
+
+        // Split the updates up into batches
+        let batches = permissioned_updates.chunks(self.config.max_batch_size);
+
+        // Publish all the batches, staggering the requests over the publish interval
+        let num_batches = batches.len();
+        let mut batch_send_interval = time::interval(
+            self.config
+                .publish_interval_duration
+                .div_f64(num_batches as f64),
+        );
+        let mut batch_timestamps = HashMap::new();
+        let mut batch_futures = vec![];
+        for batch in batches {
+            batch_futures.push(self.publish_batch(batch, &publish_keypair));
+
+            for (identifier, info) in batch {
+                batch_timestamps.insert(**identifier, info.timestamp);
+            }
+
+            batch_send_interval.tick().await;
+        }
+
+        // Wait for all the update requests to complete. Note that this doesn't wait for the
+        // transactions themselves to be processed or confirmed, just the RPC requests to return.
+        join_all(batch_futures)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+
+        self.last_published_at.extend(batch_timestamps);
+
+        Ok(())
+    }
+
+    /// Update permissioned prices of this publisher from oracle using
+    /// the publisher permissions channel.
+    ///
+    /// The loop ensures that we clear the channel and use
+    /// only the final, latest message; try_recv() is
+    /// non-blocking.
+    ///
+    /// Note: This behavior is similar to
+    /// tokio::sync::watch::channel(), which was not appropriate here
+    /// because its internal RwLock would complain about not being
+    /// Send with the HashMap<HashSet<Pubkey>> inside.
+    /// TODO(2023-05-05): Debug the watch::channel() compilation errors
+    fn update_our_prices(&mut self, publish_pubkey: &Pubkey) {
+        loop {
+            match self.publisher_permissions_rx.try_recv() {
+                Ok(publisher_permissions) => {
+                    self.our_prices = publisher_permissions.get(publish_pubkey) .cloned()
+            .unwrap_or_else( || {
+		warn!(
+		    self.logger,
+		    "Exporter: No permissioned prices were found for the publishing keypair on-chain. This is expected only on startup.";
+		    "publish_pubkey" => publish_pubkey.to_string(),
+		);
+		HashSet::new()
+	    });
+                    trace!(
+                        self.logger,
+                        "Exporter: read permissioned price accounts from channel";
+                        "new_value" => format!("{:?}", self.our_prices),
+                    );
+                }
+                // Expected failures when channel is empty
+                Err(TryRecvError::Empty) => {
+                    trace!(
+                        self.logger,
+                        "Exporter: No more permissioned price accounts in channel, using cached value";
+                        "cached_value" => format!("{:?}", self.our_prices),
+                    );
+                    break;
+                }
+                // Unexpected failures (channel closed, internal errors etc.)
+                Err(other) => {
+                    warn!(
+                        self.logger,
+                        "Exporter: Updating permissioned price accounts failed unexpectedly, using cached value";
+                        "cached_value" => format!("{:?}", self.our_prices),
+                        "error" => other.to_string(),
+                    );
+                    break;
+                }
+            }
+        }
+    }
+
+    async fn fetch_local_store_contents(&self) -> Result<HashMap<PriceIdentifier, PriceInfo>> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.local_store_tx
+            .send(store::local::Message::LookupAllPriceInfo { result_tx })
+            .await
+            .map_err(|_| anyhow!("failed to send lookup price info message to local store"))?;
+        result_rx
+            .await
+            .map_err(|_| anyhow!("failed to fetch from local store"))
+    }
+
+    async fn publish_batch(
+        &self,
+        batch: &[(&Identifier, &PriceInfo)],
+        publish_keypair: &Keypair,
+    ) -> Result<()> {
         let mut instructions = Vec::new();
 
         // Refresh the data in the batch
@@ -427,7 +531,7 @@ impl Exporter {
         let transaction = Transaction::new_signed_with_payer(
             &instructions,
             Some(&publish_keypair.pubkey()),
-            &vec![&publish_keypair],
+            &vec![publish_keypair],
             network_state.blockhash,
         );
 

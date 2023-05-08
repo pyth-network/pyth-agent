@@ -78,7 +78,20 @@ AAPL_USD = {
     },
     "metadata": {"jump_id": "186", "jump_symbol": "AAPL", "price_exp": -5, "min_publishers": 1},
 }
-ALL_PRODUCTS=[BTC_USD, AAPL_USD]
+
+ETH_USD = {
+    "account": "",
+    "attr_dict": {
+        "symbol": "Crypto.ETH/USD",
+        "asset_type": "Crypto",
+        "base": "ETH",
+        "quote_currency": "USD",
+        "generic_symbol": "ETHUSD",
+        "description": "ETH/USD",
+    },
+    "metadata": {"jump_id": "78876710", "jump_symbol": "ETHUSD", "price_exp": -8, "min_publishers": 1},
+}
+ALL_PRODUCTS=[BTC_USD, AAPL_USD, ETH_USD]
 
 asyncio.set_event_loop(asyncio.new_event_loop())
 
@@ -237,7 +250,7 @@ class PythTest:
     def refdata_products(self, refdata_path):
         path = os.path.join(refdata_path, 'products.json')
         with open(path, 'w') as f:
-            f.write(json.dumps([BTC_USD, AAPL_USD]))
+            f.write(json.dumps(ALL_PRODUCTS))
             f.flush()
             yield f.name
 
@@ -257,6 +270,7 @@ class PythTest:
             f.write(json.dumps({
                     "AAPL": {"price": ["some_publisher"]},
                     "BTCUSD": {"price": ["some_publisher"]},
+                    "ETHUSD": {"price": []},
                     }))
             f.flush()
             yield f.name
@@ -448,6 +462,7 @@ class TestUpdatePrice(PythTest):
 
     @pytest.mark.asyncio
     async def test_update_price_simple(self, client: PythAgentClient):
+
         # Fetch all products
         products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
 
@@ -460,7 +475,7 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(1)
+        time.sleep(2)
 
         # Send another "update_price" request to trigger aggregation
         await client.update_price(price_account, 81, 1, "trading")
@@ -505,6 +520,7 @@ class TestUpdatePrice(PythTest):
 
     @pytest.mark.asyncio
     async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
+
         # Hotload the keypair into running agent
         hl_request = requests.post("http://localhost:9001/primary/load_keypair", json=PUBLISHER_KEYPAIR)
 
@@ -513,15 +529,102 @@ class TestUpdatePrice(PythTest):
 
         LOGGER.info("Publisher keypair hotload OK")
 
+        time.sleep(3)
+
         # Continue normally with the existing simple scenario
         await self.test_update_price_simple(client_hotload)
 
     @pytest.mark.asyncio
+    async def test_update_price_discards_unpermissioned(self, client: PythAgentClient, tmp_path):
+
+        # Fetch all products
+        products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
+
+        # Find the product account ID corresponding to the BTC/USD symbol
+        product = products[BTC_USD["attr_dict"]["symbol"]]
+        product_account = product["account"]
+
+        # Get the price account with which to send updates
+        price_account = product["price_accounts"][0]["account"]
+
+        # Use the unpermissioned ETH/USD symbol to trigger unpermissioned account filtering
+        product_unperm = products[ETH_USD["attr_dict"]["symbol"]]
+        product_account_unperm = product_unperm["account"]
+        price_account_unperm = product_unperm["price_accounts"][0]["account"]
+
+
+        balance_before = self.run(f"solana balance -k {tmp_path}/agent_keystore/publish_key_pair.json -u localhost").stdout
+
+        # Send an "update_price" request for the valid symbol
+        await client.update_price(price_account, 42, 2, "trading")
+        time.sleep(1)
+
+        # Send another "update_price" request to trigger aggregation
+        await client.update_price(price_account, 81, 1, "trading")
+        time.sleep(2)
+
+        balance_after = self.run(f"solana balance -k {tmp_path}/agent_keystore/publish_key_pair.json -u localhost").stdout
+
+        # Confirm that a valid update triggers a transaction that charges the publishing keypair
+        assert balance_before != balance_after
+
+        balance_before_unperm = balance_after
+
+        # Send an "update_price" request for the invalid symbol
+        await client.update_price(price_account_unperm, 48, 2, "trading")
+        time.sleep(1)
+
+        # Send another "update_price" request to "trigger" aggregation
+        await client.update_price(price_account_unperm, 81, 1, "trading")
+        time.sleep(2)
+
+        balance_after_unperm = self.run(f"solana balance -k {tmp_path}/agent_keystore/publish_key_pair.json -u localhost").stdout
+
+        # Confirm that no SOL was charged during unpermissioned symbol updates
+        assert balance_before_unperm == balance_after_unperm
+
+        # Confirm that the valid symbol was updated
+        final_product_state = await client.get_product(product_account)
+
+        final_price_account = final_product_state["price_accounts"][0]
+        assert final_price_account["price"] == 42
+        assert final_price_account["conf"] == 2
+        assert final_price_account["status"] == "trading"
+
+        # Sanity-check that the unpermissioned symbol was not updated
+        final_product_state_unperm = await client.get_product(product_account_unperm)
+
+        final_price_account_unperm = final_product_state_unperm["price_accounts"][0]
+        assert final_price_account_unperm["price"] == 0
+        assert final_price_account_unperm["conf"] == 0
+        assert final_price_account_unperm["status"] == "unknown"
+
+        # Confirm agent logs contain the relevant WARN log
+        with open(f"{tmp_path}/agent_logs/stdout") as f:
+            contents = f.read()
+            lines_found = 0
+            for line in contents.splitlines():
+
+                if "Attempted to publish a price without permission" in line:
+                    lines_found += 1
+                    expected_unperm_pubkey = final_price_account_unperm["account"]
+                    # Must point at the expected account as all other attempts must be valid
+                    assert f"price_account: {expected_unperm_pubkey}" in line
+
+            # Must find at least one log discarding the account
+            assert lines_found > 0
+
+
+
+    @pytest.mark.asyncio
     @pytest.mark.skip(reason="Test not meant for automatic CI")
-    async def test_publish_forever(self, client: PythAgentClient):
+    async def test_publish_forever(self, client: PythAgentClient, tmp_path):
         '''
-        Convenience test routine for manual experiments on a running test setup.
+        Convenience test routine for manual experiments on a running
+        test setup. Comment out the skip to enable. use `-k "forever"`
+        in pytest command line to only run this scenario.
         '''
+
         # Fetch all products
         products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
 
@@ -536,7 +639,3 @@ class TestUpdatePrice(PythTest):
             # Send an "update_price" request
             await client.update_price(price_account, 47, 2, "trading")
             time.sleep(1)
-
-            # Send another "update_price" request to trigger aggregation
-            await client.update_price(price_account, 81, 1, "trading")
-            time.sleep(2)
