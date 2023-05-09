@@ -41,8 +41,11 @@ MESSAGE_BUFFER_PROGRAM = "Vbmv1jt4vyuqBZcpYPpnVhrqVe5e6ZPb6JxDcffRHUM"
 MAPPING_KEYPAIR = [62, 251, 237, 123, 32, 23, 77, 112, 75, 109, 141, 142, 101, 235, 231, 46, 82, 224, 124, 182, 136, 15, 157, 13, 130, 60, 8, 251, 212, 255,
                    116, 8, 155, 81, 141, 223, 90, 30, 205, 238, 119, 249, 130, 159, 191, 87, 136, 130, 225, 86, 103, 26, 255, 105, 59, 48, 101, 66, 157, 174, 106, 186, 51, 72]
 # 5F1MvPpfXytDPJb7beKiFEzdMacbzc5DmKrHzvzEorH8
-PUBLISHER_KEYPAIR = [28, 188, 185, 140, 54, 34, 203, 52, 83, 136, 217, 69, 104, 188, 165, 215, 42, 23, 73, 14, 87, 84, 155, 47, 91, 166, 208, 129, 10,
+PUBLISHER_A_KEYPAIR = [28, 188, 185, 140, 54, 34, 203, 52, 83, 136, 217, 69, 104, 188, 165, 215, 42, 23, 73, 14, 87, 84, 155, 47, 91, 166, 208, 129, 10,
                      67, 4, 72, 63, 5, 73, 112, 194, 37, 117, 20, 46, 66, 102, 78, 196, 75, 127, 90, 40, 85, 69, 209, 12, 237, 118, 39, 218, 157, 86, 251, 112, 61, 104, 235]
+
+# EQjeRFrUBCk9Yt6HbCUZoShUDG8QhuX8CUh9hcD3gqZm, Second publisher for testing permissions detection
+PUBLISHER_B_KEYPAIR = [94,185,219,129,20,106,33,15,92,150,244,78,159,73,148,43,52,86,182,193,131,195,8,93,20,91,240,33,173,131,180,208,199,60,129,246,111,102,62,32,44,173,40,199,252,189,66,175,78,166,91,83,251,253,236,177,159,15,91,231,25,149,162,164]
 
 # NOTE: Set to a value to run agent with accumulator support. Should be used with a pythnet validator, set below.
 USE_ACCUMULATOR = os.environ.get("USE_ACCUMULATOR") is not None
@@ -258,8 +261,10 @@ class PythTest:
     def refdata_publishers(self, refdata_path):
         path = os.path.join(refdata_path, 'publishers.json')
         with open(path, 'w') as f:
-            f.write(json.dumps({"some_publisher": str(
-                Keypair.from_secret_key(PUBLISHER_KEYPAIR).public_key)}))
+            f.write(json.dumps({"some_publisher_a": str(
+                Keypair.from_secret_key(PUBLISHER_A_KEYPAIR).public_key),
+                                "some_publisher_b": str(Keypair.from_secret_key(PUBLISHER_B_KEYPAIR).public_key)
+                                }))
             f.flush()
             yield f.name
 
@@ -268,9 +273,9 @@ class PythTest:
         path = os.path.join(refdata_path, 'permissions.json')
         with open(path, 'w') as f:
             f.write(json.dumps({
-                    "AAPL": {"price": ["some_publisher"]},
-                    "BTCUSD": {"price": ["some_publisher"]},
-                    "ETHUSD": {"price": []},
+                    "AAPL": {"price": ["some_publisher_a"]},
+                    "BTCUSD": {"price": ["some_publisher_b", "some_publisher_a"]}, # Reversed order helps ensure permission discovery works correctly for publisher A
+                    "ETHUSD": {"price": ["some_publisher_b"]},
                     }))
             f.flush()
             yield f.name
@@ -313,7 +318,7 @@ class PythTest:
     def agent_publish_keypair(self, agent_keystore_path, sync_accounts):
         path = os.path.join(agent_keystore_path, "publish_key_pair.json")
         with open(path, 'w') as f:
-            f.write(json.dumps(PUBLISHER_KEYPAIR))
+            f.write(json.dumps(PUBLISHER_A_KEYPAIR))
             f.flush()
 
         LOGGER.debug("Airdropping SOL to publish keypair at %s", path)
@@ -522,7 +527,7 @@ class TestUpdatePrice(PythTest):
     async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
 
         # Hotload the keypair into running agent
-        hl_request = requests.post("http://localhost:9001/primary/load_keypair", json=PUBLISHER_KEYPAIR)
+        hl_request = requests.post("http://localhost:9001/primary/load_keypair", json=PUBLISHER_A_KEYPAIR)
 
         # Verify succesful hotload
         assert hl_request.status_code == 200
