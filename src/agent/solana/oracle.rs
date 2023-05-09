@@ -436,7 +436,6 @@ impl Poller {
                     .or_insert(HashSet::new());
 
                 component_pub_entry.insert(price_key.clone());
-                break;
             }
         }
 
