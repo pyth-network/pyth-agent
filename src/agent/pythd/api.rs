@@ -342,6 +342,7 @@ pub mod rpc {
         }
 
         async fn dispatch(&mut self, request: &Request<Method, Value>) -> Result<()> {
+            debug!(self.logger, "Dispatching WebSocket request"; "method" => format!("{:?}", request.method));
             match request.method {
                 Method::GetProductList => self.get_product_list(request).await,
                 Method::GetProduct => self.get_product(request).await,
