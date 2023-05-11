@@ -83,7 +83,7 @@ key_store.root_path = "/path/to/keystore"
 
 # Relative path to accumulator message buffer program ID. Setting this
 # value enables accumulator support on publishing transactions.
-# key_store.accumulator_program_key = <not set by default>
+# key_store.accumulator_key_path = <not set by default>
 
 # The interval with which to poll account information.
 # oracle.poll_interval_duration = "2m"
