@@ -26,9 +26,9 @@ use {
     key_store::KeyStore,
     pyth_sdk::{
         Identifier,
-        PriceStatus,
         UnixTimestamp,
     },
+    pyth_sdk_solana::state::PriceStatus,
     serde::{
         Deserialize,
         Serialize,

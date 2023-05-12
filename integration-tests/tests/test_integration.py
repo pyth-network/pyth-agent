@@ -479,15 +479,20 @@ class TestUpdatePrice(PythTest):
         price_account = product["price_accounts"][0]["account"]
 
         # Send an "update_price" request
-        await client.update_price(price_account, 42, 2, "trading")
+        await client.update_price(price_account, 42, 40, "trading")
         time.sleep(2)
 
         # Send another "update_price" request to trigger aggregation
-        await client.update_price(price_account, 81, 1, "trading")
+        await client.update_price(price_account, 81, 80, "trading")
         time.sleep(2)
 
+        print("Getting a product")
         # Confirm that the price account has been updated with the values from the first "update_price" request
         final_product_state = await client.get_product(product_account)
+
+        print("Getting everything")
+        await client.get_all_products()
+
 
         final_price_account = final_product_state["price_accounts"][0]
         assert final_price_account["price"] == 42
@@ -522,6 +527,7 @@ class TestUpdatePrice(PythTest):
 
             assert price == 42
             assert conf == 2
+
 
     @pytest.mark.asyncio
     async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):

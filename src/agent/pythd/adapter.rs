@@ -27,11 +27,11 @@ use {
         Result,
     },
     chrono::Utc,
-    pyth_sdk::{
-        Identifier,
+    pyth_sdk::Identifier,
+    pyth_sdk_solana::state::{
+        PriceComp,
         PriceStatus,
     },
-    pyth_sdk_solana::state::PriceComp,
     serde::{
         Deserialize,
         Serialize,
@@ -438,6 +438,7 @@ impl Adapter {
             PriceStatus::Trading => "trading",
             PriceStatus::Halted => "halted",
             PriceStatus::Auction => "auction",
+            PriceStatus::Ignored => "ignored",
         }
         .to_string()
     }
@@ -549,6 +550,7 @@ impl Adapter {
             "trading" => Ok(PriceStatus::Trading),
             "halted" => Ok(PriceStatus::Halted),
             "auction" => Ok(PriceStatus::Auction),
+            "ignored" => Ok(PriceStatus::Ignored),
             _ => Err(anyhow!("invalid price status: {:#?}", status)),
         }
     }
