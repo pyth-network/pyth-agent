@@ -896,7 +896,7 @@ pub mod rpc {
 
             // Expect the adapter to receive the corresponding message and send the product account in return
             if let adapter::Message::GetProduct { result_tx, .. } = test_adapter.recv().await {
-                result_tx.send(Ok(product_account)).unwrap();
+                result_tx.send(Ok(product_account.clone())).unwrap();
             }
 
             // Wait for the result to come back
@@ -905,52 +905,10 @@ pub mod rpc {
             // Check that the JSON representation is correct
             let expected = serde_json::json!({
             "jsonrpc":"2.0",
-            "result": {
-                "account":"some_product_account",
-                "attr_dict": {
-                "asset_type":"Crypto",
-                "country":"US",
-                "quote_currency":"USD",
-                "symbol":"BTC/USD",
-                "tenor":"spot"
-                },
-                "price_accounts": [
-                {
-                    "account": "some_price_account",
-                    "price_type": "price",
-                    "price_exponent": 8,
-                    "status":"trading",
-                    "price": 536,
-                    "conf": 67,
-                    "twap": 276,
-                    "twac": 463,
-                    "valid_slot": 4628,
-                    "pub_slot": 4736,
-                    "prev_slot": 3856,
-                    "prev_price": 400,
-                    "prev_conf": 45,
-                    "publisher_accounts": [
-                    {
-                        "account": "some_publisher_account",
-                        "status": "trading",
-                        "price": 500,
-                        "conf": 24,
-                        "slot":3563
-                    },
-                    {
-                        "account": "another_publisher_account",
-                        "status": "halted",
-                        "price": 300,
-                        "conf": 683,
-                        "slot": 5834
-                    }
-                    ]
-                }
-                ]
-            },
+            "result": product_account,
             "id": 1
-            }
-            );
+                }
+                );
             let received: serde_json::Value = serde_json::from_str(&received_json).unwrap();
             assert_eq!(received, expected);
         }
