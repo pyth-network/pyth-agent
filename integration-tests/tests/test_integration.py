@@ -479,11 +479,11 @@ class TestUpdatePrice(PythTest):
         price_account = product["price_accounts"][0]["account"]
 
         # Send an "update_price" request
-        await client.update_price(price_account, 42, 40, "trading")
+        await client.update_price(price_account, 42, 2, "trading")
         time.sleep(2)
 
         # Send another "update_price" request to trigger aggregation
-        await client.update_price(price_account, 81, 80, "trading")
+        await client.update_price(price_account, 81, 1, "trading")
         time.sleep(2)
 
         print("Getting a product")
