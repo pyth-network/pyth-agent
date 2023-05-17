@@ -514,19 +514,6 @@ pub mod rpc {
                 .map_err(|e| e.into())
         }
 
-        async fn send_result<T>(
-            &mut self,
-            request: &Request<Method, jrpc::Value>,
-            result: T,
-        ) -> Result<()>
-        where
-            T: Serialize + DeserializeOwned,
-        {
-            let id = request.id.clone().to_id().unwrap_or_else(|| Id::from(0));
-            let response = Response::success(id, result);
-            self.send_text(&response.to_string()).await
-        }
-
         async fn send_error(&mut self, error: anyhow::Error, id: Option<Id>) -> Result<()> {
             let response: Response<Value> = Response::error(
                 id.unwrap_or_else(|| Id::from(0)),
