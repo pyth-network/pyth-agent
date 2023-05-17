@@ -486,13 +486,8 @@ class TestUpdatePrice(PythTest):
         await client.update_price(price_account, 81, 1, "trading")
         time.sleep(2)
 
-        print("Getting a product")
         # Confirm that the price account has been updated with the values from the first "update_price" request
         final_product_state = await client.get_product(product_account)
-
-        print("Getting everything")
-        await client.get_all_products()
-
 
         final_price_account = final_product_state["price_accounts"][0]
         assert final_price_account["price"] == 42
