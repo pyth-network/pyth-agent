@@ -11,10 +11,8 @@ use {
         anyhow,
         Result,
     },
-    pyth_sdk::{
-        PriceStatus,
-        UnixTimestamp,
-    },
+    pyth_sdk::UnixTimestamp,
+    pyth_sdk_solana::state::PriceStatus,
     slog::Logger,
     solana_sdk::bs58,
     std::collections::HashMap,

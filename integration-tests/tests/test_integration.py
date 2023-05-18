@@ -523,6 +523,7 @@ class TestUpdatePrice(PythTest):
             assert price == 42
             assert conf == 2
 
+
     @pytest.mark.asyncio
     async def test_update_price_simple_with_keypair_hotload(self, client_hotload: PythAgentClient):
 

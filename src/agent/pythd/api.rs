@@ -304,65 +304,129 @@ pub mod rpc {
         async fn handle(&mut self, msg: Message) -> Result<()> {
             // Ignore control and binary messages
             if !msg.is_text() {
+                debug!(self.logger, "JSON RPC API: skipped non-text message");
                 return Ok(());
             }
 
             // Parse and dispatch the message
             match self.parse(msg).await {
-                Ok(request) => self.dispatch_and_catch_error(&request).await,
-                Err(e) => self.send_text(&Response::<Value>::Err(e).to_string()).await,
+                Ok((requests, is_batch)) => {
+                    let mut responses = Vec::with_capacity(requests.len());
+
+                    // Perform requests in sequence and gather responses
+                    for request in requests {
+                        let response = self.dispatch_and_catch_error(&request).await;
+                        responses.push(response)
+                    }
+
+                    // Send an array if we're handling a batch
+                    // request, single response object otherwise
+                    if is_batch {
+                        self.send_text(&serde_json::to_string(&responses)?).await?;
+                    } else {
+                        self.send_text(&serde_json::to_string(&responses[0])?)
+                            .await?;
+                    }
+                }
+                // The top-level parsing errors are fine to share with client
+                Err(e) => {
+                    self.send_error(e, None).await?;
+                }
+            }
+
+            Ok(())
+        }
+
+        /// Parse a JSONRPC request object or a batch of them. The
+        /// bool in result informs request handling whether it needs
+        /// to respond with a single object or an array, to prevent
+        /// sending unexpected
+        /// `[{<just one response, but request was not array>}]`
+        /// array payloads.
+        async fn parse(&mut self, msg: Message) -> Result<(Vec<Request<Method, Value>>, bool)> {
+            let s = msg
+                .to_str()
+                .map_err(|_| anyhow!("Could not parse message as text"))?;
+
+            let json_value: Value = serde_json::from_str(s)?;
+            if let Some(array) = json_value.as_array() {
+                // Interpret request as JSON-RPC 2.0 batch if value is an array
+                let mut requests = Vec::with_capacity(array.len());
+                for maybe_request in array {
+                    // Re-serialize for parse_request(), it's the only
+                    // jrpc parsing function available and it's taking
+                    // &str.
+                    let maybe_request_string = serde_json::to_string(maybe_request)?;
+                    requests
+                        .push(parse_request::<Method>(&maybe_request_string).map_err(|e| {
+                            anyhow!("Could not parse message: {}", e.error.message)
+                        })?);
+                }
+
+                Ok((requests, true))
+            } else {
+                // Base single request case
+                let single = parse_request::<Method>(s)
+                    .map_err(|e| anyhow!("Could not parse message: {}", e.error.message))?;
+                Ok((vec![single], false))
             }
         }
 
         async fn dispatch_and_catch_error(
             &mut self,
             request: &Request<Method, Value>,
-        ) -> Result<()> {
-            if let Err(err) = self.dispatch(request).await {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
-                self.send_error_response(err, request).await?;
-            };
-            Ok(())
-        }
-
-        async fn parse(
-            &mut self,
-            msg: Message,
-        ) -> core::result::Result<Request<Method, Value>, jrpc::Error<Value>> {
-            let s = msg.to_str().map_err(|()| {
-                // This should never happen, but fail gracefully just in case
-                jrpc::Error::new(
-                    Id::from(0),
-                    jrpc::ErrorCode::ParseError,
-                    "non-text websocket message received",
-                    None,
-                )
-            })?;
-            parse_request::<Method>(s)
-        }
-
-        async fn dispatch(&mut self, request: &Request<Method, Value>) -> Result<()> {
-            match request.method {
-                Method::GetProductList => self.get_product_list(request).await,
+        ) -> Response<serde_json::Value> {
+            debug!(self.logger,
+             "JSON RPC API: handling request";
+            "method" => format!("{:?}", request.method),
+                );
+            let result = match request.method {
+                Method::GetProductList => self.get_product_list().await,
                 Method::GetProduct => self.get_product(request).await,
-                Method::GetAllProducts => self.get_all_products(request).await,
+                Method::GetAllProducts => self.get_all_products().await,
                 Method::SubscribePrice => self.subscribe_price(request).await,
                 Method::SubscribePriceSched => self.subscribe_price_sched(request).await,
                 Method::UpdatePrice => self.update_price(request).await,
-                _ => Err(anyhow!("unsupported method type: {:?}", request.method)),
+                Method::NotifyPrice | Method::NotifyPriceSched => {
+                    Err(anyhow!("unsupported method: {:?}", request.method))
+                }
+            };
+
+            // Consider errors internal, print details to logs.
+            match result {
+                Ok(payload) => {
+                    Response::success(request.id.clone().to_id().unwrap_or(Id::from(0)), payload)
+                }
+                Err(e) => {
+                    warn!(
+                    self.logger,
+                      "Error handling JSON RPC request";
+                    "request" => format!("{:?}", request),
+                    "error" => format!("{}", e.to_string()),
+                    );
+                    Response::error(
+                        request.id.clone().to_id().unwrap_or(Id::from(0)),
+                        ErrorCode::InternalError,
+                        e.to_string(),
+                        None,
+                    )
+                }
             }
         }
 
-        async fn get_product_list(&mut self, request: &Request<Method, Value>) -> Result<()> {
+        async fn get_product_list(&mut self) -> Result<serde_json::Value> {
             let (result_tx, result_rx) = oneshot::channel();
             self.adapter_tx
                 .send(adapter::Message::GetProductList { result_tx })
                 .await?;
 
-            self.send_result(request, result_rx.await??).await
+            Ok(serde_json::to_value(result_rx.await??)?)
         }
 
-        async fn get_product(&mut self, request: &Request<Method, Value>) -> Result<()> {
+        async fn get_product(
+            &mut self,
+            request: &Request<Method, Value>,
+        ) -> Result<serde_json::Value> {
             let params: GetProductParams = self.deserialize_params(request.params.clone())?;
 
             let (result_tx, result_rx) = oneshot::channel();
@@ -373,19 +437,22 @@ pub mod rpc {
                 })
                 .await?;
 
-            self.send_result(request, result_rx.await??).await
+            Ok(serde_json::to_value(result_rx.await??)?)
         }
 
-        async fn get_all_products(&mut self, request: &Request<Method, Value>) -> Result<()> {
+        async fn get_all_products(&mut self) -> Result<serde_json::Value> {
             let (result_tx, result_rx) = oneshot::channel();
             self.adapter_tx
                 .send(adapter::Message::GetAllProducts { result_tx })
                 .await?;
 
-            self.send_result(request, result_rx.await??).await
+            Ok(serde_json::to_value(result_rx.await??)?)
         }
 
-        async fn subscribe_price(&mut self, request: &Request<Method, Value>) -> Result<()> {
+        async fn subscribe_price(
+            &mut self,
+            request: &Request<Method, Value>,
+        ) -> Result<serde_json::Value> {
             let params: SubscribePriceParams = self.deserialize_params(request.params.clone())?;
 
             let (result_tx, result_rx) = oneshot::channel();
@@ -397,16 +464,15 @@ pub mod rpc {
                 })
                 .await?;
 
-            self.send_result(
-                request,
-                SubscribeResult {
-                    subscription: result_rx.await??,
-                },
-            )
-            .await
+            Ok(serde_json::to_value(SubscribeResult {
+                subscription: result_rx.await??,
+            })?)
         }
 
-        async fn subscribe_price_sched(&mut self, request: &Request<Method, Value>) -> Result<()> {
+        async fn subscribe_price_sched(
+            &mut self,
+            request: &Request<Method, Value>,
+        ) -> Result<serde_json::Value> {
             let params: SubscribePriceSchedParams =
                 self.deserialize_params(request.params.clone())?;
 
@@ -419,16 +485,15 @@ pub mod rpc {
                 })
                 .await?;
 
-            self.send_result(
-                request,
-                SubscribeResult {
-                    subscription: result_rx.await??,
-                },
-            )
-            .await
+            Ok(serde_json::to_value(SubscribeResult {
+                subscription: result_rx.await??,
+            })?)
         }
 
-        async fn update_price(&mut self, request: &Request<Method, Value>) -> Result<()> {
+        async fn update_price(
+            &mut self,
+            request: &Request<Method, Value>,
+        ) -> Result<serde_json::Value> {
             let params: UpdatePriceParams = self.deserialize_params(request.params.clone())?;
 
             self.adapter_tx
@@ -440,7 +505,7 @@ pub mod rpc {
                 })
                 .await?;
 
-            self.send_result(request, 0).await
+            Ok(serde_json::to_value(0)?)
         }
 
         fn deserialize_params<T>(&self, value: Option<Value>) -> Result<T>
@@ -449,27 +514,6 @@ pub mod rpc {
         {
             serde_json::from_value::<T>(value.ok_or_else(|| anyhow!("Missing request parameters"))?)
                 .map_err(|e| e.into())
-        }
-
-        async fn send_result<T>(
-            &mut self,
-            request: &Request<Method, jrpc::Value>,
-            result: T,
-        ) -> Result<()>
-        where
-            T: Serialize + DeserializeOwned,
-        {
-            let id = request.id.clone().to_id().unwrap_or_else(|| Id::from(0));
-            let response = Response::success(id, result);
-            self.send_text(&response.to_string()).await
-        }
-
-        async fn send_error_response(
-            &mut self,
-            error: anyhow::Error,
-            request: &Request<Method, jrpc::Value>,
-        ) -> Result<()> {
-            self.send_error(error, request.id.clone().to_id()).await
         }
 
         async fn send_error(&mut self, error: anyhow::Error, id: Option<Id>) -> Result<()> {
@@ -741,6 +785,11 @@ pub mod rpc {
                 self.sender.send_text(request.to_string()).await.unwrap();
             }
 
+            async fn send_batch(&mut self, requests: Vec<Request<String, serde_json::Value>>) {
+                let serialized = serde_json::to_string(&requests).unwrap();
+                self.sender.send_text(serialized).await.unwrap()
+            }
+
             async fn recv_json(&mut self) -> String {
                 let bytes = self.recv_bytes().await;
                 from_utf8(&bytes).unwrap().to_string()
@@ -753,7 +802,7 @@ pub mod rpc {
             }
         }
 
-        async fn start_server() -> (TestServer, TestClient, TestAdapter) {
+        async fn start_server() -> (TestServer, TestClient, TestAdapter, IoBuffer) {
             let listen_port = portpicker::pick_unused_port().unwrap();
 
             // Create the test adapter
@@ -762,7 +811,8 @@ pub mod rpc {
 
             // Create and spawn a server (the SUT)
             let (shutdown_tx, shutdown_rx) = broadcast::channel(10);
-            let logger = slog_test::new_test_logger(IoBuffer::new());
+            let mut log_buffer = IoBuffer::new();
+            let logger = slog_test::new_test_logger(log_buffer.clone());
             let config = Config {
                 listen_address: format!("127.0.0.1:{:}", listen_port),
                 ..Default::default()
@@ -776,13 +826,13 @@ pub mod rpc {
             // Create a test client to interact with the server
             let test_client = TestClient::new(listen_port).await;
 
-            (test_server, test_client, test_adapter)
+            (test_server, test_client, test_adapter, log_buffer)
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn json_get_product_success_test() {
             // Start and connect to the JRPC server
-            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+            let (_test_server, mut test_client, mut test_adapter, _) = start_server().await;
 
             // Make a binary request, which should be safely ignored
             let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
@@ -848,21 +898,70 @@ pub mod rpc {
 
             // Expect the adapter to receive the corresponding message and send the product account in return
             if let adapter::Message::GetProduct { result_tx, .. } = test_adapter.recv().await {
-                result_tx.send(Ok(product_account)).unwrap();
+                result_tx.send(Ok(product_account.clone())).unwrap();
             }
 
             // Wait for the result to come back
             let received_json = test_client.recv_json().await;
 
             // Check that the JSON representation is correct
-            let expected_json = r#"{"jsonrpc":"2.0","result":{"account":"some_product_account","attr_dict":{"asset_type":"Crypto","country":"US","quote_currency":"USD","symbol":"BTC/USD","tenor":"spot"},"price_accounts":[{"account":"some_price_account","price_type":"price","price_exponent":8,"status":"trading","price":536,"conf":67,"twap":276,"twac":463,"valid_slot":4628,"pub_slot":4736,"prev_slot":3856,"prev_price":400,"prev_conf":45,"publisher_accounts":[{"account":"some_publisher_account","status":"trading","price":500,"conf":24,"slot":3563},{"account":"another_publisher_account","status":"halted","price":300,"conf":683,"slot":5834}]}]},"id":1}"#;
-            assert_eq!(received_json, expected_json);
+            let expected = serde_json::json!({
+            "jsonrpc":"2.0",
+            "result": {
+                "account": "some_product_account",
+                "attr_dict": {
+                "symbol": "BTC/USD",
+                "asset_type": "Crypto",
+                "country": "US",
+                "quote_currency": "USD",
+                "tenor": "spot"
+                },
+                "price_accounts": [
+                {
+                    "account": "some_price_account",
+                    "price_type": "price",
+                    "price_exponent": 8,
+                    "status": "trading",
+                    "price": 536,
+                    "conf": 67,
+                    "twap": 276,
+                    "twac": 463,
+                    "valid_slot": 4628,
+                    "pub_slot": 4736,
+                    "prev_slot": 3856,
+                    "prev_price": 400,
+                    "prev_conf": 45,
+                    "publisher_accounts": [
+                    {
+                        "account": "some_publisher_account",
+                        "status": "trading",
+                        "price": 500,
+                        "conf": 24,
+                        "slot": 3563
+                    },
+                    {
+                        "account": "another_publisher_account",
+                        "status": "halted",
+                        "price": 300,
+                        "conf": 683,
+                        "slot": 5834
+                    }
+                    ]
+
+                }
+                ]
+            },
+            "id": 1
+            }
+            );
+            let received: serde_json::Value = serde_json::from_str(&received_json).unwrap();
+            assert_eq!(received, expected);
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn json_unknown_method_error_test() {
             // Start and connect to the JRPC server
-            let (_test_server, mut test_client, _) = start_server().await;
+            let (_test_server, mut test_client, _, _) = start_server().await;
 
             // Make a request with an unknown methid
             test_client
@@ -879,14 +978,14 @@ pub mod rpc {
             let received_json = test_client.recv_json().await;
 
             // Check that the result is what we expect
-            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32601,"message":"unknown variant `wrong_method`, expected one of `get_product_list`, `get_product`, `get_all_products`, `subscribe_price`, `notify_price`, `subscribe_price_sched`, `notify_price_sched`, `update_price`","data":null},"id":3}"#;
+            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Could not parse message: unknown variant `wrong_method`, expected one of `get_product_list`, `get_product`, `get_all_products`, `subscribe_price`, `notify_price`, `subscribe_price_sched`, `notify_price_sched`, `update_price`","data":null},"id":0}"#;
             assert_eq!(received_json, expected_json);
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn json_missing_request_parameters_test() {
             // Start and connect to the JRPC server
-            let (_test_server, mut test_client, _) = start_server().await;
+            let (_test_server, mut test_client, _, _) = start_server().await;
 
             // Make a request with missing parameters
             test_client
@@ -904,7 +1003,7 @@ pub mod rpc {
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn json_internal_error() {
             // Start and connect to the JRPC server
-            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+            let (_test_server, mut test_client, mut test_adapter, _) = start_server().await;
 
             // Make a request
             test_client
@@ -933,7 +1032,7 @@ pub mod rpc {
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn json_update_price_success() {
             // Start and connect to the JRPC server
-            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+            let (_test_server, mut test_client, mut test_adapter, _) = start_server().await;
 
             // Make a request to update the price
             let status = "trading";
@@ -973,7 +1072,7 @@ pub mod rpc {
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn get_product_list_success_test() {
             // Start and connect to the JRPC server
-            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+            let (_test_server, mut test_client, mut test_adapter, _) = start_server().await;
 
             // Define the data we are working with
             let product_account = Pubkey::from("some_product_account");
@@ -1025,7 +1124,7 @@ pub mod rpc {
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn get_all_products_success() {
             // Start and connect to the JRPC server
-            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+            let (_test_server, mut test_client, mut test_adapter, _) = start_server().await;
 
             // Define the data we are working with
             let data = vec![ProductAccount {
@@ -1095,7 +1194,7 @@ pub mod rpc {
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn subscribe_price_success() {
             // Start and connect to the JRPC server
-            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+            let (_test_server, mut test_client, mut test_adapter, _) = start_server().await;
 
             // Make a SubscribePrice request
             let price_account = Pubkey::from("some_price_account");
@@ -1154,7 +1253,7 @@ pub mod rpc {
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn subscribe_price_sched_success() {
             // Start and connect to the JRPC server
-            let (_test_server, mut test_client, mut test_adapter) = start_server().await;
+            let (_test_server, mut test_client, mut test_adapter, _) = start_server().await;
 
             // Make a SubscribePriceSched request
             let price_account = Pubkey::from("some_price_account");
@@ -1204,6 +1303,161 @@ pub mod rpc {
                 }
                 _ => panic!("Uexpected message received from adapter"),
             };
+        }
+
+        /// Send a batch of requests with one of them mangled.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn batch_request_partial_failure() {
+            // Start and connect to the JRPC server
+            let (_test_server, mut test_client, mut test_adapter, mut log_buffer) =
+                start_server().await;
+
+            let product_account_key = "some_product_account".to_string();
+            let valid_params = GetProductParams {
+                account: product_account_key.clone(),
+            };
+
+            test_client
+                .send_batch(vec![
+                    // Should work
+                    Request::with_params(
+                        Id::from(15),
+                        "get_product".to_string(),
+                        serde_json::to_value(&valid_params).unwrap(),
+                    ),
+                    // Should fail
+                    Request::with_params(
+                        Id::from(666), // Note: Spooky
+                        "update_price".to_string(),
+                        serde_json::json!({}),
+                    ),
+                ])
+                .await;
+
+            let product_account = ProductAccount {
+                account:        product_account_key,
+                attr_dict:      Attrs::from(
+                    [
+                        ("symbol", "BTC/USD"),
+                        ("asset_type", "Crypto"),
+                        ("country", "US"),
+                        ("quote_currency", "USD"),
+                        ("tenor", "spot"),
+                    ]
+                    .map(|(k, v)| (k.to_string(), v.to_string())),
+                ),
+                price_accounts: vec![PriceAccount {
+                    account:            "some_price_account".to_string(),
+                    price_type:         "price".to_string(),
+                    price_exponent:     8,
+                    status:             "trading".to_string(),
+                    price:              536,
+                    conf:               67,
+                    twap:               276,
+                    twac:               463,
+                    valid_slot:         4628,
+                    pub_slot:           4736,
+                    prev_slot:          3856,
+                    prev_price:         400,
+                    prev_conf:          45,
+                    publisher_accounts: vec![
+                        PublisherAccount {
+                            account: "some_publisher_account".to_string(),
+                            status:  "trading".to_string(),
+                            price:   500,
+                            conf:    24,
+                            slot:    3563,
+                        },
+                        PublisherAccount {
+                            account: "another_publisher_account".to_string(),
+                            status:  "halted".to_string(),
+                            price:   300,
+                            conf:    683,
+                            slot:    5834,
+                        },
+                    ],
+                }],
+            };
+
+            // Handle the request in test adapter
+            if let adapter::Message::GetProduct { result_tx, .. } = test_adapter.recv().await {
+                result_tx.send(Ok(product_account.clone())).unwrap();
+            }
+
+            let received: serde_json::Value =
+                serde_json::from_str(&test_client.recv_json().await).unwrap();
+
+            let expected_product_account_json = serde_json::json!({
+                "account": "some_product_account",
+                "attr_dict": {
+                "symbol": "BTC/USD",
+                "asset_type": "Crypto",
+                "country": "US",
+                "quote_currency": "USD",
+                "tenor": "spot"
+                },
+                "price_accounts": [
+                {
+                    "account": "some_price_account",
+                    "price_type": "price",
+                    "price_exponent": 8,
+                    "status": "trading",
+                    "price": 536,
+                    "conf": 67,
+                    "twap": 276,
+                    "twac": 463,
+                    "valid_slot": 4628,
+                    "pub_slot": 4736,
+                    "prev_slot": 3856,
+                    "prev_price": 400,
+                    "prev_conf": 45,
+                    "publisher_accounts": [
+                    {
+                        "account": "some_publisher_account",
+                        "status": "trading",
+                        "price": 500,
+                        "conf": 24,
+                        "slot": 3563
+                    },
+                    {
+                        "account": "another_publisher_account",
+                        "status": "halted",
+                        "price": 300,
+                        "conf": 683,
+                        "slot": 5834
+                    }
+                    ]
+
+                }
+                ]
+            }
+            );
+
+            let expected = serde_json::json!(
+                [
+            {
+                "jsonrpc": "2.0",
+                "id": 15,
+                "result": expected_product_account_json,
+            },
+            {
+                "jsonrpc": "2.0",
+                "error": {
+                "code": -32603,
+                "message": "missing field `account`",
+                "data": null
+                },
+                "id": 666
+            }
+                ]
+                );
+
+            println!("Log contents:");
+            for line in log_buffer.lines() {
+                println!("{}", String::from_utf8(line).unwrap());
+            }
+
+            assert_eq!(received, expected);
         }
     }
 }

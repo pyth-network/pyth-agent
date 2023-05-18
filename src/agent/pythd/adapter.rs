@@ -27,11 +27,11 @@ use {
         Result,
     },
     chrono::Utc,
-    pyth_sdk::{
-        Identifier,
+    pyth_sdk::Identifier,
+    pyth_sdk_solana::state::{
+        PriceComp,
         PriceStatus,
     },
-    pyth_sdk_solana::state::PriceComp,
     serde::{
         Deserialize,
         Serialize,
@@ -431,13 +431,14 @@ impl Adapter {
         }
     }
 
-    // TODO: implement Display on pyth_sdk::PriceStatus and then just call pyth_sdk::PriceStatus::to_string
+    // TODO: implement Display on PriceStatus and then just call PriceStatus::to_string
     fn price_status_to_str(price_status: PriceStatus) -> String {
         match price_status {
             PriceStatus::Unknown => "unknown",
             PriceStatus::Trading => "trading",
             PriceStatus::Halted => "halted",
             PriceStatus::Auction => "auction",
+            PriceStatus::Ignored => "ignored",
         }
         .to_string()
     }
@@ -549,6 +550,7 @@ impl Adapter {
             "trading" => Ok(PriceStatus::Trading),
             "halted" => Ok(PriceStatus::Halted),
             "auction" => Ok(PriceStatus::Auction),
+            "ignored" => Ok(PriceStatus::Ignored),
             _ => Err(anyhow!("invalid price status: {:#?}", status)),
         }
     }
@@ -619,14 +621,12 @@ mod tests {
             },
         },
         iobuffer::IoBuffer,
-        pyth_sdk::{
-            Identifier,
-            PriceStatus,
-        },
+        pyth_sdk::Identifier,
         pyth_sdk_solana::state::{
             PriceAccount,
             PriceComp,
             PriceInfo,
+            PriceStatus,
             PriceType,
             Rational,
         },
@@ -1108,7 +1108,7 @@ mod tests {
                         agg:            PriceInfo {
                             price:    736382,
                             conf:     85623946,
-                            status:   pyth_sdk::PriceStatus::Unknown,
+                            status:   pyth_sdk_solana::state::PriceStatus::Unknown,
                             corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                             pub_slot: 7262746,
                         },
@@ -1161,7 +1161,7 @@ mod tests {
                         agg:            PriceInfo {
                             price:    8474837,
                             conf:     27468478,
-                            status:   pyth_sdk::PriceStatus::Unknown,
+                            status:   PriceStatus::Unknown,
                             corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                             pub_slot: 2736478,
                         },
@@ -1173,14 +1173,14 @@ mod tests {
                             agg:       PriceInfo {
                                 price:    85698,
                                 conf:     23645,
-                                status:   pyth_sdk::PriceStatus::Trading,
+                                status:   PriceStatus::Trading,
                                 corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                 pub_slot: 14765,
                             },
                             latest:    PriceInfo {
                                 price:    46985,
                                 conf:     32565,
-                                status:   pyth_sdk::PriceStatus::Trading,
+                                status:   PriceStatus::Trading,
                                 corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                 pub_slot: 4368,
                             },
@@ -1233,7 +1233,7 @@ mod tests {
                         agg:            PriceInfo {
                             price:    8254826,
                             conf:     6385638,
-                            status:   pyth_sdk::PriceStatus::Trading,
+                            status:   PriceStatus::Trading,
                             corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                             pub_slot: 58462846,
                         },
@@ -1246,14 +1246,14 @@ mod tests {
                                 agg:       PriceInfo {
                                     price:    8251,
                                     conf:     7653,
-                                    status:   pyth_sdk::PriceStatus::Trading,
+                                    status:   PriceStatus::Trading,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 365545,
                                 },
                                 latest:    PriceInfo {
                                     price:    65465,
                                     conf:     451,
-                                    status:   pyth_sdk::PriceStatus::Trading,
+                                    status:   PriceStatus::Trading,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 886562,
                                 },
@@ -1266,14 +1266,14 @@ mod tests {
                                 agg:       PriceInfo {
                                     price:    39865,
                                     conf:     7456,
-                                    status:   pyth_sdk::PriceStatus::Unknown,
+                                    status:   PriceStatus::Unknown,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 865,
                                 },
                                 latest:    PriceInfo {
                                     price:    5846,
                                     conf:     32468,
-                                    status:   pyth_sdk::PriceStatus::Unknown,
+                                    status:   PriceStatus::Unknown,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 7158,
                                 },
@@ -1324,7 +1324,7 @@ mod tests {
                         agg:            PriceInfo {
                             price:    876384,
                             conf:     1349364,
-                            status:   pyth_sdk::PriceStatus::Trading,
+                            status:   PriceStatus::Trading,
                             corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                             pub_slot: 987236484,
                         },
@@ -1337,14 +1337,14 @@ mod tests {
                                 agg:       PriceInfo {
                                     price:    54842,
                                     conf:     599755,
-                                    status:   pyth_sdk::PriceStatus::Trading,
+                                    status:   PriceStatus::Trading,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 1976465,
                                 },
                                 latest:    PriceInfo {
                                     price:    394764,
                                     conf:     26485,
-                                    status:   pyth_sdk::PriceStatus::Trading,
+                                    status:   PriceStatus::Trading,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 369454,
                                 },
@@ -1357,14 +1357,14 @@ mod tests {
                                 agg:       PriceInfo {
                                     price:    65649,
                                     conf:     55896,
-                                    status:   pyth_sdk::PriceStatus::Unknown,
+                                    status:   PriceStatus::Unknown,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 32976,
                                 },
                                 latest:    PriceInfo {
                                     price:    18616,
                                     conf:     254458,
-                                    status:   pyth_sdk::PriceStatus::Trading,
+                                    status:   PriceStatus::Trading,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 3126545,
                                 },
@@ -1418,7 +1418,7 @@ mod tests {
                         agg:            PriceInfo {
                             price:    397492,
                             conf:     33487,
-                            status:   pyth_sdk::PriceStatus::Trading,
+                            status:   PriceStatus::Trading,
                             corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                             pub_slot: 529857382,
                         },
@@ -1431,14 +1431,14 @@ mod tests {
                                 agg:       PriceInfo {
                                     price:    69854,
                                     conf:     732565,
-                                    status:   pyth_sdk::PriceStatus::Unknown,
+                                    status:   PriceStatus::Unknown,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 213654,
                                 },
                                 latest:    PriceInfo {
                                     price:    79556,
                                     conf:     565461,
-                                    status:   pyth_sdk::PriceStatus::Trading,
+                                    status:   PriceStatus::Trading,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 863125,
                                 },
@@ -1451,14 +1451,14 @@ mod tests {
                                 agg:       PriceInfo {
                                     price:    3265,
                                     conf:     8962196,
-                                    status:   pyth_sdk::PriceStatus::Trading,
+                                    status:   PriceStatus::Trading,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 301541,
                                 },
                                 latest:    PriceInfo {
                                     price:    465132,
                                     conf:     8476531,
-                                    status:   pyth_sdk::PriceStatus::Unknown,
+                                    status:   PriceStatus::Unknown,
                                     corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                     pub_slot: 78964,
                                 },
@@ -1509,7 +1509,7 @@ mod tests {
                         agg:            PriceInfo {
                             price:    836489,
                             conf:     6769467,
-                            status:   pyth_sdk::PriceStatus::Trading,
+                            status:   PriceStatus::Trading,
                             corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                             pub_slot: 6863892,
                         },
@@ -1521,14 +1521,14 @@ mod tests {
                             agg:       PriceInfo {
                                 price:    61478,
                                 conf:     312545,
-                                status:   pyth_sdk::PriceStatus::Trading,
+                                status:   PriceStatus::Trading,
                                 corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                 pub_slot: 302156,
                             },
                             latest:    PriceInfo {
                                 price:    85315,
                                 conf:     754256,
-                                status:   pyth_sdk::PriceStatus::Unknown,
+                                status:   PriceStatus::Unknown,
                                 corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
                                 pub_slot: 7101326,
                             },
