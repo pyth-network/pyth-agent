@@ -353,7 +353,9 @@ pub mod rpc {
                 // Interpret request as JSON-RPC 2.0 batch if value is an array
                 let mut requests = Vec::with_capacity(array.len());
                 for maybe_request in array {
-                    // parse_request() is the only jrpc parsing method which takes &str
+                    // Re-serialize for parse_request(), it's the only
+                    // jrpc parsing function available and it's taking
+                    // &str.
                     let maybe_request_string = serde_json::to_string(maybe_request)?;
                     requests
                         .push(parse_request::<Method>(&maybe_request_string).map_err(|e| {
@@ -405,7 +407,7 @@ pub mod rpc {
                     Response::error(
                         request.id.clone().to_id().unwrap_or(Id::from(0)),
                         ErrorCode::InternalError,
-                        "Error handling request. Check pyth-agent logs for details.",
+                        e.to_string(),
                         None,
                     )
                 }
@@ -905,10 +907,53 @@ pub mod rpc {
             // Check that the JSON representation is correct
             let expected = serde_json::json!({
             "jsonrpc":"2.0",
-            "result": product_account,
-            "id": 1
+            "result": {
+                "account": "some_product_account",
+                "attr_dict": {
+                "symbol": "BTC/USD",
+                "asset_type": "Crypto",
+                "country": "US",
+                "quote_currency": "USD",
+                "tenor": "spot"
+                },
+                "price_accounts": [
+                {
+                    "account": "some_price_account",
+                    "price_type": "price",
+                    "price_exponent": 8,
+                    "status": "trading",
+                    "price": 536,
+                    "conf": 67,
+                    "twap": 276,
+                    "twac": 463,
+                    "valid_slot": 4628,
+                    "pub_slot": 4736,
+                    "prev_slot": 3856,
+                    "prev_price": 400,
+                    "prev_conf": 45,
+                    "publisher_accounts": [
+                    {
+                        "account": "some_publisher_account",
+                        "status": "trading",
+                        "price": 500,
+                        "conf": 24,
+                        "slot": 3563
+                    },
+                    {
+                        "account": "another_publisher_account",
+                        "status": "halted",
+                        "price": 300,
+                        "conf": 683,
+                        "slot": 5834
+                    }
+                    ]
+
                 }
-                );
+                ]
+            },
+            "id": 1
+            }
+            );
             let received: serde_json::Value = serde_json::from_str(&received_json).unwrap();
             assert_eq!(received, expected);
         }
@@ -951,7 +996,7 @@ pub mod rpc {
             let received_json = test_client.recv_json().await;
 
             // Check that the result is what we expect
-            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Error handling request. Check pyth-agent logs for details.","data":null},"id":5}"#;
+            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Missing request parameters","data":null},"id":5}"#;
             assert_eq!(received_json, expected_json);
         }
 
@@ -980,7 +1025,7 @@ pub mod rpc {
             let received_json = test_client.recv_json().await;
 
             // Check that the result is what we expect
-            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Error handling request. Check pyth-agent logs for details.","data":null},"id":9}"#;
+            let expected_json = r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"some internal error","data":null},"id":9}"#;
             assert_eq!(expected_json, received_json);
         }
 
@@ -1342,18 +1387,64 @@ pub mod rpc {
             let received: serde_json::Value =
                 serde_json::from_str(&test_client.recv_json().await).unwrap();
 
+            let expected_product_account_json = serde_json::json!({
+                "account": "some_product_account",
+                "attr_dict": {
+                "symbol": "BTC/USD",
+                "asset_type": "Crypto",
+                "country": "US",
+                "quote_currency": "USD",
+                "tenor": "spot"
+                },
+                "price_accounts": [
+                {
+                    "account": "some_price_account",
+                    "price_type": "price",
+                    "price_exponent": 8,
+                    "status": "trading",
+                    "price": 536,
+                    "conf": 67,
+                    "twap": 276,
+                    "twac": 463,
+                    "valid_slot": 4628,
+                    "pub_slot": 4736,
+                    "prev_slot": 3856,
+                    "prev_price": 400,
+                    "prev_conf": 45,
+                    "publisher_accounts": [
+                    {
+                        "account": "some_publisher_account",
+                        "status": "trading",
+                        "price": 500,
+                        "conf": 24,
+                        "slot": 3563
+                    },
+                    {
+                        "account": "another_publisher_account",
+                        "status": "halted",
+                        "price": 300,
+                        "conf": 683,
+                        "slot": 5834
+                    }
+                    ]
+
+                }
+                ]
+            }
+            );
+
             let expected = serde_json::json!(
                 [
             {
                 "jsonrpc": "2.0",
                 "id": 15,
-                "result": product_account,
+                "result": expected_product_account_json,
             },
             {
                 "jsonrpc": "2.0",
                 "error": {
                 "code": -32603,
-                "message": "Error handling request. Check pyth-agent logs for details.",
+                "message": "missing field `account`",
                 "data": null
                 },
                 "id": 666
