@@ -17,6 +17,13 @@ key_store.root_path = "/path/to/keystore"
 # Duration of the interval at which to publish updates
 exporter.publish_interval_duration = "400ms"
 
+# Maximum size of a batch
+exporter.max_batch_size = 7
+
+# Relative path to accumulator message buffer program ID. Setting this
+# value enables accumulator support on publishing transactions.
+key_store.accumulator_key_path = "message_buffer_key.json"
+
 # Configuration for the optional secondary network this agent will publish data to.
 # In most cases this should be a Solana endpoint.
 [secondary_network]
