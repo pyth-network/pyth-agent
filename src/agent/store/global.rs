@@ -236,7 +236,7 @@ impl Store {
                 // Sanity-check that we are updating with more recent data
                 if let Some(existing_price) = self.account_data.price_accounts.get(account_key) {
                     if existing_price.timestamp > account.timestamp {
-                        warn!(self.logger, "Global store: denied stale update of an existing newer price";
+                        info!(self.logger, "Global store: denied stale update of an existing newer price";
                         "price_key" => account_key.to_string(),
                         "existing_timestamp" => existing_price.timestamp,
                         "new_timestamp" => account.timestamp,
