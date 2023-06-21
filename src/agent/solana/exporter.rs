@@ -315,7 +315,7 @@ impl Exporter {
                 // Filter out unchanged price data if the max delay wasn't reached
 
                 if let Some(last_info) = self.last_published_state.get(identifier) {
-                    if (last_info.timestamp - info.timestamp)
+                    if (info.timestamp - last_info.timestamp)
                         > self.config.unchanged_publish_threshold.as_secs() as i64
                     {
                         true // max delay since last published state reached, we publish anyway
