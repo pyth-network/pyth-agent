@@ -33,6 +33,22 @@ pub struct PriceInfo {
     pub timestamp: UnixTimestamp,
 }
 
+impl PriceInfo {
+    /// Returns false if any non-timestamp fields differ with `other`. Used for last published state comparison in exporter.
+    pub fn cmp_no_timestamp(&self, other: &Self) -> bool {
+        // Prevent forgetting to use a new field if we expand the type.
+        #[deny(unused_variables)]
+        let Self {
+            status,
+            price,
+            conf,
+            timestamp: _,
+        } = self;
+
+        status == &other.status && price == &other.price && conf == &other.conf
+    }
+}
+
 #[derive(Debug)]
 pub enum Message {
     Update {

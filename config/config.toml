@@ -109,6 +109,11 @@ key_store.root_path = "/path/to/keystore"
 # Age after which a price update is considered stale and not published
 # exporter.staleness_threshold = "5s"
 
+# Wait at least this long before publishing an unchanged price
+# state; unchanged price state means only timestamp has changed
+# with other state identical to last published state.
+# exporter.unchanged_publish_threshold = "5s"
+
 # Maximum size of a batch
 # exporter.max_batch_size = 12
 

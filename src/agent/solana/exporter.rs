@@ -24,10 +24,7 @@ use {
         join_all,
     },
     key_store::KeyStore,
-    pyth_sdk::{
-        Identifier,
-        UnixTimestamp,
-    },
+    pyth_sdk::Identifier,
     pyth_sdk_solana::state::PriceStatus,
     serde::{
         Deserialize,
@@ -111,6 +108,10 @@ pub struct Config {
     /// Age after which a price update is considered stale and not published
     #[serde(with = "humantime_serde")]
     pub staleness_threshold:                     Duration,
+    /// Wait at least this long before publishing an unchanged price
+    /// state; unchanged price state means only timestamp has changed
+    /// with other state identical to last published state.
+    pub unchanged_publish_threshold:             Duration,
     /// Maximum size of a batch
     pub max_batch_size:                          usize,
     /// Capacity of the channel between the Exporter and the Transaction Monitor
@@ -131,6 +132,7 @@ impl Default for Config {
             refresh_network_state_interval_duration: Duration::from_millis(200),
             publish_interval_duration:               Duration::from_secs(1),
             staleness_threshold:                     Duration::from_secs(5),
+            unchanged_publish_threshold:             Duration::from_secs(5),
             max_batch_size:                          12,
             inflight_transactions_channel_capacity:  10000,
             transaction_monitor:                     Default::default(),
@@ -212,8 +214,10 @@ pub struct Exporter {
     /// Channel on which to communicate with the local store
     local_store_tx: Sender<store::local::Message>,
 
-    /// The last time an update was published for each price identifier
-    last_published_at: HashMap<PriceIdentifier, UnixTimestamp>,
+    /// The last state published for each price identifier. Used to
+    /// rule out stale data and prevent repetitive publishing of
+    /// unchanged prices.
+    last_published_state: HashMap<PriceIdentifier, PriceInfo>,
 
     /// Watch receiver channel to access the current network state
     network_state_rx: watch::Receiver<NetworkState>,
@@ -252,7 +256,7 @@ impl Exporter {
             publish_interval,
             key_store,
             local_store_tx,
-            last_published_at: HashMap::new(),
+            last_published_state: HashMap::new(),
             network_state_rx,
             inflight_transactions_tx,
             publisher_permissions_rx,
@@ -289,16 +293,38 @@ impl Exporter {
     async fn publish_updates(&mut self) -> Result<()> {
         let local_store_contents = self.fetch_local_store_contents().await?;
 
+        let now = Utc::now().timestamp();
+
         // Filter the contents to only include information we haven't already sent,
         // and to ignore stale information.
         let fresh_updates = local_store_contents
             .iter()
             .filter(|(identifier, info)| {
-                *self.last_published_at.get(identifier).unwrap_or(&0) < info.timestamp
+                // Filter out timestamps older than what we already published
+                if let Some(last_info) = self.last_published_state.get(identifier) {
+                    last_info.timestamp < info.timestamp
+                } else {
+                    true // No prior data found, letting the price through
+                }
             })
             .filter(|(_identifier, info)| {
-                (Utc::now().timestamp() - info.timestamp)
-                    < self.config.staleness_threshold.as_secs() as i64
+                // Filter out timestamps that are old
+                (now - info.timestamp) < self.config.staleness_threshold.as_secs() as i64
+            })
+            .filter(|(identifier, info)| {
+                // Filter out unchanged price data if the max delay wasn't reached
+
+                if let Some(last_info) = self.last_published_state.get(identifier) {
+                    if (last_info.timestamp - info.timestamp)
+                        > self.config.unchanged_publish_threshold.as_secs() as i64
+                    {
+                        true // max delay since last published state reached, we publish anyway
+                    } else {
+                        !last_info.cmp_no_timestamp(*info) // Filter out if data is unchanged
+                    }
+                } else {
+                    true // No prior data found, letting the price through
+                }
             })
             .collect::<Vec<_>>();
 
@@ -348,7 +374,7 @@ impl Exporter {
                     // Note: This message is not an error. Some
                     // publishers have different permissions on
                     // primary/secondary networks
-                    info!(
+                    debug!(
                     self.logger,
                     "Exporter: Attempted to publish a price without permission, skipping";
                     "unpermissioned_price_account" => key_from_id.to_string(),
@@ -373,13 +399,13 @@ impl Exporter {
                 .publish_interval_duration
                 .div_f64(num_batches as f64),
         );
-        let mut batch_timestamps = HashMap::new();
+        let mut batch_state = HashMap::new();
         let mut batch_futures = vec![];
         for batch in batches {
             batch_futures.push(self.publish_batch(batch, &publish_keypair));
 
             for (identifier, info) in batch {
-                batch_timestamps.insert(**identifier, info.timestamp);
+                batch_state.insert(**identifier, (**info).clone());
             }
 
             batch_send_interval.tick().await;
@@ -392,7 +418,7 @@ impl Exporter {
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
 
-        self.last_published_at.extend(batch_timestamps);
+        self.last_published_state.extend(batch_state);
 
         Ok(())
     }
