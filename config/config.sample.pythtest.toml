@@ -25,6 +25,9 @@ exporter.publish_interval_duration = "400ms"
 rpc_url = "https://api.testnet.solana.com"
 wss_url = "wss://api.testnet.solana.com"
 
+# Path to the key store.
+key_store.root_path = "/path/to/keystore"
+
 # Duration of the interval at which to publish updates. Default interval is 1 seconds.
 # exporter.publish_interval_duration = "1s"
 
