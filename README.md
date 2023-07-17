@@ -32,24 +32,46 @@ The logging level can be configured at runtime
 through the `RUST_LOG` environment variable using the standard
 `error|warn|info|debug|trace` levels.
 
-### Key Store
-If you already have a key store set up, you can skip this step. If you haven't, you will need to create one before publishing data. A key store contains the cryptographic keys needed to publish data. Once you have a key store set up, please ensure that the configuration file mentioned above contains the correct path to your key store.
+### Key Store Config Migration [v1.x.x LEGACY]
+Pyth agent v2.0.0 introduces a simplified program and mapping key configuration. This breaking change alters how you define program/mapping key options in your agent config:
+```toml
+# Old v1.x.x way
+[primary network]
+key_store.root_path = "/path/to/keystore"
+key_store.publish_keypair_path = "program_key.json" # Relative path from root_path, "publish_key_pair.json" by default
+key_store.program_key_path = "program_key.json" # Relative path from root_path, "program_key.json" by default
+key_store.mapping_key_path = "mapping_key.json" # Relative path from root_path, "mapping_key.json" by default
 
-```bash
-# Install the Solana Tool Suite, needed for creating the key used to sign your transactions.
-sh -c "$(curl -sSfL https://release.solana.com/v1.14.13/install)"
+# [...]
 
-# Create the key store directory. This can be any location that is convenient for you.
-PYTH_KEY_STORE=$HOME/.pythd
+# New v2.0.0 way
+[primary_network]
+key_store.publish_keypair_path = "/path/to/keypair.json" # The root_path is gone, we specify the full path
+# Not using separate files anymore
+key_store.program_key = "LiteralProgramPubkeyInsideTheConfig" # contents of legacy program_key.json;
+key_store.mapping_key = "LiteralMappingPubkeyInsideTheConfig" # contents of legacy mapping_key.json
 
-# Create your keypair (pair of private/public keys) that will be used to sign your transactions.
-# Pyth Network will need to permission this key, so reach out to us once you have created it.
-solana-keygen new --no-bip39-passphrase --outfile $PYTH_KEY_STORE/publish_key_pair.json
+# [...]
 
-# Initialize the key store with the public keys of the Pyth Oracle Program on the network you wish to publish to.
-PYTH_KEY_ENV=devnet # Can be devnet, testnet or mainnet
-./scripts/init_key_store.sh $PYTH_KEY_ENV $PYTH_KEY_STORE
 ```
+
+#### Automatic Migration
+If you are upgrading to agent v2.0.0 with an existing config, you can use the provided automatic migrator program:
+```shell
+# Build
+$ cargo build --release
+# Run the migrator, making sure that the key store with previous keys is reachable
+$ target/release/agent-migrate-config -c <your_config_file>.toml
+```
+
+#### `Could not open {mapping|program|...} key file`
+This error can appear if some of your program/mapping/publish key
+files are not reachable under their `key_store.*` setting values.
+
+Ensure that your current working directory is correct for reaching the
+key store path inside your config. You may also migrate manually by
+changing `key_store.*_key_path` and `key_store.publish_keypair_path`
+options by hand, as described in the config example above.
 
 ## Run
 `cargo run --release -- --config <your_config.toml>` will build and run the agent in a single step.
