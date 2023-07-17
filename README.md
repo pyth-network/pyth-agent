@@ -61,7 +61,7 @@ If you are upgrading to agent v2.0.0 with an existing config, you can use the pr
 # Build
 $ cargo build --release
 # Run the migrator, making sure that the key store with previous keys is reachable
-$ target/release/agent-migrate-config -c <your_config_file>.toml
+$ target/release/agent-migrate-config -c <existing_config_file>.toml > my_new_config.toml
 ```
 
 #### `Could not open {mapping|program|...} key file`
