@@ -202,7 +202,7 @@ mod key_store {
         }
     }
 
-    // Helper methods for strinigified SOL addresses
+    // Helper methods for stringified SOL addresses
 
     fn pubkey_string_ser<S>(k: &Pubkey, ser: S) -> Result<S::Ok, S::Error>
     where
