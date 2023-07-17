@@ -219,15 +219,19 @@ pub mod config {
     };
 
     /// Configuration for all components of the Agent
-    #[derive(Default, Deserialize, Debug)]
-    #[serde(default)]
+    #[derive(Deserialize, Debug)]
     pub struct Config {
+        #[serde(default)]
         pub channel_capacities:    ChannelCapacities,
         pub primary_network:       network::Config,
         pub secondary_network:     Option<network::Config>,
+        #[serde(default)]
         pub pythd_adapter:         pythd::adapter::Config,
+        #[serde(default)]
         pub pythd_api_server:      pythd::api::rpc::Config,
+        #[serde(default)]
         pub metrics_server:        metrics::Config,
+        #[serde(default)]
         pub remote_keypair_loader: remote_keypair_loader::Config,
     }
 

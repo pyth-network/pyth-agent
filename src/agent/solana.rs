@@ -36,36 +36,38 @@ pub mod network {
         },
     };
 
+    pub fn default_rpc_url() -> String {
+        "http://localhost:8899".to_string()
+    }
+
+    pub fn default_wss_url() -> String {
+        "http://localhost:8900".to_string()
+    }
+
+    pub fn default_rpc_timeout() -> Duration {
+        Duration::from_secs(10)
+    }
+
     /// Configuration for a network
     #[derive(Clone, Serialize, Deserialize, Debug)]
-    #[serde(default)]
     pub struct Config {
         /// HTTP RPC endpoint
+        #[serde(default = "default_rpc_url")]
         pub rpc_url:     String,
         /// WSS RPC endpoint
+        #[serde(default = "default_wss_url")]
         pub wss_url:     String,
         /// Timeout for the requests to the RPC
-        #[serde(with = "humantime_serde")]
+        #[serde(with = "humantime_serde", default = "default_rpc_timeout")]
         pub rpc_timeout: Duration,
         /// Keystore
         pub key_store:   key_store::Config,
         /// Configuration for the Oracle reading data from this network
+        #[serde(default)]
         pub oracle:      oracle::Config,
         /// Configuration for the Exporter publishing data to this network
+        #[serde(default)]
         pub exporter:    exporter::Config,
-    }
-
-    impl Default for Config {
-        fn default() -> Self {
-            Self {
-                rpc_url:     "http://localhost:8899".to_string(),
-                wss_url:     "ws://localhost:8900".to_string(),
-                rpc_timeout: Duration::from_secs(10),
-                key_store:   Default::default(),
-                oracle:      Default::default(),
-                exporter:    Default::default(),
-            }
-        }
     }
 
     pub fn spawn_network(
@@ -116,8 +118,11 @@ mod key_store {
             Result,
         },
         serde::{
+            de::Error,
             Deserialize,
+            Deserializer,
             Serialize,
+            Serializer,
         },
         slog::Logger,
         solana_sdk::{
@@ -136,34 +141,31 @@ mod key_store {
     };
 
     #[derive(Clone, Serialize, Deserialize, Debug)]
-    #[serde(default)]
     pub struct Config {
-        /// Root directory of the KeyStore
-        pub root_path:            PathBuf,
-        /// Path to the keypair used to publish price updates,
-        /// relative to the root. If set to a non-existent file path,
-        /// the system expects a keypair to be loaded via the remote
-        /// keypair loader. If the path is valid, the remote keypair
-        /// loading is disabled.
+        /// Path to the keypair used to publish price updates. If set
+        /// to a non-existent file path, the system expects a keypair
+        /// to be loaded via the remote keypair loader. If the path is
+        /// valid, the remote keypair loading is disabled.
         pub publish_keypair_path: PathBuf,
-        /// Path to the public key of the Oracle program, relative to the root
-        pub program_key_path:     PathBuf,
-        /// Path to the public key of the root mapping account, relative to the root
-        pub mapping_key_path:     PathBuf,
-        /// Path to the public key of the accumulator program, relative to the root.
-        pub accumulator_key_path: Option<PathBuf>,
-    }
-
-    impl Default for Config {
-        fn default() -> Self {
-            Self {
-                root_path:            Default::default(),
-                publish_keypair_path: "publish_key_pair.json".into(),
-                program_key_path:     "program_key.json".into(),
-                mapping_key_path:     "mapping_key.json".into(),
-                accumulator_key_path: None,
-            }
-        }
+        /// The public key of the Oracle program
+        #[serde(
+            serialize_with = "pubkey_string_ser",
+            deserialize_with = "pubkey_string_de"
+        )]
+        pub program_key:          Pubkey,
+        /// The public key of the root mapping account
+        #[serde(
+            serialize_with = "pubkey_string_ser",
+            deserialize_with = "pubkey_string_de"
+        )]
+        pub mapping_key:          Pubkey,
+        /// The public key of the accumulator program.
+        #[serde(
+            serialize_with = "opt_pubkey_string_ser",
+            deserialize_with = "opt_pubkey_string_de",
+            default
+        )]
+        pub accumulator_key:      Option<Pubkey>,
     }
 
     pub struct KeyStore {
@@ -181,41 +183,59 @@ mod key_store {
 
     impl KeyStore {
         pub fn new(config: Config, logger: &Logger) -> Result<Self> {
-            let full_keypair_path = config.root_path.join(config.publish_keypair_path);
-
-            let publish_keypair = match keypair::read_keypair_file(&full_keypair_path) {
+            let publish_keypair = match keypair::read_keypair_file(&config.publish_keypair_path) {
                 Ok(k) => Some(k),
                 Err(e) => {
                     warn!(logger,
 			  "Reading publish keypair returned an error. Waiting for a remote-loaded key before publishing.";
-			  "full_keypair_path" => full_keypair_path.to_str(), "error" => e.to_string());
+			  "publish_keypair_path" => config.publish_keypair_path.display(), "error" => e.to_string());
                     None
                 }
             };
 
-            let accumulator_key: Option<Pubkey> =
-                if let Some(key_path) = config.accumulator_key_path {
-                    Some(
-                        Self::pubkey_from_path(config.root_path.join(key_path))
-                            .context("Reading accumulator key")?,
-                    )
-                } else {
-                    None
-                };
-
             Ok(KeyStore {
                 publish_keypair,
-                program_key: Self::pubkey_from_path(config.root_path.join(config.program_key_path))
-                    .context("reading program key")?,
-                mapping_key: Self::pubkey_from_path(config.root_path.join(config.mapping_key_path))
-                    .context("reading mapping key")?,
-                accumulator_key,
+                program_key: config.program_key,
+                mapping_key: config.mapping_key,
+                accumulator_key: config.accumulator_key,
             })
         }
+    }
 
-        fn pubkey_from_path(path: impl AsRef<Path>) -> Result<Pubkey> {
-            let contents = fs::read_to_string(path)?;
-            Pubkey::from_str(contents.trim()).map_err(|e| e.into())
+    // Helper methods for stringified SOL addresses
+
+    fn pubkey_string_ser<S>(k: &Pubkey, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        ser.serialize_str(&k.to_string())
+    }
+
+    fn pubkey_string_de<'de, D>(de: D) -> Result<Pubkey, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let pubkey_string = String::deserialize(de)?;
+        let pubkey = Pubkey::from_str(&pubkey_string).map_err(D::Error::custom)?;
+        Ok(pubkey)
+    }
+
+    fn opt_pubkey_string_ser<S>(k_opt: &Option<Pubkey>, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let k_str_opt = (*k_opt).map(|k| k.to_string());
+
+        Option::<String>::serialize(&k_str_opt, ser)
+    }
+
+    fn opt_pubkey_string_de<'de, D>(de: D) -> Result<Option<Pubkey>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match Option::<String>::deserialize(de)? {
+            Some(k) => Ok(Some(Pubkey::from_str(&k).map_err(D::Error::custom)?)),
+            None => Ok(None),
         }
     }
 }

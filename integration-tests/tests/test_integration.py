@@ -398,15 +398,50 @@ class PythTest:
         await provider.send(tx, [parsed_funding_keypair])
 
     @pytest.fixture
-    def agent_config(self, agent_keystore, tmp_path):
+    def agent_config(self, agent_keystore, agent_keystore_path, tmp_path):
         with open("agent_conf.toml") as config_file:
             agent_config = config_file.read()
 
+            publish_keypair_path = os.path.join(agent_keystore_path, "publish_key_pair.json")
+
+            mapping_keypair = Keypair.from_secret_key(MAPPING_KEYPAIR)
+
+            agent_config += f"""
+key_store.publish_keypair_path = "{publish_keypair_path}"
+key_store.program_key = "{ORACLE_PROGRAM}"
+key_store.mapping_key = "{mapping_keypair.public_key}"
+"""
+
             # Add accumulator setting if option is enabled
             if USE_ACCUMULATOR:
-                agent_config += '\nkey_store.accumulator_key_path = "accumulator_program_key.json"'
+                agent_config += f'\nkey_store.accumulator_key = "{MESSAGE_BUFFER_PROGRAM}"'
+
+            LOGGER.debug(f"Built agent config:\n{agent_config}")
 
             path = os.path.join(tmp_path, "agent_conf.toml")
+
+            with open(path, 'w') as f:
+                f.write(agent_config)
+
+            return path
+
+    @pytest.fixture
+    def agent_legacy_config(self, agent_keystore, agent_keystore_path, tmp_path):
+        """
+        Prepares a legacy v1.x.x config for testing agent-migrate-config
+        """
+        with open("agent_conf.toml") as config_file:
+            agent_config = config_file.read()
+
+            agent_config += f'\nkey_store.root_path = "{agent_keystore_path}"'
+
+            if USE_ACCUMULATOR:
+                # Add accumulator setting to verify that it is inlined as well
+                agent_config += f'\nkey_store.accumulator_key_path = "accumulator_program_key.json"'
+
+            LOGGER.debug(f"Built legacy agent config:\n{agent_config}")
+
+            path = os.path.join(tmp_path, "agent_conf_legacy.toml")
 
             with open(path, 'w') as f:
                 f.write(agent_config)
@@ -418,7 +453,7 @@ class PythTest:
     @pytest.fixture
     def agent(self, sync_accounts, agent_keystore, tmp_path, initialize_message_buffer_program, agent_config):
         LOGGER.debug("Building agent binary")
-        self.run("cargo build --release")
+        self.run("cargo build --release --bin agent")
 
         log_dir = os.path.join(tmp_path, "agent_logs")
         LOGGER.debug("Launching agent logging to %s", log_dir)
@@ -437,7 +472,7 @@ class PythTest:
         os.remove(os.path.join(agent_keystore_path, "publish_key_pair.json"))
 
         LOGGER.debug("Building hotload agent binary")
-        self.run("cargo build --release")
+        self.run("cargo build --release --bin agent")
 
         log_dir = os.path.join(tmp_path, "agent_logs")
         LOGGER.debug("Launching hotload agent logging to %s", log_dir)
@@ -456,11 +491,25 @@ class PythTest:
         await client.close()
 
     @pytest_asyncio.fixture
+    async def client_no_spawn(self):
+        return PythAgentClient(address="ws://localhost:8910")
+
+    @pytest_asyncio.fixture
     async def client_hotload(self, agent_hotload):
         client = PythAgentClient(address="ws://localhost:8910")
         await client.connect()
         yield client
         await client.close()
+
+    @pytest.fixture
+    def agent_migrate_config_binary(self):
+        LOGGER.debug("Building agent-migrate-config binary")
+        self.run("cargo build --release --bin agent-migrate-config")
+
+        os.environ["RUST_BACKTRACE"] = "full"
+        os.environ["RUST_LOG"] = "debug"
+
+        return os.path.abspath("../target/release/agent-migrate-config")
 
 
 class TestUpdatePrice(PythTest):
@@ -605,7 +654,7 @@ class TestUpdatePrice(PythTest):
         assert final_price_account_unperm["conf"] == 0
         assert final_price_account_unperm["status"] == "unknown"
 
-        # Confirm agent logs contain the relevant WARN log
+        # Confirm agent logs contain the relevant log
         with open(f"{tmp_path}/agent_logs/stdout") as f:
             contents = f.read()
             lines_found = 0
@@ -645,3 +694,41 @@ class TestUpdatePrice(PythTest):
             # Send an "update_price" request
             await client.update_price(price_account, 47, 2, "trading")
             time.sleep(1)
+
+    @pytest.mark.asyncio
+    async def test_agent_migrate_config(self,
+                                        agent_keystore,
+                                        agent_legacy_config,
+                                        agent_migrate_config_binary,
+                                        client_no_spawn: PythAgentClient,
+                                        initialize_message_buffer_program,
+                                        sync_accounts,
+                                        tmp_path,
+                                        ):
+        os.environ["RUST_BACKTRACE"] = "full"
+        os.environ["RUST_LOG"] = "debug"
+
+        # Migrator must run successfully (run() raises on error)
+        new_config = self.run(f"{agent_migrate_config_binary} -c {agent_legacy_config}").stdout.strip()
+
+        LOGGER.debug(f"Successfully migrated legacy config to:\n{new_config}")
+
+        # Overwrite legacy config with the migrated version.
+        #
+        # NOTE: assumes 'w' erases the file before access)
+        with open(agent_legacy_config, 'w') as f:
+            f.write(new_config)
+            f.flush()
+
+        self.run("cargo build --release --bin agent")
+
+        log_dir = os.path.join(tmp_path, "agent_logs")
+
+        # We start the agent manually to pass it the updated legacy config
+        with self.spawn(f"../target/release/agent --config {agent_legacy_config}", log_dir=log_dir):
+            time.sleep(3)
+            await client_no_spawn.connect()
+
+            # Continue with the simple test case, which must succeed
+            await self.test_update_price_simple(client_no_spawn)
+            await client_no_spawn.close()
