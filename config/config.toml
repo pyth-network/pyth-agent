@@ -1,6 +1,9 @@
 # Configuration for the JRPC API Websocket Server
 [pythd_api_server]
-# The address on which the websocket API server will listen on.
+# The address on which the websocket API server will listen.
+#
+# NOTE: non-loopback addresses must be used carefully, making sure the
+# connection is not exposed for unauthorized access.
 listen_address = "127.0.0.1:8910"
 
 # Configuration for the primary network this agent will publish data to. In most cases this should be a Pythnet endpoint.
@@ -16,19 +19,32 @@ rpc_url = "https://api.pythtest.pyth.network"
 # Note that api.pythtest.pyth.network is a private endpoint: please contact us for access.
 wss_url = "wss://api.pythtest.pyth.network"
 
-# Path to the key store.
-key_store.root_path = "/path/to/keystore"
+# Path to the keypair used to publish price updates. If set to a
+# non-existent file path, the system expects a keypair to be loaded
+# via the remote keypair loader. If the path is valid, the remote
+# keypair loading is disabled.
+key_store.publish_keypair = "/path/to/keypair.json"
+
+# Public key of the oracle program
+key_store.program_key = "RelevantOracleProgramAddress"
+
+# Public key of the root mapping account
+key_store.mapping_key = "RelevantOracleMappingAddress"
+
+# Optional public key of the accumulator program (if provided)
+key_store.accumulator_key = "RelevantOracleAccumulatorAddress"
 
 ### Optional fields ###
 
 # [metrics_server]
 #
 # Where to serve the quick-access dashboard and metrics. Metrics live under "/metrics"
+# NOTE: non-loopback addresses must be used carefully, making sure the
+# connection is not exposed for unauthorized access.
 # bind_address = "127.0.0.1:8888"
 
 # [remote_keypair_loader}
 # Where to serve the remote keypair loading endpoint, under "/primary/load_keypair" and "/secondary/load_keypair"
-#
 # NOTE: non-loopback addresses must be used carefully, making sure the
 # connection is not exposed for unauthorized access.
 # bind_address = "127.0.0.1:9001"
