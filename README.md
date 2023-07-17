@@ -38,7 +38,7 @@ Pyth agent v2.0.0 introduces a simplified program and mapping key configuration.
 # Old v1.x.x way
 [primary network]
 key_store.root_path = "/path/to/keystore"
-key_store.publish_keypair_path = "program_key.json" # Relative path from root_path, "publish_key_pair.json" by default
+key_store.publish_keypair_path = "publish_key_pair.json" # Relative path from root_path, "publish_key_pair.json" by default
 key_store.program_key_path = "program_key.json" # Relative path from root_path, "program_key.json" by default
 key_store.mapping_key_path = "mapping_key.json" # Relative path from root_path, "mapping_key.json" by default
 
