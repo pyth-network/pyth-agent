@@ -40,10 +40,10 @@ wss_url = "wss://api.testnet.solana.com"
 key_store.publish_keypair_path = "/path/to/keypair.json"
 
 # Oracle program pubkey
-key_store.program_key = "8tfDNiaEyrV6Q1U4DEXrEigs9DoDtkugzFbybENEbCDz" # conformance
+key_store.program_key = "8tfDNiaEyrV6Q1U4DEXrEigs9DoDtkugzFbybENEbCDz"
 
 # Oracle mapping pubkey
-key_store.mapping_key = "AFmdnt9ng1uVxqCmqwQJDAYC5cKTkw8gJKSM5PnzuF6z" # conformance
+key_store.mapping_key = "AFmdnt9ng1uVxqCmqwQJDAYC5cKTkw8gJKSM5PnzuF6z"
 
 # Duration of the interval at which to publish updates. Default interval is 1 seconds.
 # exporter.publish_interval_duration = "1s"
