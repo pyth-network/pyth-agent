@@ -441,7 +441,7 @@ key_store.mapping_key = "{mapping_keypair.public_key}"
 
             LOGGER.debug(f"Built legacy agent config:\n{agent_config}")
 
-            path = os.path.join(tmp_path, "agent_conf.toml")
+            path = os.path.join(tmp_path, "agent_conf_legacy.toml")
 
             with open(path, 'w') as f:
                 f.write(agent_config)
@@ -489,6 +489,10 @@ key_store.mapping_key = "{mapping_keypair.public_key}"
         await client.connect()
         yield client
         await client.close()
+
+    @pytest_asyncio.fixture
+    async def client_no_spawn(self):
+        return PythAgentClient(address="ws://localhost:8910")
 
     @pytest_asyncio.fixture
     async def client_hotload(self, agent_hotload):
@@ -692,21 +696,39 @@ class TestUpdatePrice(PythTest):
             time.sleep(1)
 
     @pytest.mark.asyncio
-    async def test_agent_migrate_config(self, client: PythAgentClient, agent_migrate_config_binary, agent_legacy_config, agent_config):
+    async def test_agent_migrate_config(self,
+                                        agent_keystore,
+                                        agent_legacy_config,
+                                        agent_migrate_config_binary,
+                                        client_no_spawn: PythAgentClient,
+                                        initialize_message_buffer_program,
+                                        sync_accounts,
+                                        tmp_path,
+                                        ):
         os.environ["RUST_BACKTRACE"] = "full"
         os.environ["RUST_LOG"] = "debug"
 
         # Migrator must run successfully (run() raises on error)
         new_config = self.run(f"{agent_migrate_config_binary} -c {agent_legacy_config}").stdout.strip()
 
-        LOGGER.info(f"Successfully migrated legacy config to:\n{new_config}")
+        LOGGER.debug(f"Successfully migrated legacy config to:\n{new_config}")
 
-        # Use the new config migrated from legacy instead of
-        # agent_config fixture output
+        # Overwrite legacy config with the migrated version.
         #
         # NOTE: assumes 'w' erases the file before access)
-        with open(agent_config, 'w') as f:
+        with open(agent_legacy_config, 'w') as f:
             f.write(new_config)
+            f.flush()
 
-        # Continue with the simple test case, which must succeed
-        await self.test_update_price_simple(client)
+        self.run("cargo build --release --bin agent")
+
+        log_dir = os.path.join(tmp_path, "agent_logs")
+
+        # We start the agent manually to pass it the updated legacy config
+        with self.spawn(f"../target/release/agent --config {agent_legacy_config}", log_dir=log_dir):
+            time.sleep(3)
+            await client_no_spawn.connect()
+
+            # Continue with the simple test case, which must succeed
+            await self.test_update_price_simple(client_no_spawn)
+            await client_no_spawn.close()
