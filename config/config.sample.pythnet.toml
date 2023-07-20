@@ -23,6 +23,10 @@ key_store.mapping_key = "AHtgzX45WTKfkPG53L6WYhGEXwQkN1BVknET3sVsLL8J"
 # Pythnet accumulator key
 key_store.accumulator_key = "7Vbmv1jt4vyuqBZcpYPpnVhrqVe5e6ZPb6JxDcffRHUM"
 
+# IMPORTANT: Exporter batch size must be decreased to 7 to support
+# larger accumulator transactions, when accumulator_key is set.
+exporter.max_batch_size = 7
+
 # Duration of the interval at which to publish updates
 exporter.publish_interval_duration = "400ms"
 
