@@ -23,7 +23,7 @@ wss_url = "wss://api.pythtest.pyth.network"
 # non-existent file path, the system expects a keypair to be loaded
 # via the remote keypair loader. If the path is valid, the remote
 # keypair loading is disabled.
-key_store.publish_keypair = "/path/to/keypair.json"
+key_store.publish_keypair_path = "/path/to/keypair.json"
 
 # Public key of the oracle program
 key_store.program_key = "RelevantOracleProgramAddress"
@@ -31,75 +31,15 @@ key_store.program_key = "RelevantOracleProgramAddress"
 # Public key of the root mapping account
 key_store.mapping_key = "RelevantOracleMappingAddress"
 
-# Optional public key of the accumulator program (if provided)
-key_store.accumulator_key = "RelevantOracleAccumulatorAddress"
+### Optional fields of primary/secondary network config ###
 
-### Optional fields ###
-
-# [metrics_server]
-#
-# Where to serve the quick-access dashboard and metrics. Metrics live under "/metrics"
-# NOTE: non-loopback addresses must be used carefully, making sure the
-# connection is not exposed for unauthorized access.
-# bind_address = "127.0.0.1:8888"
-
-# [remote_keypair_loader}
-# Where to serve the remote keypair loading endpoint, under "/primary/load_keypair" and "/secondary/load_keypair"
-# NOTE: non-loopback addresses must be used carefully, making sure the
-# connection is not exposed for unauthorized access.
-# bind_address = "127.0.0.1:9001"
-
-# How much whole SOL must a keypair hold to be considered valid for use on a given network. Disabled with 0
-# primary_min_keypair_balance_sol = 1
-# secondary_min_keypair_balance_sol = 1
-
-
-# Channel capacities. These refer to async messaging channels
-# internally used by the agent's subroutines
-
-# Capacity of the channel used to broadcast shutdown events to all
-# components
-# channel_capacities.shutdown = 10000
-
-# Capacity of the channel used to send updates from the primary Oracle
-# to the Global Store
-# channel_capacities.primary_oracle_updates = 10000
-
-# Capacity of the channel used to send updates from the secondary
-# Oracle to the Global Store
-# channel_capacities.secondary_oracle_updates = 10000
-
-# Capacity of the channel the Pythd API Adapter uses to send lookup
-# requests to the Global Store
-# channel_capacities.global_store_lookup = 10000
-
-# Capacity of the channel the Pythd API Adapter uses to communicate
-# with the Local Store
-# channel_capacities.local_store_lookup = 10000
-
-# Capacity of the channel on which the Local Store receives messages
-# channel_capacities.local_store = 10000
-
-# Capacity of the channel on which the Pythd API Adapter receives
-# messages
-# channel_capacities.pythd_adapter = 10000
-
-# Capacity of the slog logging channel. Adjust this value if you see
-# complaints about channel capacity from slog
-# channel_capacities.logger_buffer = 10000
-
-
-# Relative path to publisher identity keypair
-# w.r.t. `key_store.root_path`. When the specified file is not found
-# on startup, the relevant primary/secondary network will expect a
-# remote-loaded keypair. See remote_keypair_loader options for
-# details.
-# key_store.publish_keypair_path = "publish_key_pair.json" # I exist, remote loading disabled
-# key_store.publish_keypair_path = "none" # I do not exist, remote loading activated for the network
-
-# Relative path to accumulator message buffer program ID. Setting this
+# Pubkey of accumulator message buffer program ID. Setting this
 # value enables accumulator support on publishing transactions.
-# key_store.accumulator_key_path = <not set by default>
+# key_store.accumulator_key = <not set by default>
+#
+# IMPORTANT: When publishing with accumulator_key defined,
+# max_batch_size must be decreased to 7
+# exporter.max_batch_size = 7
 
 # The interval with which to poll account information.
 # oracle.poll_interval_duration = "2m"
@@ -148,13 +88,82 @@ key_store.accumulator_key = "RelevantOracleAccumulatorAddress"
 # a value at least as large as (number of products published / number of products in a batch).
 # exporter.transaction_monitor.max_transactions = "100"
 
+### Optional config sections ###
 
-# Configuration for the optional secondary network this agent will publish data to. In most cases this should be a Solana endpoint. The options correspond to the ones in primary_network
-# [secondary_network]
+## Metrics server section ##
 
-# Configuration for the JRPC API
-[pythd_adapter]
+# [metrics_server]
+#
+# Where to serve the quick-access dashboard and metrics. Metrics live under "/metrics"
+# NOTE: non-loopback addresses must be used carefully, making sure the
+# connection is not exposed for unauthorized access.
+# bind_address = "127.0.0.1:8888"
+
+## Remote keypair loader section. ##
+
+# [remote_keypair_loader}
+# Where to serve the remote keypair loading endpoint, under
+# "/primary/load_keypair" and "/secondary/load_keypair".
+#
+# NOTE: non-loopback addresses must be used carefully, making sure the
+# connection is not exposed for unauthorized access.
+# bind_address = "127.0.0.1:9001"
+
+# How much whole SOL must a keypair hold to be considered valid for
+# use on a given network. Disabled with 0.
+# primary_min_keypair_balance_sol = 1
+# secondary_min_keypair_balance_sol = 1
+
+
+## Channel capacities section. ##
+
+# These refer to async messaging channels
+# internally used by the agent's subroutines
+
+# [channel_capacities]
+# Capacity of the channel used to broadcast shutdown events to all
+# components
+# shutdown = 10000
+
+# Capacity of the channel used to send updates from the primary Oracle
+# to the Global Store
+# primary_oracle_updates = 10000
+
+# Capacity of the channel used to send updates from the secondary
+# Oracle to the Global Store
+# secondary_oracle_updates = 10000
+
+# Capacity of the channel the Pythd API Adapter uses to send lookup
+# requests to the Global Store
+# global_store_lookup = 10000
+
+# Capacity of the channel the Pythd API Adapter uses to communicate
+# with the Local Store
+# local_store_lookup = 10000
+
+# Capacity of the channel on which the Local Store receives messages
+# local_store = 10000
+
+# Capacity of the channel on which the Pythd API Adapter receives
+# messages
+# pythd_adapter = 10000
+
+# Capacity of the slog logging channel. Adjust this value if you see
+# complaints about channel capacity from slog
+# logger_buffer = 10000
+
+
+## JRPC API config section. ##
+
+# [pythd_adapter]
 # The duration of the interval at which `notify_price_sched` notifications will be sent.
 # Note that this doesn't affect the rate at which transactions are published:
 # this is soley a backwards-compatibility API feature.
 # notify_price_sched_interval_duration = "1s"
+
+## Optional secondary network section ##
+
+# Configuration for the optional secondary network this agent will
+# publish data to. In most cases this should be a Solana endpoint. The
+# options correspond to the ones in primary_network
+# [secondary_network]

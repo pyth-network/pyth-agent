@@ -258,8 +258,8 @@ impl Oracle {
         info!(
         self.logger,
         "updated publisher permissions";
-        "new" => format!("{:?}", new_publishers.difference(&previous_publishers).collect::<HashSet<_>>()),
-        "total" => new_publishers.len(),
+        "new_publishers" => format!("{:?}", new_publishers.difference(&previous_publishers).collect::<HashSet<_>>()),
+        "total_publishers" => new_publishers.len(),
         );
 
         // Update the data with the new data structs
