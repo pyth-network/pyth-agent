@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
     // A plain slog drain that sits inside an async drain instance
     let inner_drain = LogBuilder::new(
         slog_term::FullFormat::new(slog_term::TermDecorator::new().stdout().build())
+            .use_file_location()
             .build()
             .fuse(), // Yell loud on logger internal errors
     )
@@ -67,7 +68,8 @@ async fn main() -> Result<()> {
     debug!(&logger, "Current working directory"; "cwd" => cwd.display());
 
     if let Err(err) = start(config, logger.clone()).await {
-        error!(logger, "{:#}", err; "error" => format!("{:?}", err));
+        error!(logger, "{}", err);
+        debug!(logger, "error context"; "context" => format!("{:?}", err));
         return Err(err);
     }
 

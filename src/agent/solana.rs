@@ -113,10 +113,7 @@ pub mod network {
 /// The key_store module is responsible for parsing the pythd key store.
 mod key_store {
     use {
-        anyhow::{
-            Context,
-            Result,
-        },
+        anyhow::Result,
         serde::{
             de::Error,
             Deserialize,
@@ -131,11 +128,7 @@ mod key_store {
             signer::keypair,
         },
         std::{
-            fs,
-            path::{
-                Path,
-                PathBuf,
-            },
+            path::PathBuf,
             str::FromStr,
         },
     };

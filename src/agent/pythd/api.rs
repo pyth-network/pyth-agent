@@ -259,7 +259,8 @@ pub mod rpc {
                         return;
                     }
 
-                    error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+                    error!(self.logger, "{}", err);
+                    debug!(self.logger, "error context"; "context" => format!("{:?}", err));
                 }
             }
         }
@@ -617,7 +618,8 @@ pub mod rpc {
 
         pub async fn run(&self, shutdown_rx: broadcast::Receiver<()>) {
             if let Err(err) = self.serve(shutdown_rx).await {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+                error!(self.logger, "{}", err);
+                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
             }
         }
 

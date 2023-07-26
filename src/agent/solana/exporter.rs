@@ -270,7 +270,8 @@ impl Exporter {
         loop {
             self.publish_interval.tick().await;
             if let Err(err) = self.publish_updates().await {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+                error!(self.logger, "{}", err);
+                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
             }
         }
     }
@@ -367,7 +368,7 @@ impl Exporter {
         let permissioned_updates = fresh_updates
             .into_iter()
             .filter(|(id, _data)| {
-                let key_from_id = Pubkey::new(id.clone().to_bytes().as_slice());
+                let key_from_id = Pubkey::new((*id).clone().to_bytes().as_slice());
                 if self.our_prices.contains(&key_from_id) {
                     true
                 } else {
@@ -751,7 +752,8 @@ impl NetworkStateQuerier {
         loop {
             self.query_interval.tick().await;
             if let Err(err) = self.query_network_state().await {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+                error!(self.logger, "{}", err);
+                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
             }
         }
     }
@@ -867,7 +869,8 @@ mod transaction_monitor {
         pub async fn run(&mut self) {
             loop {
                 if let Err(err) = self.handle_next().await {
-                    error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+                    error!(self.logger, "{}", err);
+                    debug!(self.logger, "error context"; "context" => format!("{:?}", err));
                 }
             }
         }

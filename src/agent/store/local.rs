@@ -84,7 +84,8 @@ impl Store {
     pub async fn run(&mut self) {
         while let Some(message) = self.rx.recv().await {
             if let Err(err) = self.handle(message) {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+                error!(self.logger, "{}", err);
+                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
             }
         }
     }

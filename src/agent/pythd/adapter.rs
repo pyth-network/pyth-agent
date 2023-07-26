@@ -210,7 +210,8 @@ impl Adapter {
             tokio::select! {
                 Some(message) = self.message_rx.recv() => {
                     if let Err(err) = self.handle_message(message).await {
-                        error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+                        error!(self.logger, "{}", err);
+            debug!(self.logger, "error context"; "context" => format!("{:?}", err));
                     }
                 }
                 _ = self.shutdown_rx.recv() => {
@@ -219,7 +220,8 @@ impl Adapter {
                 }
                 _ = self.notify_price_sched_interval.tick() => {
                     if let Err(err) = self.send_notify_price_sched().await {
-                        error!(self.logger, "{:#}", err; "error" => format!("{:?}", err))
+                        error!(self.logger, "{}", err);
+            debug!(self.logger, "error context"; "context" => format!("{:?}", err));
                     }
                 }
             }

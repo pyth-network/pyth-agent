@@ -94,7 +94,8 @@ impl Agent {
     pub async fn start(&self, logger: Logger) {
         info!(logger, "starting agent"; "config" => format!("{:?}", self.config));
         if let Err(err) = self.spawn(logger.clone()).await {
-            error!(logger, "{:#}", err; "error" => format!("{:?}", err));
+            error!(logger, "{}", err);
+            debug!(logger, "error context"; "context" => format!("{:?}", err));
         };
     }
 

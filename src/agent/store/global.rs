@@ -74,7 +74,6 @@ impl From<oracle::ProductEntry> for ProductAccountMetadata {
     }
 }
 
-
 /// PriceAccountMetadata contains the metadata for a price account.
 #[derive(Debug, Clone)]
 pub struct PriceAccountMetadata {
@@ -185,7 +184,8 @@ impl Store {
     pub async fn run(&mut self) {
         loop {
             if let Err(err) = self.handle_next().await {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+                error!(self.logger, "{}", err);
+                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
             }
         }
     }
