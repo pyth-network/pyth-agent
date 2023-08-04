@@ -36,7 +36,7 @@ struct Arguments {
     #[clap(short, long, default_value = "config/config.toml")]
     /// Path to configuration file
     config:     PathBuf,
-    #[clap(short, long, default_value = "json", value_enum)]
+    #[clap(short, long, default_value = "plain", value_enum)]
     /// Log flavor to use
     log_flavor: LogFlavor,
 
