@@ -117,11 +117,6 @@ async fn main() -> Result<()> {
     }
 
 
-    debug!(&logger, "Starting {}", env!("CARGO_PKG_NAME");
-       "version" => env!("CARGO_PKG_VERSION"),
-       "cwd" => std::env::current_dir()?.display()
-    );
-
     if let Err(err) = start(config, logger.clone()).await {
         error!(logger, "{}", err);
         debug!(logger, "error context"; "context" => format!("{:?}", err));

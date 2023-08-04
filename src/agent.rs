@@ -92,7 +92,12 @@ impl Agent {
     }
 
     pub async fn start(&self, logger: Logger) {
-        info!(logger, "starting agent"; "config" => format!("{:?}", self.config));
+        info!(logger, "Starting {}", env!("CARGO_PKG_NAME");
+              "config" => format!("{:?}", &self.config),
+              "version" => env!("CARGO_PKG_VERSION"),
+              "cwd" => std::env::current_dir().map(|p| format!("{}", p.display())).unwrap_or("<could not get current directory>".to_owned())
+        );
+
         if let Err(err) = self.spawn(logger.clone()).await {
             error!(logger, "{}", err);
             debug!(logger, "error context"; "context" => format!("{:?}", err));
