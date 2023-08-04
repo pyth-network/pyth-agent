@@ -4,7 +4,10 @@ use {
         Context,
         Result,
     },
-    clap::Parser,
+    clap::{
+        Parser,
+        ValueEnum,
+    },
     pyth_agent::agent::{
         config::Config,
         Agent,
@@ -15,6 +18,8 @@ use {
         o,
         Drain,
         Logger,
+        PushFnValue,
+        Record,
     },
     slog_async::Async,
     slog_envlogger::LogBuilder,
@@ -30,7 +35,22 @@ use {
 struct Arguments {
     #[clap(short, long, default_value = "config/config.toml")]
     /// Path to configuration file
-    config: PathBuf,
+    config:     PathBuf,
+    #[clap(short, long, default_value = "json", value_enum)]
+    /// Log flavor to use
+    log_flavor: LogFlavor,
+
+    #[clap(short = 'L', long)]
+    /// Whether to print file:line info for each log statement
+    log_locations: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum LogFlavor {
+    /// Standard human-readable output
+    Plain,
+    /// Structured JSON output
+    Json,
 }
 
 #[tokio::main]
@@ -46,22 +66,52 @@ async fn main() -> Result<()> {
     // Parse config early for logging channel capacity
     let config = Config::new(args.config).context("Could not parse config")?;
 
-    // A plain slog drain that sits inside an async drain instance
-    let inner_drain = LogBuilder::new(
-        slog_term::FullFormat::new(slog_term::TermDecorator::new().stdout().build())
-            .use_file_location()
-            .build()
-            .fuse(), // Yell loud on logger internal errors
-    )
-    .parse(&env::var("RUST_LOG").unwrap_or("info".to_string()))
-    .build();
+    let log_level = env::var("RUST_LOG").unwrap_or("info".to_string());
 
-    // The top level async drain
-    let async_drain = Async::new(inner_drain)
-        .chan_size(config.channel_capacities.logger_buffer)
-        .build()
-        .fuse();
-    let logger = slog::Logger::root(async_drain, o!());
+    // Build an async drain with a different inner drain depending on
+    // log flavor choice in CLI
+    let async_drain = match args.log_flavor {
+        LogFlavor::Json => {
+            // JSON output using slog-bunyan
+            let inner_drain = LogBuilder::new(slog_bunyan::new(std::io::stdout()).build().fuse())
+                .parse(&log_level)
+                .build();
+
+            Async::new(inner_drain)
+                .chan_size(config.channel_capacities.logger_buffer)
+                .build()
+                .fuse()
+        }
+        LogFlavor::Plain => {
+            // Plain, colored output usind slog-term
+            let inner_drain = LogBuilder::new(
+                slog_term::FullFormat::new(slog_term::TermDecorator::new().stdout().build())
+                    .build()
+                    .fuse(),
+            )
+            .parse(&log_level)
+            .build();
+
+            Async::new(inner_drain)
+                .chan_size(config.channel_capacities.logger_buffer)
+                .build()
+                .fuse()
+        }
+    };
+
+    let mut logger = slog::Logger::root(async_drain, o!());
+
+    // Add location information to each log statement if enabled
+    if args.log_locations {
+        logger = logger.new(o!(
+            "loc" => PushFnValue(
+            move |r: &Record, ser| {
+            ser.emit(format!("{}:{}", r.file(), r.line()))
+            }
+            ),
+        ));
+    }
+
 
     let cwd = std::env::current_dir()?;
 
