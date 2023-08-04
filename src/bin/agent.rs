@@ -73,9 +73,13 @@ async fn main() -> Result<()> {
     let async_drain = match args.log_flavor {
         LogFlavor::Json => {
             // JSON output using slog-bunyan
-            let inner_drain = LogBuilder::new(slog_bunyan::new(std::io::stdout()).build().fuse())
-                .parse(&log_level)
-                .build();
+            let inner_drain = LogBuilder::new(
+                slog_bunyan::with_name(env!("CARGO_PKG_NAME"), std::io::stdout())
+                    .build()
+                    .fuse(),
+            )
+            .parse(&log_level)
+            .build();
 
             Async::new(inner_drain)
                 .chan_size(config.channel_capacities.logger_buffer)
@@ -113,9 +117,10 @@ async fn main() -> Result<()> {
     }
 
 
-    let cwd = std::env::current_dir()?;
-
-    debug!(&logger, "Current working directory"; "cwd" => cwd.display());
+    debug!(&logger, "Starting {}", env!("CARGO_PKG_NAME");
+       "version" => env!("CARGO_PKG_VERSION"),
+       "cwd" => std::env::current_dir()?.display()
+    );
 
     if let Err(err) = start(config, logger.clone()).await {
         error!(logger, "{}", err);
