@@ -1544,6 +1544,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hostname"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c731c3e10504cc8ed35cfe2f1db4c9274c3d35fa486e3b31df46f068ef3e867"
+dependencies = [
+ "libc",
+ "match_cfg",
+ "winapi",
+]
+
+[[package]]
 name = "htmlescape"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2006,6 +2017,12 @@ checksum = "e999beba7b6e8345721bd280141ed958096a2e4abdf74f67ff4ce49b4b54e47a"
 dependencies = [
  "hashbrown 0.12.3",
 ]
+
+[[package]]
+name = "match_cfg"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffbee8634e0d45d258acb448e7eaab3fce7a0a467395d4d9f228e3c1f01fb2e4"
 
 [[package]]
 name = "matches"
@@ -2721,7 +2738,7 @@ dependencies = [
 
 [[package]]
 name = "pyth-agent"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2746,6 +2763,7 @@ dependencies = [
  "serde_json",
  "slog",
  "slog-async",
+ "slog-bunyan",
  "slog-envlogger",
  "slog-extlog",
  "slog-term",
@@ -3694,6 +3712,18 @@ dependencies = [
  "slog",
  "take_mut",
  "thread_local",
+]
+
+[[package]]
+name = "slog-bunyan"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "440fd32d0423c31e4f98d76c0b62ebdb847f905aa07357197e9b41ac620af97d"
+dependencies = [
+ "hostname",
+ "slog",
+ "slog-json",
+ "time 0.3.14",
 ]
 
 [[package]]

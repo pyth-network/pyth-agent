@@ -1,6 +1,6 @@
 [package]
 name = "pyth-agent"
-version = "2.0.1"
+version = "2.1.0"
 edition = "2021"
 
 [[bin]]
@@ -51,6 +51,7 @@ humantime = "2.1.0"
 prometheus-client = "0.19.0"
 lazy_static = "1.4.0"
 toml_edit = "0.19.13"
+slog-bunyan = "2.4.0"
 
 [dev-dependencies]
 tokio-util = { version = "0.7.0", features = ["full"] }

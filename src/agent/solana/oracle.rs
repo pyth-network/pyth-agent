@@ -196,7 +196,8 @@ impl Oracle {
     pub async fn run(&mut self) {
         loop {
             if let Err(err) = self.handle_next().await {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+                error!(self.logger, "{}", err);
+                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
             }
         }
     }
@@ -400,7 +401,8 @@ impl Poller {
             self.poll_interval.tick().await;
             info!(self.logger, "fetching all pyth account data");
             if let Err(err) = self.poll_and_send().await {
-                error!(self.logger, "{:#}", err; "error" => format!("{:?}", err));
+                error!(self.logger, "{}", err);
+                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
             }
         }
     }
@@ -661,14 +663,18 @@ mod subscriber {
         pub async fn run(&self) {
             match self.start_shadow().await {
                 Ok(mut shadow_rx) => self.forward_updates(&mut shadow_rx).await,
-                Err(err) => error!(self.logger, "{:#}", err; "error" => format!("{:?}", err)),
+                Err(err) => {
+                    error!(self.logger, "{}", err);
+                    debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                }
             }
         }
 
         async fn forward_updates(&self, shadow_rx: &mut broadcast::Receiver<(Pubkey, Account)>) {
             loop {
                 if let Err(err) = self.forward_update(shadow_rx).await {
-                    error!(self.logger, "error forwarding updates: {:#}", err; "error" => format!("{:?}", err))
+                    error!(self.logger, "{}", err);
+                    debug!(self.logger, "error context"; "context" => format!("{:?}", err));
                 }
             }
         }

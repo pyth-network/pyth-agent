@@ -28,9 +28,16 @@ The agent takes a single `--config` CLI option, pointing at
 there, containing a minimal set of mandatory options and documentation
 comments for optional settings. **The config file must exist.**
 
+### Logging
 The logging level can be configured at runtime
 through the `RUST_LOG` environment variable using the standard
-`error|warn|info|debug|trace` levels.
+`error|warn|info|debug|trace`.
+
+#### Plain/JSON logging
+By default, pyth-agent will print plaintext log statements. This can be switched to structured JSON output with `-l json`.
+
+#### Code location in logs
+For debugging purposes, you can specify `-L` to print file/line information with each log statement. This option is disabled by default.
 
 ### Key Store Config Migration [v1.x.x LEGACY]
 Pyth agent v2.0.0 introduces a simplified program and mapping key configuration. This breaking change alters how you define program/mapping key options in your agent config:
