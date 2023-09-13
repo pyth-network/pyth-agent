@@ -84,7 +84,7 @@ options by hand, as described in the config example above.
 `cargo run --release -- --config <your_config.toml>` will build and run the agent in a single step.
 
 ## Publishing API
-A running agent will expose a WebSocket serving the JRPC publishing API documented [here](https://docs.pyth.network/publish-data/pyth-client-websocket-api). See `config/config.toml` for related settings.
+A running agent will expose a WebSocket serving the JRPC publishing API documented [here](https://docs.pyth.network/documentation/publish-data/pyth-client-websocket-api). See `config/config.toml` for related settings.
 
 # Development
 ## Unit Testing
