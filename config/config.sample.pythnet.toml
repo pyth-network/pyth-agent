@@ -56,6 +56,11 @@ key_store.mapping_key = "AHtgzX45WTKfkPG53L6WYhGEXwQkN1BVknET3sVsLL8J"
 # during periods of high network congestion.
 exporter.compute_unit_price_micro_lamports = 1000
 
+# Weather the dynamic compute unit pricing is enabled.
+# This is needed for solana to be able to land transactions on the network
+# during periods of high network congestion.
+exporter.dynamic_compute_unit_pricing_enabled = true
+
 # Configuration for the JRPC API
 [pythd_adapter]
 
