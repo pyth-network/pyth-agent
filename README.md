@@ -4,7 +4,7 @@ Publish data to the [Pyth Network](https://pyth.network/).
 ## Overview
 This software runs a JRPC API server, which data providers should use to publish data. Publishing using this intermediate API server provides greater reliability, usability and security than sending transactions directly to an RPC node.
 
-Note that only permissioned publishers can publish data to the network. Please read the [publisher guidelines](https://docs.pyth.network/publish-data) before getting started.
+Note that only permissioned publishers can publish data to the network. Please read the [publisher guidelines](https://docs.pyth.network/documentation/publish-data) before getting started.
 
 ## Build
 
