@@ -79,6 +79,10 @@ key_store.mapping_key = "RelevantOracleMappingAddress"
 # Price per compute unit offered for update_price transactions
 # exporter.compute_unit_price_micro_lamports =
 
+# Whether the dynamic compute unit pricing is enabled. When enabled, the compute unit price is
+# calculated based on the network previous prioritization fees.
+# exporter.dynamic_compute_unit_pricing_enabled = false
+
 # Duration of the interval with which to poll the status of transactions.
 # It is recommended to set this to a value close to exporter.publish_interval_duration
 # exporter.transaction_monitor.poll_interval_duration = "4s"

@@ -34,6 +34,7 @@ use {
     solana_client::{
         nonblocking::rpc_client::RpcClient,
         rpc_config::RpcSendTransactionConfig,
+        rpc_response::RpcPrioritizationFee,
     },
     solana_sdk::{
         bs58,
@@ -55,6 +56,7 @@ use {
     },
     std::{
         collections::{
+            BTreeMap,
             HashMap,
             HashSet,
         },
@@ -81,6 +83,11 @@ use {
 const PYTH_ORACLE_VERSION: u32 = 2;
 const UPDATE_PRICE_NO_FAIL_ON_ERROR: i32 = 13;
 // const UPDATE_PRICE: i32 = 7; // Useful for making tx errors more visible in place of UPDATE_PRICE_NO_FAIL_ON_ERROR
+
+// Maximum total compute unit fee paid for a single transaction (0.001 SOL). This is a safety
+// measure while using dynamic compute price to prevent the exporter from paying too much for a
+// single transaction
+const MAXIMUM_TOTAL_COMPUTE_UNIT_FEE_MICRO_LAMPORTS: u64 = 1_000_000_000_000;
 
 #[repr(C)]
 #[derive(Serialize, PartialEq, Debug, Clone)]
@@ -122,8 +129,13 @@ pub struct Config {
     /// (i.e., requested units equals `n * compute_unit_limit`, where `n` is the number of update_price
     /// instructions)
     pub compute_unit_limit:                      u32,
-    /// Price per compute unit offered for update_price transactions
+    /// Price per compute unit offered for update_price transactions If dynamic compute unit is
+    /// enabled and this value is set, the actual price per compute unit will be the maximum of the
+    /// network dynamic price and this value.
     pub compute_unit_price_micro_lamports:       Option<u64>,
+    /// Enable using dynamic price per compute unit based on the network previous prioritization
+    /// fees.
+    pub dynamic_compute_unit_pricing_enabled:    bool,
 }
 
 impl Default for Config {
@@ -139,6 +151,7 @@ impl Default for Config {
             // The largest transactions appear to be about ~12000 CUs. We leave ourselves some breathing room.
             compute_unit_limit:                      40000,
             compute_unit_price_micro_lamports:       None,
+            dynamic_compute_unit_pricing_enabled:    false,
         }
     }
 }
@@ -231,6 +244,12 @@ pub struct Exporter {
     /// Currently known permissioned prices of this publisher
     our_prices: HashSet<Pubkey>,
 
+    /// Interval to update the dynamic price (if enabled)
+    dynamic_compute_unit_price_update_interval: Interval,
+
+    /// Recent compute unit price in micro lamports (set if dynamic compute unit pricing is enabled)
+    recent_compute_unit_price_micro_lamports: Option<u64>,
+
     keypair_request_tx: Sender<KeypairRequest>,
 
     logger: Logger,
@@ -261,6 +280,10 @@ impl Exporter {
             inflight_transactions_tx,
             publisher_permissions_rx,
             our_prices: HashSet::new(),
+            dynamic_compute_unit_price_update_interval: tokio::time::interval(
+                time::Duration::from_secs(1),
+            ),
+            recent_compute_unit_price_micro_lamports: None,
             keypair_request_tx,
             logger,
         }
@@ -268,30 +291,115 @@ impl Exporter {
 
     pub async fn run(&mut self) {
         loop {
-            self.publish_interval.tick().await;
-            if let Err(err) = self.publish_updates().await {
-                error!(self.logger, "{}", err);
-                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+            tokio::select! {
+                _ = self.publish_interval.tick() => {
+                    if let Err(err) = self.publish_updates().await {
+                        error!(self.logger, "{}", err);
+                        debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                    }
+                }
+                _ = self.dynamic_compute_unit_price_update_interval.tick() => {
+                    if self.config.dynamic_compute_unit_pricing_enabled {
+                        if let Err(err) = self.update_recent_compute_unit_price().await {
+                            error!(self.logger, "{}", err);
+                            debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                        }
+                    }
+                }
             }
         }
     }
 
-    /// Publishes any price updates in the local store that we haven't sent to this network.
-    ///
-    /// The strategy used to do this is as follows:
-    /// - Fetch all the price updates currently present in the local store
-    /// - Filter out price updates we have previously attempted to publish, or which are
-    ///   too old to publish.
-    /// - Collect the price updates into batches.
-    /// - Publish all the batches, staggering them evenly over the interval at which this method is called.
-    ///
-    /// This design is intended to:
-    /// - Decouple the rate at which the local store is updated and the rate at which we publish transactions.
-    ///   A user sending an unusually high rate of price updates shouldn't be reflected in the transaction rate.
-    /// - Degrade gracefully if the blockchain RPC node exhibits poor performance. If the RPC node takes a long
-    ///   time to respond, no internal queues grow unboundedly. At any single point in time there are at most
-    ///   (n / batch_size) requests in flight.
-    async fn publish_updates(&mut self) -> Result<()> {
+    async fn update_recent_compute_unit_price(&mut self) -> Result<()> {
+        let permissioned_updates = self.get_permissioned_updates().await?;
+        let price_accounts = permissioned_updates
+            .iter()
+            .map(|(identifier, _)| Pubkey::new(&identifier.to_bytes()))
+            .collect::<Vec<_>>();
+        self.recent_compute_unit_price_micro_lamports = self
+            .estimate_compute_unit_price_micro_lamports(&price_accounts)
+            .await?;
+        Ok(())
+    }
+
+    async fn estimate_compute_unit_price_micro_lamports(
+        &self,
+        price_accounts: &[Pubkey],
+    ) -> Result<Option<u64>> {
+        let mut slot_compute_fee: BTreeMap<u64, u64> = BTreeMap::new();
+
+        // Maximum allowed number of accounts is 128. So we need to chunk the requests
+        let prioritization_fees_batches =
+            futures_util::future::join_all(price_accounts.chunks(128).map(|price_accounts| {
+                self.rpc_client
+                    .get_recent_prioritization_fees(price_accounts)
+            }))
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to get recent prioritization fees")?;
+
+        prioritization_fees_batches
+            .iter()
+            .for_each(|prioritization_fees| {
+                prioritization_fees.iter().for_each(|fee| {
+                    // Get the maximum prioritaztion fee over all fees retrieved for this slot
+                    let prioritization_fee = slot_compute_fee
+                        .get(&fee.slot)
+                        .map_or(fee.prioritization_fee, |other| {
+                            fee.prioritization_fee.max(*other)
+                        });
+                    slot_compute_fee.insert(fee.slot, prioritization_fee);
+                })
+            });
+
+        let mut prioritization_fees = slot_compute_fee
+            .iter()
+            .rev()
+            .take(20) // Only take the last 20 slot priority fees
+            .map(|(_, fee)| *fee)
+            .collect::<Vec<_>>();
+
+        prioritization_fees.sort();
+
+        let median_priority_fee = prioritization_fees
+            .get(prioritization_fees.len() / 2)
+            .cloned();
+
+        Ok(median_priority_fee)
+    }
+
+    async fn get_publish_keypair(&self) -> Result<Keypair> {
+        if let Some(kp) = self.key_store.publish_keypair.as_ref() {
+            // It's impossible to sanely return a &Keypair in the
+            // other if branch, so we clone the reference.
+            Ok(Keypair::from_bytes(&kp.to_bytes())
+                .context("INTERNAL: Could not convert keypair to bytes and back")?)
+        } else {
+            // Request the keypair from remote keypair loader.  Doing
+            // this here guarantees that the up to date loaded keypair
+            // is being used.
+            //
+            // Currently, we're guaranteed not to clog memory or block
+            // the keypair loader under the following assumptions:
+            // - The Exporter publishing loop waits for a publish
+            //   attempt to finish before beginning the next
+            //   one. Currently realized in run()
+            // - The Remote Key Loader does not read channels for
+            //   keypairs it does not have. Currently expressed in
+            //   handle_key_requests() in remote_keypair_loader.rs
+
+            debug!(
+                self.logger,
+                "Exporter: Publish keypair is None, requesting remote loaded key"
+            );
+            let kp = RemoteKeypairLoader::request_keypair(&self.keypair_request_tx).await?;
+            debug!(self.logger, "Exporter: Keypair received");
+            Ok(kp)
+        }
+    }
+
+    async fn get_permissioned_updates(&mut self) -> Result<Vec<(PriceIdentifier, PriceInfo)>> {
         let local_store_contents = self.fetch_local_store_contents().await?;
 
         let now = Utc::now().timestamp();
@@ -299,7 +407,7 @@ impl Exporter {
         // Filter the contents to only include information we haven't already sent,
         // and to ignore stale information.
         let fresh_updates = local_store_contents
-            .iter()
+            .into_iter()
             .filter(|(identifier, info)| {
                 // Filter out timestamps older than what we already published
                 if let Some(last_info) = self.last_published_state.get(identifier) {
@@ -321,7 +429,7 @@ impl Exporter {
                     {
                         true // max delay since last published state reached, we publish anyway
                     } else {
-                        !last_info.cmp_no_timestamp(*info) // Filter out if data is unchanged
+                        !last_info.cmp_no_timestamp(info) // Filter out if data is unchanged
                     }
                 } else {
                     true // No prior data found, letting the price through
@@ -329,33 +437,7 @@ impl Exporter {
             })
             .collect::<Vec<_>>();
 
-        let publish_keypair = if let Some(kp) = self.key_store.publish_keypair.as_ref() {
-            // It's impossible to sanely return a &Keypair in the
-            // other if branch, so we clone the reference.
-            Keypair::from_bytes(&kp.to_bytes())
-                .context("INTERNAL: Could not convert keypair to bytes and back")?
-        } else {
-            // Request the keypair from remote keypair loader.  Doing
-            // this here guarantees that the up to date loaded keypair
-            // is being used.
-            //
-            // Currently, we're guaranteed not to clog memory or block
-            // the keypair loader under the following assumptions:
-            // - The Exporter publishing loop waits for a publish
-            //   attempt to finish before beginning the next
-            //   one. Currently realized in run()
-            // - The Remote Key Loader does not read channels for
-            //   keypairs it does not have. Currently expressed in
-            //   handle_key_requests() in remote_keypair_loader.rs
-
-            debug!(
-                self.logger,
-                "Exporter: Publish keypair is None, requesting remote loaded key"
-            );
-            let kp = RemoteKeypairLoader::request_keypair(&self.keypair_request_tx).await?;
-            debug!(self.logger, "Exporter: Keypair received");
-            kp
-        };
+        let publish_keypair = self.get_publish_keypair().await?;
 
         self.update_our_prices(&publish_keypair.pubkey());
 
@@ -365,7 +447,7 @@ impl Exporter {
         );
 
         // Filter out price accounts we're not permissioned to update
-        let permissioned_updates = fresh_updates
+        Ok(fresh_updates
             .into_iter()
             .filter(|(id, _data)| {
                 let key_from_id = Pubkey::new((*id).clone().to_bytes().as_slice());
@@ -384,7 +466,26 @@ impl Exporter {
                     false
                 }
             })
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>())
+    }
+
+    /// Publishes any price updates in the local store that we haven't sent to this network.
+    ///
+    /// The strategy used to do this is as follows:
+    /// - Fetch all the price updates currently present in the local store
+    /// - Filter out price updates we have previously attempted to publish, or which are
+    ///   too old to publish.
+    /// - Collect the price updates into batches.
+    /// - Publish all the batches, staggering them evenly over the interval at which this method is called.
+    ///
+    /// This design is intended to:
+    /// - Decouple the rate at which the local store is updated and the rate at which we publish transactions.
+    ///   A user sending an unusually high rate of price updates shouldn't be reflected in the transaction rate.
+    /// - Degrade gracefully if the blockchain RPC node exhibits poor performance. If the RPC node takes a long
+    ///   time to respond, no internal queues grow unboundedly. At any single point in time there are at most
+    ///   (n / batch_size) requests in flight.
+    async fn publish_updates(&mut self) -> Result<()> {
+        let permissioned_updates = self.get_permissioned_updates().await?;
 
         if permissioned_updates.is_empty() {
             return Ok(());
@@ -403,10 +504,10 @@ impl Exporter {
         let mut batch_state = HashMap::new();
         let mut batch_futures = vec![];
         for batch in batches {
-            batch_futures.push(self.publish_batch(batch, &publish_keypair));
+            batch_futures.push(self.publish_batch(batch));
 
             for (identifier, info) in batch {
-                batch_state.insert(**identifier, (**info).clone());
+                batch_state.insert(*identifier, (*info).clone());
             }
 
             batch_send_interval.tick().await;
@@ -489,11 +590,9 @@ impl Exporter {
             .map_err(|_| anyhow!("failed to fetch from local store"))
     }
 
-    async fn publish_batch(
-        &self,
-        batch: &[(&Identifier, &PriceInfo)],
-        publish_keypair: &Keypair,
-    ) -> Result<()> {
+    async fn publish_batch(&self, batch: &[(Identifier, PriceInfo)]) -> Result<()> {
+        let publish_keypair = self.get_publish_keypair().await?;
+
         let mut instructions = Vec::new();
 
         // Refresh the data in the batch
@@ -509,7 +608,7 @@ impl Exporter {
         });
         let price_accounts = refreshed_batch
             .clone()
-            .map(|(identifier, _)| bs58::encode(identifier.to_bytes()).into_string())
+            .map(|(identifier, _)| Pubkey::new(&identifier.to_bytes()))
             .collect::<Vec<_>>();
 
         let network_state = *self.network_state_rx.borrow();
@@ -544,12 +643,35 @@ impl Exporter {
         }
 
         // Pay priority fees, if configured
+        let total_compute_limit: u32 = self.config.compute_unit_limit * instructions.len() as u32;
+
         instructions.push(ComputeBudgetInstruction::set_compute_unit_limit(
-            self.config.compute_unit_limit * instructions.len() as u32,
+            total_compute_limit,
         ));
-        if let Some(compute_unit_price_micro_lamports) =
-            self.config.compute_unit_price_micro_lamports
-        {
+
+        // Calculate the compute unit price in micro lamports
+        let mut compute_unit_price_micro_lamports = None;
+
+        // If the unit price value is set, use it as the minimum price
+        if let Some(price) = self.config.compute_unit_price_micro_lamports {
+            compute_unit_price_micro_lamports = Some(price);
+        }
+
+        // If the dynamic unit price is enabled, use the estimated price if it is higher
+        // than the curdynamic_compute_unit_pricing_enabled
+        if let Some(estimated_recent_price) = self.recent_compute_unit_price_micro_lamports {
+            // Get the estimated compute unit price and Wrap it so it stays below the maximum total
+            // compute unit fee
+            let estimated_recent_price = estimated_recent_price
+                .min(MAXIMUM_TOTAL_COMPUTE_UNIT_FEE_MICRO_LAMPORTS / total_compute_limit as u64);
+
+            compute_unit_price_micro_lamports = compute_unit_price_micro_lamports
+                .map(|price| price.max(estimated_recent_price))
+                .or(Some(estimated_recent_price));
+        }
+
+        if let Some(compute_unit_price_micro_lamports) = compute_unit_price_micro_lamports {
+            debug!(self.logger, "setting compute unit price"; "unit_price" => compute_unit_price_micro_lamports);
             instructions.push(ComputeBudgetInstruction::set_compute_unit_price(
                 compute_unit_price_micro_lamports,
             ));
@@ -558,7 +680,7 @@ impl Exporter {
         let transaction = Transaction::new_signed_with_payer(
             &instructions,
             Some(&publish_keypair.pubkey()),
-            &vec![publish_keypair],
+            &vec![&publish_keypair],
             network_state.blockhash,
         );
 
