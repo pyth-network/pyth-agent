@@ -56,9 +56,9 @@ key_store.mapping_key = "AHtgzX45WTKfkPG53L6WYhGEXwQkN1BVknET3sVsLL8J"
 # during periods of high network congestion.
 exporter.compute_unit_price_micro_lamports = 4000
 
-# Maximum number of compute units that each update_price transaction might consume.
-# For solana mainnet, this should be set to 20000 instead of the default 40000
-# since there is no accumulator.
+# Compute unit limit requested per instruction for transactions that update the price.
+# This should be an upper bound of the compute units a single upd_price instruction might consume.
+# For solana mainnet, this should be set to 20000 instead of the default 40000 since there is no accumulator.
 exporter.compute_unit_limit = 20000
 
 # Whether the dynamic compute unit pricing is enabled.
