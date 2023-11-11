@@ -58,7 +58,7 @@ exporter.compute_unit_price_micro_lamports = 4000
 
 # Maximum number of compute units that each update_price transaction might consume.
 # For solana mainnet, this should be set to 20000 instead of the default 40000
-# since there is no accumuator.
+# since there is no accumulator.
 exporter.compute_unit_limit = 20000
 
 # Whether the dynamic compute unit pricing is enabled.
