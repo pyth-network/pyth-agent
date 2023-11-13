@@ -56,6 +56,7 @@ impl MetricsServer {
 
         self.global_store_lookup_tx
             .send(Lookup::LookupAllAccountsData {
+                network:   super::solana::network::Network::Primary,
                 result_tx: global_data_tx,
             })
             .await?;

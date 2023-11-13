@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 // The Global Store stores a copy of all the product and price information held in the Pyth
 // on-chain aggregation contracts, across both the primary and secondary networks.
 // This enables this data to be easily queried by other components.
@@ -14,6 +15,7 @@ use {
             PROMETHEUS_REGISTRY,
         },
         pythd::adapter,
+        solana::network::Network,
     },
     anyhow::{
         anyhow,
@@ -107,13 +109,27 @@ pub enum Lookup {
         result_tx: oneshot::Sender<Result<AllAccountsMetadata>>,
     },
     LookupAllAccountsData {
+        network:   Network,
         result_tx: oneshot::Sender<Result<AllAccountsData>>,
+    },
+    LookupPriceAccounts {
+        network:   Network,
+        price_ids: HashSet<Pubkey>,
+        result_tx: oneshot::Sender<Result<HashMap<Pubkey, PriceEntry>>>,
     },
 }
 
 pub struct Store {
-    /// The actual data
-    account_data:     AllAccountsData,
+    /// The actual data on primary network
+    account_data_primary: AllAccountsData,
+
+    /// The actual data on secondary network
+    /// This data is not necessarily consistent across both networks, so we need to store it
+    /// separately.
+    account_data_secondary: AllAccountsData,
+
+    /// The account metadata for both networks
+    /// The metadata is consistent across both networks, so we only need to store it once.
     account_metadata: AllAccountsMetadata,
 
     /// Prometheus metrics for products
@@ -169,7 +185,8 @@ impl Store {
         let prom_registry_ref = &mut &mut PROMETHEUS_REGISTRY.lock().await;
 
         Store {
-            account_data: Default::default(),
+            account_data_primary: Default::default(),
+            account_data_secondary: Default::default(),
             account_metadata: Default::default(),
             product_metrics: ProductGlobalMetrics::new(prom_registry_ref),
             price_metrics: PriceGlobalMetrics::new(prom_registry_ref),
@@ -193,15 +210,11 @@ impl Store {
     async fn handle_next(&mut self) -> Result<()> {
         tokio::select! {
             Some(update) = self.primary_updates_rx.recv() => {
-                self.update_data(&update).await?;
+                self.update_data(Network::Primary, &update).await?;
                 self.update_metadata(&update)?;
             }
             Some(update) = self.secondary_updates_rx.recv() => {
-                // We only use the secondary store to update the metadata, which is
-                // the same between both networks. This is so that if one network is offline
-                // we still have the metadata available to us. We don't update the data
-                // itself, because the aggregate prices may diverge slightly between
-                // the two networks.
+                self.update_data(Network::Secondary, &update).await?;
                 self.update_metadata(&update)?;
             }
             Some(lookup) = self.lookup_rx.recv() => {
@@ -212,7 +225,13 @@ impl Store {
         Ok(())
     }
 
-    async fn update_data(&mut self, update: &Update) -> Result<()> {
+    async fn update_data(&mut self, network: Network, update: &Update) -> Result<()> {
+        // Choose the right account data to update
+        let account_data = match network {
+            Network::Primary => &mut self.account_data_primary,
+            Network::Secondary => &mut self.account_data_secondary,
+        };
+
         match update {
             Update::ProductAccountUpdate {
                 account_key,
@@ -225,7 +244,7 @@ impl Store {
                 self.product_metrics.update(account_key, maybe_symbol);
 
                 // Update the stored data
-                self.account_data
+                account_data
                     .product_accounts
                     .insert(*account_key, account.clone());
             }
@@ -234,7 +253,7 @@ impl Store {
                 account,
             } => {
                 // Sanity-check that we are updating with more recent data
-                if let Some(existing_price) = self.account_data.price_accounts.get(account_key) {
+                if let Some(existing_price) = account_data.price_accounts.get(account_key) {
                     if existing_price.timestamp > account.timestamp {
                         // This message is not an error. It is common
                         // for primary and secondary network to have
@@ -252,22 +271,24 @@ impl Store {
                 self.price_metrics.update(account_key, account);
 
                 // Update the stored data
-                self.account_data
-                    .price_accounts
-                    .insert(*account_key, *account);
+                account_data.price_accounts.insert(*account_key, *account);
 
-                // Notify the Pythd API adapter that this account has changed
-                self.pythd_adapter_tx
-                    .send(adapter::Message::GlobalStoreUpdate {
-                        price_identifier: Identifier::new(account_key.to_bytes()),
-                        price:            account.agg.price,
-                        conf:             account.agg.conf,
-                        status:           account.agg.status,
-                        valid_slot:       account.valid_slot,
-                        pub_slot:         account.agg.pub_slot,
-                    })
-                    .await
-                    .map_err(|_| anyhow!("failed to notify pythd adapter of account update"))?;
+                // Notify the Pythd API adapter that this account has changed.
+                // As the account data might differ between the two networks
+                // we only notify the adapter of the primary network updates.
+                if let Network::Primary = network {
+                    self.pythd_adapter_tx
+                        .send(adapter::Message::GlobalStoreUpdate {
+                            price_identifier: Identifier::new(account_key.to_bytes()),
+                            price:            account.agg.price,
+                            conf:             account.agg.conf,
+                            status:           account.agg.status,
+                            valid_slot:       account.valid_slot,
+                            pub_slot:         account.agg.pub_slot,
+                        })
+                        .await
+                        .map_err(|_| anyhow!("failed to notify pythd adapter of account update"))?;
+                }
             }
         }
 
@@ -304,9 +325,38 @@ impl Store {
             Lookup::LookupAllAccountsMetadata { result_tx } => result_tx
                 .send(Ok(self.account_metadata.clone()))
                 .map_err(|_| anyhow!("failed to send metadata to pythd adapter")),
-            Lookup::LookupAllAccountsData { result_tx } => result_tx
-                .send(Ok(self.account_data.clone()))
+            Lookup::LookupAllAccountsData { network, result_tx } => result_tx
+                .send(Ok(match network {
+                    Network::Primary => self.account_data_primary.clone(),
+                    Network::Secondary => self.account_data_secondary.clone(),
+                }))
                 .map_err(|_| anyhow!("failed to send data to pythd adapter")),
+            Lookup::LookupPriceAccounts {
+                network,
+                price_ids,
+                result_tx,
+            } => {
+                let account_data = match network {
+                    Network::Primary => &self.account_data_primary,
+                    Network::Secondary => &self.account_data_secondary,
+                };
+
+                result_tx
+                    .send(
+                        price_ids
+                            .into_iter()
+                            .map(|id| {
+                                account_data
+                                    .price_accounts
+                                    .get(&id)
+                                    .cloned()
+                                    .map(|v| (id, v))
+                                    .ok_or(anyhow!("price id not found"))
+                            })
+                            .collect::<Result<HashMap<_, _>>>(),
+                    )
+                    .map_err(|_| anyhow!("failed to send price accounts data"))
+            }
         }
     }
 }

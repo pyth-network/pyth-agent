@@ -116,7 +116,6 @@ async fn main() -> Result<()> {
         ));
     }
 
-
     if let Err(err) = start(config, logger.clone()).await {
         error!(logger, "{}", err);
         debug!(logger, "error context"; "context" => format!("{:?}", err));

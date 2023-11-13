@@ -83,6 +83,16 @@ key_store.mapping_key = "RelevantOracleMappingAddress"
 # calculated based on the network previous prioritization fees.
 # exporter.dynamic_compute_unit_pricing_enabled = false
 
+# Maximum total compute unit fee paid for a single transaction. Defaults to 0.001 SOL. This
+# is a safety measure while using dynamic compute price to prevent the exporter from paying
+# too much for a single transaction. The default is 10**12 micro lamports (0.001 SOL).
+# exporter.maximum_total_compute_fee_micro_lamports = 1000000000000
+
+# Maximum slot gap between the current slot and the oldest slot amongst all the accounts in
+# the batch. This is used to calculate the dynamic price per compute unit. When the slot gap
+# reaches this number we will use the maximum total_compute_fee for the transaction.
+# exporter.maximum_slot_gap_for_dynamic_compute_unit_price = 25
+
 # Duration of the interval with which to poll the status of transactions.
 # It is recommended to set this to a value close to exporter.publish_interval_duration
 # exporter.transaction_monitor.poll_interval_duration = "4s"
