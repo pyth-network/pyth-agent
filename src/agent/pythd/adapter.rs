@@ -257,8 +257,7 @@ impl Adapter {
                 let subscription_id = self
                     .handle_subscribe_price_sched(&account.parse()?, notify_price_sched_tx)
                     .await;
-                let res = self.send(result_tx, Ok(subscription_id));
-                res
+                self.send(result_tx, Ok(subscription_id))
             }
             Message::UpdatePrice {
                 account,
@@ -618,7 +617,10 @@ mod tests {
                     PublisherAccount,
                 },
             },
-            solana,
+            solana::{
+                self,
+                network::Network,
+            },
             store::{
                 global,
                 global::AllAccountsData,
@@ -1559,9 +1561,10 @@ mod tests {
 
         // Return the account data to the adapter, from the global store
         match test_adapter.global_store_lookup_rx.recv().await.unwrap() {
-            global::Lookup::LookupAllAccountsData { result_tx } => {
-                result_tx.send(Ok(get_all_accounts_data())).unwrap()
-            }
+            global::Lookup::LookupAllAccountsData {
+                network: Network::Primary,
+                result_tx,
+            } => result_tx.send(Ok(get_all_accounts_data())).unwrap(),
             _ => panic!("Uexpected message received from adapter"),
         };
 
@@ -1784,9 +1787,10 @@ mod tests {
 
         // Return the account data to the adapter, from the global store
         match test_adapter.global_store_lookup_rx.recv().await.unwrap() {
-            global::Lookup::LookupAllAccountsData { result_tx } => {
-                result_tx.send(Ok(get_all_accounts_data())).unwrap()
-            }
+            global::Lookup::LookupAllAccountsData {
+                network: Network::Primary,
+                result_tx,
+            } => result_tx.send(Ok(get_all_accounts_data())).unwrap(),
             _ => panic!("Uexpected message received from adapter"),
         };
 

@@ -35,10 +35,8 @@ use {
     solana_client::{
         nonblocking::rpc_client::RpcClient,
         rpc_config::RpcSendTransactionConfig,
-        rpc_response::RpcPrioritizationFee,
     },
     solana_sdk::{
-        bs58,
         commitment_config::CommitmentConfig,
         compute_budget::ComputeBudgetInstruction,
         hash::Hash,
@@ -334,7 +332,7 @@ impl Exporter {
         let permissioned_updates = self.get_permissioned_updates().await?;
         let price_accounts = permissioned_updates
             .iter()
-            .map(|(identifier, _)| Pubkey::new(&identifier.to_bytes()))
+            .map(|(identifier, _)| Pubkey::from(identifier.to_bytes()))
             .collect::<Vec<_>>();
         self.recent_compute_unit_price_micro_lamports = self
             .estimate_compute_unit_price_micro_lamports(&price_accounts)
@@ -470,7 +468,7 @@ impl Exporter {
         Ok(fresh_updates
             .into_iter()
             .filter(|(id, _data)| {
-                let key_from_id = Pubkey::new((*id).clone().to_bytes().as_slice());
+                let key_from_id = Pubkey::from((*id).clone().to_bytes());
                 if self.our_prices.contains(&key_from_id) {
                     true
                 } else {
@@ -628,7 +626,7 @@ impl Exporter {
         });
         let price_accounts = refreshed_batch
             .clone()
-            .map(|(identifier, _)| Pubkey::new(&identifier.to_bytes()))
+            .map(|(identifier, _)| Pubkey::from(identifier.to_bytes()))
             .collect::<Vec<_>>();
 
         let network_state = *self.network_state_rx.borrow();
@@ -645,16 +643,16 @@ impl Exporter {
             {
                 self.create_instruction_with_accumulator(
                     publish_keypair.pubkey(),
-                    Pubkey::new(&identifier.to_bytes()),
-                    &price_info,
+                    Pubkey::from(identifier.to_bytes()),
+                    price_info,
                     network_state.current_slot,
                     accumulator_program_key,
                 )?
             } else {
                 self.create_instruction_without_accumulator(
                     publish_keypair.pubkey(),
-                    Pubkey::new(&identifier.to_bytes()),
-                    &price_info,
+                    Pubkey::from(identifier.to_bytes()),
+                    price_info,
                     network_state.current_slot,
                 )?
             };

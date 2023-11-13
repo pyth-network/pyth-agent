@@ -148,7 +148,7 @@ pub fn spawn_oracle(
             wss_url.to_string(),
             rpc_timeout,
             config.commitment,
-            key_store.program_key.clone(),
+            key_store.program_key,
             updates_tx,
             logger.clone(),
         );
@@ -322,7 +322,7 @@ impl Oracle {
     ) -> Result<()> {
         self.global_store_tx
             .send(global::Update::ProductAccountUpdate {
-                account_key: account_key.clone(),
+                account_key: *account_key,
                 account:     account.clone(),
             })
             .await
@@ -336,8 +336,8 @@ impl Oracle {
     ) -> Result<()> {
         self.global_store_tx
             .send(global::Update::PriceAccountUpdate {
-                account_key: account_key.clone(),
-                account:     account.clone(),
+                account_key: *account_key,
+                account:     *account,
             })
             .await
             .map_err(|_| anyhow!("failed to notify price account update"))
@@ -437,7 +437,7 @@ impl Poller {
                     .entry(component.publisher)
                     .or_insert(HashSet::new());
 
-                component_pub_entry.insert(price_key.clone());
+                component_pub_entry.insert(*price_key);
             }
         }
 
@@ -488,7 +488,7 @@ impl Poller {
                 .iter()
                 .filter(|pubkey| **pubkey != Pubkey::default())
             {
-                product_keys.push(account_key.clone());
+                product_keys.push(*account_key);
             }
         }
 
@@ -578,7 +578,7 @@ impl Poller {
                     }
 
                     if price.next != Pubkey::default() {
-                        next_todo.push(price.next.clone());
+                        next_todo.push(price.next);
                     }
                 } else {
                     warn!(self.logger, "Could not look up price account on chain, skipping"; "price_key" => price_key.to_string(),);

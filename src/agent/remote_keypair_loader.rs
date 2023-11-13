@@ -89,7 +89,7 @@ impl RemoteKeypairLoader {
         config: Config,
         logger: Logger,
     ) -> Vec<JoinHandle<()>> {
-        let bind_address = config.bind_address.clone();
+        let bind_address = config.bind_address;
 
         let ip = bind_address.ip();
 
@@ -181,7 +181,7 @@ impl RemoteKeypairLoader {
         );
 
         // WARNING: All jobs spawned here must report their join handles in this vec
-        return vec![request_handler_jh, http_api_jh];
+        vec![request_handler_jh, http_api_jh]
     }
 
     /// Validate and apply a keypair to the specified mut reference,
