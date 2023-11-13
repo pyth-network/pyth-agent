@@ -36,6 +36,12 @@ pub mod network {
         },
     };
 
+    #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+    pub enum Network {
+        Primary,
+        Secondary,
+    }
+
     pub fn default_rpc_url() -> String {
         "http://localhost:8899".to_string()
     }
@@ -72,9 +78,11 @@ pub mod network {
 
     pub fn spawn_network(
         config: Config,
+        network: Network,
         local_store_tx: Sender<store::local::Message>,
-        global_store_update_tx: mpsc::Sender<global::Update>,
-        keypair_request_tx: mpsc::Sender<KeypairRequest>,
+        global_store_lookup_tx: Sender<global::Lookup>,
+        global_store_update_tx: Sender<global::Update>,
+        keypair_request_tx: Sender<KeypairRequest>,
         logger: Logger,
     ) -> Result<Vec<JoinHandle<()>>> {
         // Publisher permissions updates between oracle and exporter
@@ -96,11 +104,13 @@ pub mod network {
         // Spawn the Exporter
         let exporter_jhs = exporter::spawn_exporter(
             config.exporter,
+            network,
             &config.rpc_url,
             config.rpc_timeout,
             publisher_permissions_rx,
             KeyStore::new(config.key_store.clone(), &logger)?,
             local_store_tx,
+            global_store_lookup_tx,
             keypair_request_tx,
             logger,
         )?;

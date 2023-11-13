@@ -7,6 +7,7 @@ use {
             PriceIdentifier,
         },
         key_store,
+        network::Network,
     },
     crate::agent::remote_keypair_loader::{
         KeypairRequest,
@@ -84,11 +85,6 @@ const PYTH_ORACLE_VERSION: u32 = 2;
 const UPDATE_PRICE_NO_FAIL_ON_ERROR: i32 = 13;
 // const UPDATE_PRICE: i32 = 7; // Useful for making tx errors more visible in place of UPDATE_PRICE_NO_FAIL_ON_ERROR
 
-// Maximum total compute unit fee paid for a single transaction (0.001 SOL). This is a safety
-// measure while using dynamic compute price to prevent the exporter from paying too much for a
-// single transaction
-const MAXIMUM_TOTAL_COMPUTE_UNIT_FEE_MICRO_LAMPORTS: u64 = 1_000_000_000_000;
-
 #[repr(C)]
 #[derive(Serialize, PartialEq, Debug, Clone)]
 struct UpdPriceCmd {
@@ -108,61 +104,73 @@ pub struct Config {
     /// It is recommended to set this to slightly less than the network's block time,
     /// as the slot fetched will be used as the time of the price update.
     #[serde(with = "humantime_serde")]
-    pub refresh_network_state_interval_duration: Duration,
+    pub refresh_network_state_interval_duration:         Duration,
     /// Duration of the interval at which to publish updates
     #[serde(with = "humantime_serde")]
-    pub publish_interval_duration:               Duration,
+    pub publish_interval_duration:                       Duration,
     /// Age after which a price update is considered stale and not published
     #[serde(with = "humantime_serde")]
-    pub staleness_threshold:                     Duration,
+    pub staleness_threshold:                             Duration,
     /// Wait at least this long before publishing an unchanged price
     /// state; unchanged price state means only timestamp has changed
     /// with other state identical to last published state.
-    pub unchanged_publish_threshold:             Duration,
+    pub unchanged_publish_threshold:                     Duration,
     /// Maximum size of a batch
-    pub max_batch_size:                          usize,
+    pub max_batch_size:                                  usize,
     /// Capacity of the channel between the Exporter and the Transaction Monitor
-    pub inflight_transactions_channel_capacity:  usize,
+    pub inflight_transactions_channel_capacity:          usize,
     /// Configuration for the Transaction Monitor
-    pub transaction_monitor:                     transaction_monitor::Config,
+    pub transaction_monitor:                             transaction_monitor::Config,
     /// Number of compute units requested per update_price instruction within the transaction
     /// (i.e., requested units equals `n * compute_unit_limit`, where `n` is the number of update_price
     /// instructions)
-    pub compute_unit_limit:                      u32,
+    pub compute_unit_limit:                              u32,
     /// Price per compute unit offered for update_price transactions If dynamic compute unit is
     /// enabled and this value is set, the actual price per compute unit will be the maximum of the
     /// network dynamic price and this value.
-    pub compute_unit_price_micro_lamports:       Option<u64>,
+    pub compute_unit_price_micro_lamports:               Option<u64>,
     /// Enable using dynamic price per compute unit based on the network previous prioritization
     /// fees.
-    pub dynamic_compute_unit_pricing_enabled:    bool,
+    pub dynamic_compute_unit_pricing_enabled:            bool,
+    /// Maximum total compute unit fee paid for a single transaction. Defaults to 0.001 SOL. This
+    /// is a safety measure while using dynamic compute price to prevent the exporter from paying
+    /// too much for a single transaction
+    pub maximum_total_compute_fee_micro_lamports:        u64,
+    /// Maximum slot gap between the current slot and the oldest slot amongst all the accounts in
+    /// the batch. This is used to calculate the dynamic price per compute unit. When the slot gap
+    /// reaches this number we will use the maximum total_compute_fee for the transaction.
+    pub maximum_slot_gap_for_dynamic_compute_unit_price: u64,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            refresh_network_state_interval_duration: Duration::from_millis(200),
-            publish_interval_duration:               Duration::from_secs(1),
-            staleness_threshold:                     Duration::from_secs(5),
-            unchanged_publish_threshold:             Duration::from_secs(5),
-            max_batch_size:                          12,
-            inflight_transactions_channel_capacity:  10000,
-            transaction_monitor:                     Default::default(),
+            refresh_network_state_interval_duration:         Duration::from_millis(200),
+            publish_interval_duration:                       Duration::from_secs(1),
+            staleness_threshold:                             Duration::from_secs(5),
+            unchanged_publish_threshold:                     Duration::from_secs(5),
+            max_batch_size:                                  12,
+            inflight_transactions_channel_capacity:          10000,
+            transaction_monitor:                             Default::default(),
             // The largest transactions appear to be about ~12000 CUs. We leave ourselves some breathing room.
-            compute_unit_limit:                      40000,
-            compute_unit_price_micro_lamports:       None,
-            dynamic_compute_unit_pricing_enabled:    false,
+            compute_unit_limit:                              40000,
+            compute_unit_price_micro_lamports:               None,
+            dynamic_compute_unit_pricing_enabled:            false,
+            maximum_total_compute_fee_micro_lamports:        1_000_000_000_000,
+            maximum_slot_gap_for_dynamic_compute_unit_price: 25,
         }
     }
 }
 
 pub fn spawn_exporter(
     config: Config,
+    network: Network,
     rpc_url: &str,
     rpc_timeout: Duration,
     publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashSet<Pubkey>>>,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
+    global_store_tx: Sender<store::global::Lookup>,
     keypair_request_tx: mpsc::Sender<KeypairRequest>,
     logger: Logger,
 ) -> Result<Vec<JoinHandle<()>>> {
@@ -192,10 +200,12 @@ pub fn spawn_exporter(
     // Create and spawn the exporter
     let mut exporter = Exporter::new(
         config,
+        network,
         rpc_url,
         rpc_timeout,
         key_store,
         local_store_tx,
+        global_store_tx,
         network_state_rx,
         transactions_tx,
         publisher_permissions_rx,
@@ -218,6 +228,9 @@ pub struct Exporter {
 
     config: Config,
 
+    /// The exporter network
+    network: Network,
+
     /// Interval at which to publish updates
     publish_interval: Interval,
 
@@ -226,6 +239,9 @@ pub struct Exporter {
 
     /// Channel on which to communicate with the local store
     local_store_tx: Sender<store::local::Message>,
+
+    /// Channel on which to communicate with the global store
+    global_store_tx: Sender<store::global::Lookup>,
 
     /// The last state published for each price identifier. Used to
     /// rule out stale data and prevent repetitive publishing of
@@ -258,10 +274,12 @@ pub struct Exporter {
 impl Exporter {
     pub fn new(
         config: Config,
+        network: Network,
         rpc_url: &str,
         rpc_timeout: Duration,
         key_store: KeyStore,
         local_store_tx: Sender<store::local::Message>,
+        global_store_tx: Sender<store::global::Lookup>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
         publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashSet<Pubkey>>>,
@@ -272,9 +290,11 @@ impl Exporter {
         Exporter {
             rpc_client: RpcClient::new_with_timeout(rpc_url.to_string(), rpc_timeout),
             config,
+            network,
             publish_interval,
             key_store,
             local_store_tx,
+            global_store_tx,
             last_published_state: HashMap::new(),
             network_state_rx,
             inflight_transactions_tx,
@@ -542,14 +562,14 @@ impl Exporter {
             match self.publisher_permissions_rx.try_recv() {
                 Ok(publisher_permissions) => {
                     self.our_prices = publisher_permissions.get(publish_pubkey) .cloned()
-            .unwrap_or_else( || {
-		warn!(
-		    self.logger,
-		    "Exporter: No permissioned prices were found for the publishing keypair on-chain. This is expected only on startup.";
-		    "publish_pubkey" => publish_pubkey.to_string(),
-		);
-		HashSet::new()
-	    });
+                        .unwrap_or_else( || {
+                            warn!(
+                                self.logger,
+                                "Exporter: No permissioned prices were found for the publishing keypair on-chain. This is expected only on startup.";
+                                "publish_pubkey" => publish_pubkey.to_string(),
+                            );
+                            HashSet::new()
+                        });
                     trace!(
                         self.logger,
                         "Exporter: read permissioned price accounts from channel";
@@ -657,17 +677,84 @@ impl Exporter {
             compute_unit_price_micro_lamports = Some(price);
         }
 
-        // If the dynamic unit price is enabled, use the estimated price if it is higher
-        // than the curdynamic_compute_unit_pricing_enabled
-        if let Some(estimated_recent_price) = self.recent_compute_unit_price_micro_lamports {
-            // Get the estimated compute unit price and Wrap it so it stays below the maximum total
-            // compute unit fee
-            let estimated_recent_price = estimated_recent_price
-                .min(MAXIMUM_TOTAL_COMPUTE_UNIT_FEE_MICRO_LAMPORTS / total_compute_limit as u64);
+        // If dynamic compute unit pricing is enabled, we use the following two methods to calculate an
+        // estimate of the price:
+        // - We exponentially increase price based on the price staleness (slot gap between the
+        // current slot and the oldest slot amongst all the accounts in this batch).
+        // - We use the network recent prioritization fees to get the minimum unit price
+        // that landed a transaction using Pyth price accounts (permissioned to this publisher)
+        // as writable. We take the median over the last 20 slots and divide it by two to make
+        // sure that it decays over time. The API doesn't return the priority fees for the Pyth
+        // price reads and so, this reflects the unit price that publishers have paid in the
+        // pverious slots.
+        //
+        // The two methods above combined act like massively increasing the price when they cannot
+        // land transactions on-chain that decays over time. The decaying behaviour is important to
+        // keep the uptime high during congestion whereas without it we would publish price after a
+        // large gap and then we can publish it again after the next large gap.
+        if self.config.dynamic_compute_unit_pricing_enabled {
+            let maximum_unit_price =
+                self.config.maximum_total_compute_fee_micro_lamports / total_compute_limit as u64;
+
+            // Use the estimated previous price if it is higher
+            // than the current price.
+            if let Some(estimated_recent_price) = self.recent_compute_unit_price_micro_lamports {
+                // Get the estimated compute unit price and wrap it so it stays below the maximum
+                // total compute unit fee. We additionally divide such price by 2 to create an
+                // exponential decay. This will make sure that a spike doesn't get propagated
+                // forever.
+                let estimated_price = (estimated_recent_price >> 1).min(maximum_unit_price);
+
+                compute_unit_price_micro_lamports = compute_unit_price_micro_lamports
+                    .map(|price| price.max(estimated_price))
+                    .or(Some(estimated_price));
+            }
+
+            // Use exponentially higher price if this publisher hasn't published in a while for the accounts
+            // in this batch. This will use the maximum total compute unit fee if the publisher
+            // hasn't updated for >= MAXIMUM_SLOT_GAP_FOR_DYNAMIC_COMPUTE_UNIT_PRICE slots.
+            let (result_tx, result_rx) = oneshot::channel();
+            self.global_store_tx
+                .send(store::global::Lookup::LookupPriceAccounts {
+                    network: self.network,
+                    price_ids: price_accounts.clone().into_iter().collect(),
+                    result_tx,
+                })
+                .await?;
+
+            let result = result_rx.await??;
+
+            // Calculate the maximum slot difference between aggregate slot and
+            // current slot amongst all the accounts. Here, the aggregate slot is
+            // used instead of the publishers latest update to avoid overpaying.
+            let oldest_slot = result
+                .values()
+                .map(|account| account.last_slot)
+                .min()
+                .ok_or(anyhow!("No price accounts"))?;
+
+            let slot_gap = network_state.current_slot.saturating_sub(oldest_slot);
+
+            // Set the dynamic price exponentially based on the slot gap. If the max slot gap is
+            // 25, on this number (or more) the maximum unit price is paid, and then on slot 24 it
+            // is half of that and gets halved each lower slot. Given that we have max total
+            // compute price of 10**12 and 250k compute units in one tx (12 updates) these are the
+            // estimated prices based on slot gaps:
+            // 25 (or more): 4_000_000
+            // 20          :   125_000
+            // 18          :    31_250
+            // 15          :     3_906
+            // 13          :       976
+            // 10          :       122
+            let exponential_price = maximum_unit_price
+                >> self
+                    .config
+                    .maximum_slot_gap_for_dynamic_compute_unit_price
+                    .saturating_sub(slot_gap);
 
             compute_unit_price_micro_lamports = compute_unit_price_micro_lamports
-                .map(|price| price.max(estimated_recent_price))
-                .or(Some(estimated_recent_price));
+                .map(|price| price.max(exponential_price))
+                .or(Some(exponential_price));
         }
 
         if let Some(compute_unit_price_micro_lamports) = compute_unit_price_micro_lamports {

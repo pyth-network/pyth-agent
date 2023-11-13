@@ -359,7 +359,10 @@ impl Adapter {
     async fn lookup_all_accounts_data(&self) -> Result<AllAccountsData> {
         let (result_tx, result_rx) = oneshot::channel();
         self.global_store_lookup_tx
-            .send(global::Lookup::LookupAllAccountsData { result_tx })
+            .send(global::Lookup::LookupAllAccountsData {
+                network: solana::network::Network::Primary,
+                result_tx,
+            })
             .await?;
         result_rx.await?
     }

@@ -10,13 +10,13 @@
 |  +--------+    +----------+    | |  +----------+    +--------+    |
 |  | Oracle |    | Exporter |    | |  | Exporter |    | Oracle |    |
 |  +--------+    +----------+    | |  +----------+    +--------+    |
-|      |              ^  ^       | |     ^  ^             |         |
-+------|--------------|--|-------+ +-----|--|-------------|---------+
-       |              |  |               |  |             |      +------------------------+
-       |        +--------|---------------|---------+      |      |  Pythd Websocket API   |
-       |        |            Local Store |         |<---------------+-------+   +------+  |
-       |        +--------|---------------|---------+      |      |  |       |<--|JRPC  |  |
-       v                 |               |        |       v      |  |Adapter|   | WS   |  |
+|      |           ^  ^  ^       | |     ^  ^  ^          |         |
++------|-----------|--|--|-------+ +-----|--|--|----------|---------+
+       |           |  |  |               |  |  |          |      +------------------------+
+       |        +--|-----|---------------|-----|---+      |      |  Pythd Websocket API   |
+       |        |  |         Local Store |     |   |<---------------+-------+   +------+  |
+       |        +--|-----|---------------|-----|---+      |      |  |       |<--|JRPC  |  |
+       v           |     |               |     |  |       v      |  |Adapter|   | WS   |  |
     +--------------------|---------------|--------|-----------+  |  |       |-->|Server|  |
     |                    |  Global Store |        |           |---->+-------+   +------+  |
     +--------------------|---------------|--------|-----------+  |               ^    |   |
@@ -39,7 +39,8 @@ Publisher data write path:
 - The Adapter then transforms this into the Pyth SDK data structures and sends it to the Local Store.
 - The Local Store holds the latest price data the user has submitted for each price feed.
 - The Exporters periodically query the Local Store for the latest user-submitted data,
-and send it to the RPC node.
+and send it to the RPC node. They query the Global Store to get the on-chain status to dynamically
+adjust the compute unit price (if enabled).
 
 Publisher data read path:
 - The Oracles continually fetch data from the RPC node, and pass this to the Global Store.
@@ -128,7 +129,9 @@ impl Agent {
         // Spawn the primary network
         jhs.extend(network::spawn_network(
             self.config.primary_network.clone(),
+            network::Network::Primary,
             local_store_tx.clone(),
+            global_store_lookup_tx.clone(),
             primary_oracle_updates_tx,
             primary_keypair_loader_tx,
             logger.new(o!("primary" => true)),
@@ -138,7 +141,9 @@ impl Agent {
         if let Some(config) = &self.config.secondary_network {
             jhs.extend(network::spawn_network(
                 config.clone(),
+                network::Network::Secondary,
                 local_store_tx.clone(),
+                global_store_lookup_tx.clone(),
                 secondary_oracle_updates_tx,
                 secondary_keypair_loader_tx,
                 logger.new(o!("primary" => false)),
