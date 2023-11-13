@@ -66,7 +66,7 @@ pub fn main() -> Result<()> {
     eprintln!("Migration OK. Result:");
     std::io::stderr().flush()?;
 
-    println!("{}", doc.to_string());
+    println!("{}", doc);
 
     Ok(())
 }

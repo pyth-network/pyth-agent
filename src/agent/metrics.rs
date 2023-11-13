@@ -182,7 +182,7 @@ impl ProductGlobalMetrics {
     }
 
     pub fn update(&self, product_key: &Pubkey, maybe_symbol: Option<String>) {
-        let symbol_string = maybe_symbol.unwrap_or(format!("unknown_{}", product_key.to_string()));
+        let symbol_string = maybe_symbol.unwrap_or(format!("unknown_{}", product_key));
 
         #[deny(unused_variables)]
         let Self { update_count } = self;
@@ -413,7 +413,7 @@ impl PriceLocalMetrics {
             update_count,
         } = self;
 
-        let price_key = Pubkey::new(price_id.to_bytes().as_slice());
+        let price_key = Pubkey::from(price_id.to_bytes());
 
         price
             .get_or_create(&PriceLocalLabels {

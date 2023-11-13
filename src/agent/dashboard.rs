@@ -255,7 +255,7 @@ pub fn build_dashboard_data(
                 let price_global_metadata =
                     global_metadata.price_accounts_metadata.remove(&price_key);
 
-                let price_identifier = Identifier::new(price_key.clone().to_bytes());
+                let price_identifier = Identifier::new(price_key.to_bytes());
                 let price_local_data = local_data.remove(&price_identifier);
 
                 prices.insert(
@@ -308,5 +308,5 @@ pub fn build_dashboard_data(
 	      "remaining_price_ids" => format!("{:?}", remaining_prices));
     }
 
-    return ret;
+    ret
 }
