@@ -54,7 +54,7 @@ key_store.mapping_key = "AHtgzX45WTKfkPG53L6WYhGEXwQkN1BVknET3sVsLL8J"
 # Price per compute unit offered for update_price transactions.
 # This is needed for solana to be able to land transactions on the network
 # during periods of high network congestion.
-exporter.compute_unit_price_micro_lamports = 4000
+exporter.compute_unit_price_micro_lamports = 40000
 
 # Compute unit limit requested per instruction for transactions that update the price.
 # This should be an upper bound of the compute units a single upd_price instruction might consume.
