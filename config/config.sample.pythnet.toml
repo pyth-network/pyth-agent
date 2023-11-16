@@ -65,6 +65,7 @@ exporter.compute_unit_limit = 20000
 # This is needed for solana to be able to land transactions on the network
 # during periods of high network congestion.
 exporter.dynamic_compute_unit_pricing_enabled = true
+exporter.maximum_slot_gap_for_dynamic_compute_unit_price = 50
 
 # Configuration for the JRPC API
 [pythd_adapter]
