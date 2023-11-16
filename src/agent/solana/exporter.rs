@@ -154,8 +154,12 @@ impl Default for Config {
             compute_unit_limit:                              40000,
             compute_unit_price_micro_lamports:               None,
             dynamic_compute_unit_pricing_enabled:            false,
-            maximum_total_compute_fee_micro_lamports:        1_000_000_000_000,
-            maximum_slot_gap_for_dynamic_compute_unit_price: 25,
+            // Maximum total compute unit fee paid for a single transaction (0.0001 SOL)
+            maximum_total_compute_fee_micro_lamports:        100_000_000_000,
+            // A publisher update is not included if it is 25 slots behind the current slot.
+            // Due to the delay in the network (until a block gets confirmed) we add 5 slots
+            // to make sure we do not overpay.
+            maximum_slot_gap_for_dynamic_compute_unit_price: 30,
         }
     }
 }
@@ -722,12 +726,18 @@ impl Exporter {
 
             let result = result_rx.await??;
 
-            // Calculate the maximum slot difference between aggregate slot and
+            // Calculate the maximum slot difference between the publisher latest slot and
             // current slot amongst all the accounts. Here, the aggregate slot is
             // used instead of the publishers latest update to avoid overpaying.
             let oldest_slot = result
                 .values()
-                .map(|account| account.last_slot)
+                .flat_map(|account| {
+                    account
+                        .comp
+                        .iter()
+                        .find(|c| c.publisher == publish_keypair.pubkey())
+                        .map(|c| c.latest.pub_slot)
+                })
                 .min()
                 .ok_or(anyhow!("No price accounts"))?;
 
