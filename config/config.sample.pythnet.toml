@@ -68,6 +68,9 @@ exporter.dynamic_compute_unit_pricing_enabled = true
 exporter.maximum_slot_gap_for_dynamic_compute_unit_price = 50
 exporter.maximum_total_compute_fee_micro_lamports = 10000000000
 
+# The interval with which to poll account information.
+oracle.poll_interval_duration = "5s"
+
 # Configuration for the JRPC API
 [pythd_adapter]
 
