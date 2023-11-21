@@ -40,9 +40,7 @@ use {
     },
     warp::{
         hyper::StatusCode,
-        reply::{
-            self,
-        },
+        reply::{self,},
         Filter,
         Rejection,
         Reply,
