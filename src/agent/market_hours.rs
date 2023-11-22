@@ -9,14 +9,22 @@ use {
     chrono::{
         naive::NaiveTime,
         DateTime,
-        NaiveDateTime,
+        Duration,
         TimeZone,
-        Utc,
         Weekday,
     },
     chrono_tz::Tz,
+    lazy_static::lazy_static,
     std::str::FromStr,
 };
+
+lazy_static! {
+    /// Helper time value representing 24:00:00 as 00:00:00 minus 1
+    /// nanosecond (underflowing to 23:59:59.999(...) ). While chrono
+    /// has this value internally exposed as NaiveTime::MAX, it is not
+    /// exposed outside the crate.
+    static ref MAX_TIME_INSTANT: NaiveTime = NaiveTime::MIN.overflowing_sub_signed(Duration::nanoseconds(1)).0;
+}
 
 /// Weekly market hours schedule
 #[derive(Default, Debug, Eq, PartialEq)]
@@ -154,7 +162,7 @@ impl FromStr for MarketHours {
     }
 }
 
-/// Helper enum for making clear time range, all-day open and all-day closed distinction
+/// Helper enum for denoting per-day schedules: time range, all-day open and all-day closed.
 #[derive(Debug, Eq, PartialEq)]
 pub enum MHKind {
     Open,
@@ -164,8 +172,6 @@ pub enum MHKind {
 
 impl MHKind {
     pub fn can_publish_at(&self, when_market_local: NaiveTime) -> bool {
-        dbg!(&when_market_local);
-        dbg!(self);
         match self {
             Self::Open => true,
             Self::Closed => false,
@@ -193,10 +199,23 @@ impl FromStr for MHKind {
 
                 let start = NaiveTime::parse_from_str(start_str, "%H:%M")
                     .context("start time does not match HH:MM format")?;
-                let end = NaiveTime::parse_from_str(end_str, "%H:%M")
-                    .context("end time does not match HH:MM format")?;
 
-                Ok(MHKind::TimeRange(start, end))
+                // The chrono crate is unable to parse 24:00 as
+                // previous day's perspective of midnight, so we use
+                // the next best thing - see MAX_TIME_INSTANT for
+                // details.
+                let end = if end_str.contains("24:00") {
+                    MAX_TIME_INSTANT.clone()
+                } else {
+                    NaiveTime::parse_from_str(end_str, "%H:%M")
+                        .context("end time does not match HH:MM format")?
+                };
+
+                if start < end {
+                    Ok(MHKind::TimeRange(start, end))
+                } else {
+                    Err(anyhow!("Incorrect time range: start must come before end"))
+                }
             }
         }
     }
@@ -204,7 +223,13 @@ impl FromStr for MHKind {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        chrono::{
+            NaiveDate,
+            NaiveDateTime,
+        },
+    };
 
     #[test]
     fn test_parsing_happy_path() -> Result<()> {
@@ -346,6 +371,51 @@ mod tests {
             assert!(!mh.can_publish_at(before_dt)?);
             assert!(mh.can_publish_at(ok_dt)?);
             assert!(!mh.can_publish_at(after_dt)?);
+        }
+
+        Ok(())
+    }
+
+    /// Verify desired 24:00 behavior.
+    #[test]
+    fn test_market_hours_midnight_00_24() -> Result<()> {
+        // Prepare a schedule of midnight-neighboring ranges
+        let mh: MarketHours = "Europe/Amsterdam,23:00-24:00,00:00-01:00,C,C,C,C,C".parse()?;
+
+        let format = "%Y-%m-%d %H:%M";
+        let ok_datetimes = vec![
+            NaiveDate::from_ymd_opt(2023, 11, 20)
+                .unwrap()
+                .and_time(MAX_TIME_INSTANT.clone())
+                .and_local_timezone(Tz::Europe__Amsterdam)
+                .unwrap(),
+            NaiveDateTime::parse_from_str("2023-11-21 00:00", format)?
+                .and_local_timezone(Tz::Europe__Amsterdam)
+                .unwrap(),
+        ];
+
+        let bad_datetimes = vec![
+            // Start of Monday Nov 20th, must not be confused for MAX_TIME_INSTANT on that day
+            NaiveDateTime::parse_from_str("2023-11-20 00:00", format)?
+                .and_local_timezone(Tz::Europe__Amsterdam)
+                .unwrap(),
+            // End of Tuesday Nov 21st, borders Wednesday, must not be
+            // confused for Wednesday 00:00 which is open.
+            NaiveDate::from_ymd_opt(2023, 11, 21)
+                .unwrap()
+                .and_time(MAX_TIME_INSTANT.clone())
+                .and_local_timezone(Tz::Europe__Amsterdam)
+                .unwrap(),
+        ];
+
+        dbg!(&mh);
+
+        for (ok_dt, bad_dt) in ok_datetimes.iter().zip(bad_datetimes.iter()) {
+            dbg!(&ok_dt);
+            dbg!(&bad_dt);
+
+            assert!(mh.can_publish_at(ok_dt)?);
+            assert!(!mh.can_publish_at(bad_dt)?);
         }
 
         Ok(())
