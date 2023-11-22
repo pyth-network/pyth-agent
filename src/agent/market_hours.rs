@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn test_market_hours_midnight_00_24() -> Result<()> {
         // Prepare a schedule of midnight-neighboring ranges
-        let mh: MarketHours = "Europe/Amsterdam,23:00-24:00,00:00-01:00,C,C,C,C,C".parse()?;
+        let mh: MarketHours = "Europe/Amsterdam,23:00-24:00,00:00-01:00,O,C,C,C,C".parse()?;
 
         let format = "%Y-%m-%d %H:%M";
         let ok_datetimes = vec![
