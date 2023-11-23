@@ -63,6 +63,7 @@ Note that there is an Oracle and Exporter for each network, but only one Local S
 ################################################################################################################################## */
 
 pub mod dashboard;
+pub mod market_hours;
 pub mod metrics;
 pub mod pythd;
 pub mod remote_keypair_loader;
