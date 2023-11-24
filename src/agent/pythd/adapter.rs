@@ -992,6 +992,7 @@ mod tests {
                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                             ],
                         },
+                        market_hours:   Default::default(),
                         price_accounts: vec![
                             solana_sdk::pubkey::Pubkey::from_str(
                                 "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU",
@@ -1051,6 +1052,7 @@ mod tests {
                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                             ],
                         },
+                        market_hours:   Default::default(),
                         price_accounts: vec![
                             solana_sdk::pubkey::Pubkey::from_str(
                                 "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD",

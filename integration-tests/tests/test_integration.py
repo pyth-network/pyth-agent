@@ -78,6 +78,7 @@ AAPL_USD = {
         "nasdaq_symbol": "AAPL",
         "symbol": "Equity.US.AAPL/USD",
         "base": "AAPL",
+        "market_hours": "America/New_York,C,C,C,C,C,C,C" # Should never be published due to all-closed market hours
     },
     "metadata": {"jump_id": "186", "jump_symbol": "AAPL", "price_exp": -5, "min_publishers": 1},
 }
@@ -732,3 +733,37 @@ class TestUpdatePrice(PythTest):
             # Continue with the simple test case, which must succeed
             await self.test_update_price_simple(client_no_spawn)
             await client_no_spawn.close()
+
+    @pytest.mark.asyncio
+    async def test_agent_respects_market_hours(self, client: PythAgentClient):
+        '''
+        Similar to test_update_price_simple, but using AAPL_USD and
+        asserting that nothing is published due to the symbol's
+        all-closed market hours.
+        '''
+
+        # Fetch all products
+        products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
+
+        # Find the product account ID corresponding to the AAPL/USD symbol
+        product = products[AAPL_USD["attr_dict"]["symbol"]]
+        product_account = product["account"]
+
+        # Get the price account with which to send updates
+        price_account = product["price_accounts"][0]["account"]
+
+        # Send an "update_price" request
+        await client.update_price(price_account, 42, 2, "trading")
+        time.sleep(2)
+
+        # Send another "update_price" request to trigger aggregation
+        await client.update_price(price_account, 81, 1, "trading")
+        time.sleep(2)
+
+        # Confirm that the price account has been updated with the values from the first "update_price" request
+        final_product_state = await client.get_product(product_account)
+
+        final_price_account = final_product_state["price_accounts"][0]
+        assert final_price_account["price"] == 0
+        assert final_price_account["conf"] == 0
+        assert final_price_account["status"] == "unknown"

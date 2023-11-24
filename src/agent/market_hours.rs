@@ -9,6 +9,7 @@ use {
     chrono::{
         naive::NaiveTime,
         DateTime,
+        Datelike,
         Duration,
         TimeZone,
         Weekday,
@@ -27,7 +28,7 @@ lazy_static! {
 }
 
 /// Weekly market hours schedule
-#[derive(Default, Debug, Eq, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct MarketHours {
     pub timezone: Tz,
     pub mon:      MHKind,
@@ -53,13 +54,11 @@ impl MarketHours {
         }
     }
 
-    pub fn can_publish_at<Tz: TimeZone>(&self, when: &DateTime<Tz>) -> Result<bool> {
+    pub fn can_publish_at<Tz: TimeZone>(&self, when: &DateTime<Tz>) -> bool {
         // Convert to time local to the market
         let when_market_local = when.with_timezone(&self.timezone);
 
-        // NOTE(2023-11-21): Strangely enough, I couldn't find a
-        // method that gets the programmatic Weekday from a DateTime.
-        let market_weekday: Weekday = when_market_local.format("%A").to_string().parse()?;
+        let market_weekday: Weekday = when_market_local.date_naive().weekday();
 
         let market_time = when_market_local.time();
 
@@ -73,7 +72,7 @@ impl MarketHours {
             Weekday::Sun => self.sun.can_publish_at(market_time),
         };
 
-        Ok(ret)
+        ret
     }
 }
 
@@ -163,7 +162,7 @@ impl FromStr for MarketHours {
 }
 
 /// Helper enum for denoting per-day schedules: time range, all-day open and all-day closed.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MHKind {
     Open,
     Closed,
@@ -368,9 +367,9 @@ mod tests {
             dbg!(&ok_dt);
             dbg!(&after_dt);
 
-            assert!(!mh.can_publish_at(before_dt)?);
-            assert!(mh.can_publish_at(ok_dt)?);
-            assert!(!mh.can_publish_at(after_dt)?);
+            assert!(!mh.can_publish_at(before_dt));
+            assert!(mh.can_publish_at(ok_dt));
+            assert!(!mh.can_publish_at(after_dt));
         }
 
         Ok(())
@@ -414,8 +413,8 @@ mod tests {
             dbg!(&ok_dt);
             dbg!(&bad_dt);
 
-            assert!(mh.can_publish_at(ok_dt)?);
-            assert!(!mh.can_publish_at(bad_dt)?);
+            assert!(mh.can_publish_at(ok_dt));
+            assert!(!mh.can_publish_at(bad_dt));
         }
 
         Ok(())
