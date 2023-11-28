@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn test_market_hours_happy_path() -> Result<()> {
         // Prepare a schedule of narrow ranges
-        let mh: WeeklySchedule = "America/New_York,00:00-1:00,1:00-2:00,2:00-3:00,3:00-4:00,4:00-5:00,5:00-6:00,6:00-7:00".parse()?;
+        let wsched: WeeklySchedule = "America/New_York,00:00-1:00,1:00-2:00,2:00-3:00,3:00-4:00,4:00-5:00,5:00-6:00,6:00-7:00".parse()?;
 
         // Prepare UTC datetimes that fall before, within and after market hours
         let format = "%Y-%m-%d %H:%M";
@@ -356,7 +356,7 @@ mod tests {
             NaiveDateTime::parse_from_str("2023-11-26 12:30", format)?.and_utc(),
         ];
 
-        dbg!(&mh);
+        dbg!(&wsched);
 
         for ((before_dt, ok_dt), after_dt) in bad_datetimes_before
             .iter()
@@ -367,9 +367,9 @@ mod tests {
             dbg!(&ok_dt);
             dbg!(&after_dt);
 
-            assert!(!mh.can_publish_at(before_dt));
-            assert!(mh.can_publish_at(ok_dt));
-            assert!(!mh.can_publish_at(after_dt));
+            assert!(!wsched.can_publish_at(before_dt));
+            assert!(wsched.can_publish_at(ok_dt));
+            assert!(!wsched.can_publish_at(after_dt));
         }
 
         Ok(())
@@ -379,7 +379,8 @@ mod tests {
     #[test]
     fn test_market_hours_midnight_00_24() -> Result<()> {
         // Prepare a schedule of midnight-neighboring ranges
-        let mh: WeeklySchedule = "Europe/Amsterdam,23:00-24:00,00:00-01:00,O,C,C,C,C".parse()?;
+        let wsched: WeeklySchedule =
+            "Europe/Amsterdam,23:00-24:00,00:00-01:00,O,C,C,C,C".parse()?;
 
         let format = "%Y-%m-%d %H:%M";
         let ok_datetimes = vec![
@@ -387,39 +388,96 @@ mod tests {
                 .unwrap()
                 .and_time(MAX_TIME_INSTANT.clone())
                 .and_local_timezone(Tz::Europe__Amsterdam)
-                .unwrap()
-                .with_timezone(&Utc),
+                .unwrap(),
             NaiveDateTime::parse_from_str("2023-11-21 00:00", format)?
                 .and_local_timezone(Tz::Europe__Amsterdam)
-                .unwrap()
-                .with_timezone(&Utc),
+                .unwrap(),
         ];
 
         let bad_datetimes = vec![
             // Start of Monday Nov 20th, must not be confused for MAX_TIME_INSTANT on that day
             NaiveDateTime::parse_from_str("2023-11-20 00:00", format)?
                 .and_local_timezone(Tz::Europe__Amsterdam)
-                .unwrap()
-                .with_timezone(&Utc),
+                .unwrap(),
             // End of Tuesday Nov 21st, borders Wednesday, must not be
             // confused for Wednesday 00:00 which is open.
             NaiveDate::from_ymd_opt(2023, 11, 21)
                 .unwrap()
                 .and_time(MAX_TIME_INSTANT.clone())
                 .and_local_timezone(Tz::Europe__Amsterdam)
-                .unwrap()
-                .with_timezone(&Utc),
+                .unwrap(),
         ];
 
-        dbg!(&mh);
+        dbg!(&wsched);
 
         for (ok_dt, bad_dt) in ok_datetimes.iter().zip(bad_datetimes.iter()) {
             dbg!(&ok_dt);
             dbg!(&bad_dt);
 
-            assert!(mh.can_publish_at(ok_dt));
-            assert!(!mh.can_publish_at(bad_dt));
+            assert!(wsched.can_publish_at(&ok_dt.with_timezone(&Utc)));
+            assert!(!wsched.can_publish_at(&bad_dt.with_timezone(&Utc)));
         }
+
+        Ok(())
+    }
+
+    /// Performs a scenario on 2023 autumn DST change. During that
+    /// time, most of the EU switched on the weekend one week earlier
+    /// (Oct 28-29) than most of the US (Nov 4-5).
+    #[test]
+    fn test_market_hours_dst_shenanigans() -> Result<()> {
+        // The Monday schedule is equivalent between Amsterdam and
+        // Chicago for most of 2023 (7h difference), except for two
+        // instances of Amsterdam/Chicago DST change lag:
+        // * Spring 2023: Mar12(US)-Mar26(EU) (clocks go forward 1h,
+        //   CDT/CET 6h offset in use for 2 weeks, CDT/CEST 7h offset after)
+        // * Autumn 2023: Oct29(EU)-Nov5(US) (clocks go back 1h,
+        //   CDT/CET 6h offset in use 1 week, CST/CET 7h offset after)
+        let wsched_eu: WeeklySchedule = "Europe/Amsterdam,9:00-17:00,O,O,O,O,O,O".parse()?;
+        let wsched_us: WeeklySchedule = "America/Chicago,2:00-10:00,O,O,O,O,O,O".parse()?;
+
+        let format = "%Y-%m-%d %H:%M";
+
+        // Monday after EU change, before US change, from Amsterdam
+        // perspective. Okay for publishing Amsterdam market, outside hours for Chicago market
+        let dt1 = NaiveDateTime::parse_from_str("2023-10-30 16:01", format)?
+            .and_local_timezone(Tz::Europe__Amsterdam)
+            .unwrap();
+        dbg!(&dt1);
+
+        assert!(wsched_eu.can_publish_at(&dt1.with_timezone(&Utc)));
+        assert!(!wsched_us.can_publish_at(&dt1.with_timezone(&Utc)));
+
+        // Same point in time, from Chicago perspective. Still okay
+        // for Amsterdam, still outside hours for Chicago.
+        let dt2 = NaiveDateTime::parse_from_str("2023-10-30 10:01", format)?
+            .and_local_timezone(Tz::America__Chicago)
+            .unwrap();
+        dbg!(&dt2);
+
+        assert!(wsched_eu.can_publish_at(&dt2.with_timezone(&Utc)));
+        assert!(!wsched_us.can_publish_at(&dt2.with_timezone(&Utc)));
+
+        // Monday after EU change, before US change, from Chicago
+        // perspective. Okay for publishing Chicago market, outside
+        // hours for publishing Amsterdam market.
+        let dt3 = NaiveDateTime::parse_from_str("2023-10-30 02:01", format)?
+            .and_local_timezone(Tz::America__Chicago)
+            .unwrap();
+        dbg!(&dt3);
+
+        assert!(!wsched_eu.can_publish_at(&dt3.with_timezone(&Utc)));
+        assert!(wsched_us.can_publish_at(&dt3.with_timezone(&Utc)));
+
+        // Same point in time, from Amsterdam perspective. Still okay
+        // for Chicago, still outside hours for Amsterdam.
+        let dt4 = NaiveDateTime::parse_from_str("2023-10-30 08:01", format)?
+            .and_local_timezone(Tz::Europe__Amsterdam)
+            .unwrap();
+        dbg!(&dt4);
+
+        assert!(!wsched_eu.can_publish_at(&dt4.with_timezone(&Utc)));
+        assert!(wsched_us.can_publish_at(&dt4.with_timezone(&Utc)));
 
         Ok(())
     }
