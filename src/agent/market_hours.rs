@@ -458,6 +458,8 @@ mod tests {
         assert!(wsched_eu.can_publish_at(&dt2.with_timezone(&Utc)));
         assert!(!wsched_us.can_publish_at(&dt2.with_timezone(&Utc)));
 
+        assert_eq!(dt1, dt2);
+
         // Monday after EU change, before US change, from Chicago
         // perspective. Okay for publishing Chicago market, outside
         // hours for publishing Amsterdam market.
@@ -478,6 +480,49 @@ mod tests {
 
         assert!(!wsched_eu.can_publish_at(&dt4.with_timezone(&Utc)));
         assert!(wsched_us.can_publish_at(&dt4.with_timezone(&Utc)));
+
+        assert_eq!(dt3, dt4);
+
+        // Monday after both Amsterdam and Chicago get over their DST
+        // change, from Amsterdam perspective. Okay for publishing
+        // both markets.
+        let dt5 = NaiveDateTime::parse_from_str("2023-11-06 09:01", format)?
+            .and_local_timezone(Tz::Europe__Amsterdam)
+            .unwrap();
+        dbg!(&dt5);
+        assert!(wsched_eu.can_publish_at(&dt5.with_timezone(&Utc)));
+        assert!(wsched_us.can_publish_at(&dt5.with_timezone(&Utc)));
+
+        // Same point in time, from Chicago perspective
+        let dt6 = NaiveDateTime::parse_from_str("2023-11-06 02:01", format)?
+            .and_local_timezone(Tz::America__Chicago)
+            .unwrap();
+        dbg!(&dt6);
+        assert!(wsched_eu.can_publish_at(&dt6.with_timezone(&Utc)));
+        assert!(wsched_us.can_publish_at(&dt6.with_timezone(&Utc)));
+
+        assert_eq!(dt5, dt6);
+
+        // Monday after both Amsterdam and Chicago get over their DST
+        // change, from Amsterdam perspective. Outside both markets'
+        // hours.
+        let dt7 = NaiveDateTime::parse_from_str("2023-11-06 17:01", format)?
+            .and_local_timezone(Tz::Europe__Amsterdam)
+            .unwrap();
+        dbg!(&dt7);
+        assert!(!wsched_eu.can_publish_at(&dt7.with_timezone(&Utc)));
+        assert!(!wsched_us.can_publish_at(&dt7.with_timezone(&Utc)));
+
+        // Same point in time, from Chicago perspective, still outside
+        // hours for both markets.
+        let dt8 = NaiveDateTime::parse_from_str("2023-11-06 10:01", format)?
+            .and_local_timezone(Tz::America__Chicago)
+            .unwrap();
+        dbg!(&dt8);
+        assert!(!wsched_eu.can_publish_at(&dt8.with_timezone(&Utc)));
+        assert!(!wsched_us.can_publish_at(&dt8.with_timezone(&Utc)));
+
+        assert_eq!(dt7, dt8);
 
         Ok(())
     }
