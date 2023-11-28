@@ -10,7 +10,7 @@ use {
         network::Network,
     },
     crate::agent::{
-        market_hours::MarketHours,
+        market_hours::WeeklySchedule,
         remote_keypair_loader::{
             KeypairRequest,
             RemoteKeypairLoader,
@@ -22,10 +22,7 @@ use {
         Result,
     },
     bincode::Options,
-    chrono::{
-        Local,
-        Utc,
-    },
+    chrono::Utc,
     futures_util::future::{
         self,
         join_all,
@@ -63,7 +60,6 @@ use {
         collections::{
             BTreeMap,
             HashMap,
-            HashSet,
         },
         time::Duration,
     },
@@ -175,7 +171,7 @@ pub fn spawn_exporter(
     network: Network,
     rpc_url: &str,
     rpc_timeout: Duration,
-    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketHours>>>,
+    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>>,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     global_store_tx: Sender<store::global::Lookup>,
@@ -263,10 +259,10 @@ pub struct Exporter {
     inflight_transactions_tx: Sender<Signature>,
 
     /// publisher => { permissioned_price => market hours } as read by the oracle module
-    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketHours>>>,
+    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>>,
 
     /// Currently known permissioned prices of this publisher along with their market hours
-    our_prices: HashMap<Pubkey, MarketHours>,
+    our_prices: HashMap<Pubkey, WeeklySchedule>,
 
     /// Interval to update the dynamic price (if enabled)
     dynamic_compute_unit_price_update_interval: Interval,
@@ -290,7 +286,7 @@ impl Exporter {
         global_store_tx: Sender<store::global::Lookup>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
-        publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketHours>>>,
+        publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>>,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Self {
@@ -474,20 +470,22 @@ impl Exporter {
                "publish_pubkey" => publish_keypair.pubkey().to_string(),
         );
 
-        let now = Local::now();
+        // Get a fresh system time
+        let now = Utc::now();
 
         // Filter out price accounts we're not permissioned to update
         Ok(fresh_updates
             .into_iter()
             .filter(|(id, _data)| {
                 let key_from_id = Pubkey::from((*id).clone().to_bytes());
-                if let Some(market_hours) = self.our_prices.get(&key_from_id) {
-                    let ret = market_hours.can_publish_at(&now);
+                if let Some(weekly_schedule) = self.our_prices.get(&key_from_id) {
+                    let ret = weekly_schedule.can_publish_at(&now);
 
 		    if !ret {
 			debug!(self.logger, "Exporter: Attempted to publish price outside market hours";
 			       "price_account" => key_from_id.to_string(),
-			       "market_hours" => format!("{:?}", market_hours),
+			       "weekly_schedule" => format!("{:?}", weekly_schedule),
+			       "utc_time" => now.format("%c").to_string(),
 			       );
 		    }
 

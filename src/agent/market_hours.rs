@@ -11,7 +11,7 @@ use {
         DateTime,
         Datelike,
         Duration,
-        TimeZone,
+        Utc,
         Weekday,
     },
     chrono_tz::Tz,
@@ -29,7 +29,7 @@ lazy_static! {
 
 /// Weekly market hours schedule
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
-pub struct MarketHours {
+pub struct WeeklySchedule {
     pub timezone: Tz,
     pub mon:      MHKind,
     pub tue:      MHKind,
@@ -40,7 +40,7 @@ pub struct MarketHours {
     pub sun:      MHKind,
 }
 
-impl MarketHours {
+impl WeeklySchedule {
     pub fn all_closed() -> Self {
         Self {
             timezone: Default::default(),
@@ -54,7 +54,7 @@ impl MarketHours {
         }
     }
 
-    pub fn can_publish_at<Tz: TimeZone>(&self, when: &DateTime<Tz>) -> bool {
+    pub fn can_publish_at(&self, when: &DateTime<Utc>) -> bool {
         // Convert to time local to the market
         let when_market_local = when.with_timezone(&self.timezone);
 
@@ -76,7 +76,7 @@ impl MarketHours {
     }
 }
 
-impl FromStr for MarketHours {
+impl FromStr for WeeklySchedule {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self> {
         let mut split_by_commas = s.split(",");
@@ -235,9 +235,9 @@ mod tests {
         // Mon-Fri 9-5, inconsistent leading space on Tuesday, leading 0 on Friday (expected to be fine)
         let s = "Europe/Warsaw,9:00-17:00, 9:00-17:00,9:00-17:00,9:00-17:00,09:00-17:00,C,C";
 
-        let parsed: MarketHours = s.parse()?;
+        let parsed: WeeklySchedule = s.parse()?;
 
-        let expected = MarketHours {
+        let expected = WeeklySchedule {
             timezone: Tz::Europe__Warsaw,
             mon:      MHKind::TimeRange(
                 NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
@@ -273,7 +273,7 @@ mod tests {
         // Valid but missing a timezone
         let s = "O,C,O,C,O,C,O";
 
-        let parsing_result: Result<MarketHours> = s.parse();
+        let parsing_result: Result<WeeklySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -284,7 +284,7 @@ mod tests {
         // One day short
         let s = "Asia/Hong_Kong,C,O,C,O,C,O";
 
-        let parsing_result: Result<MarketHours> = s.parse();
+        let parsing_result: Result<WeeklySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -294,7 +294,7 @@ mod tests {
     fn test_parsing_gibberish_timezone_is_error() {
         // Pretty sure that one's extinct
         let s = "Pangea/New_Dino_City,O,O,O,O,O,O,O";
-        let parsing_result: Result<MarketHours> = s.parse();
+        let parsing_result: Result<WeeklySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn test_parsing_gibberish_day_schedule_is_error() {
         let s = "Europe/Amsterdam,mondays are alright I guess,O,O,O,O,O,O";
-        let parsing_result: Result<MarketHours> = s.parse();
+        let parsing_result: Result<WeeklySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -313,7 +313,7 @@ mod tests {
     fn test_parsing_too_many_days_is_error() {
         // One day too many
         let s = "Europe/Lisbon,O,O,O,O,O,O,O,O,C";
-        let parsing_result: Result<MarketHours> = s.parse();
+        let parsing_result: Result<WeeklySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn test_market_hours_happy_path() -> Result<()> {
         // Prepare a schedule of narrow ranges
-        let mh: MarketHours = "America/New_York,00:00-1:00,1:00-2:00,2:00-3:00,3:00-4:00,4:00-5:00,5:00-6:00,6:00-7:00".parse()?;
+        let mh: WeeklySchedule = "America/New_York,00:00-1:00,1:00-2:00,2:00-3:00,3:00-4:00,4:00-5:00,5:00-6:00,6:00-7:00".parse()?;
 
         // Prepare UTC datetimes that fall before, within and after market hours
         let format = "%Y-%m-%d %H:%M";
@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn test_market_hours_midnight_00_24() -> Result<()> {
         // Prepare a schedule of midnight-neighboring ranges
-        let mh: MarketHours = "Europe/Amsterdam,23:00-24:00,00:00-01:00,O,C,C,C,C".parse()?;
+        let mh: WeeklySchedule = "Europe/Amsterdam,23:00-24:00,00:00-01:00,O,C,C,C,C".parse()?;
 
         let format = "%Y-%m-%d %H:%M";
         let ok_datetimes = vec![
@@ -387,24 +387,28 @@ mod tests {
                 .unwrap()
                 .and_time(MAX_TIME_INSTANT.clone())
                 .and_local_timezone(Tz::Europe__Amsterdam)
-                .unwrap(),
+                .unwrap()
+                .with_timezone(&Utc),
             NaiveDateTime::parse_from_str("2023-11-21 00:00", format)?
                 .and_local_timezone(Tz::Europe__Amsterdam)
-                .unwrap(),
+                .unwrap()
+                .with_timezone(&Utc),
         ];
 
         let bad_datetimes = vec![
             // Start of Monday Nov 20th, must not be confused for MAX_TIME_INSTANT on that day
             NaiveDateTime::parse_from_str("2023-11-20 00:00", format)?
                 .and_local_timezone(Tz::Europe__Amsterdam)
-                .unwrap(),
+                .unwrap()
+                .with_timezone(&Utc),
             // End of Tuesday Nov 21st, borders Wednesday, must not be
             // confused for Wednesday 00:00 which is open.
             NaiveDate::from_ymd_opt(2023, 11, 21)
                 .unwrap()
                 .and_time(MAX_TIME_INSTANT.clone())
                 .and_local_timezone(Tz::Europe__Amsterdam)
-                .unwrap(),
+                .unwrap()
+                .with_timezone(&Utc),
         ];
 
         dbg!(&mh);

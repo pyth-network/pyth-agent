@@ -78,7 +78,7 @@ AAPL_USD = {
         "nasdaq_symbol": "AAPL",
         "symbol": "Equity.US.AAPL/USD",
         "base": "AAPL",
-        "market_hours": "America/New_York,C,C,C,C,C,C,C" # Should never be published due to all-closed market hours
+        "weekly_schedule": "America/New_York,C,C,C,C,C,C,C" # Should never be published due to all-closed market hours
     },
     "metadata": {"jump_id": "186", "jump_symbol": "AAPL", "price_exp": -5, "min_publishers": 1},
 }
