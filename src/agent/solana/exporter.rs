@@ -9,9 +9,12 @@ use {
         key_store,
         network::Network,
     },
-    crate::agent::remote_keypair_loader::{
-        KeypairRequest,
-        RemoteKeypairLoader,
+    crate::agent::{
+        market_hours::WeeklySchedule,
+        remote_keypair_loader::{
+            KeypairRequest,
+            RemoteKeypairLoader,
+        },
     },
     anyhow::{
         anyhow,
@@ -57,7 +60,6 @@ use {
         collections::{
             BTreeMap,
             HashMap,
-            HashSet,
         },
         time::Duration,
     },
@@ -169,7 +171,7 @@ pub fn spawn_exporter(
     network: Network,
     rpc_url: &str,
     rpc_timeout: Duration,
-    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashSet<Pubkey>>>,
+    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>>,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     global_store_tx: Sender<store::global::Lookup>,
@@ -256,11 +258,11 @@ pub struct Exporter {
     // Channel on which to send inflight transactions to the transaction monitor
     inflight_transactions_tx: Sender<Signature>,
 
-    /// Permissioned symbols as read by the oracle module
-    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashSet<Pubkey>>>,
+    /// publisher => { permissioned_price => market hours } as read by the oracle module
+    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>>,
 
-    /// Currently known permissioned prices of this publisher
-    our_prices: HashSet<Pubkey>,
+    /// Currently known permissioned prices of this publisher along with their market hours
+    our_prices: HashMap<Pubkey, WeeklySchedule>,
 
     /// Interval to update the dynamic price (if enabled)
     dynamic_compute_unit_price_update_interval: Interval,
@@ -284,7 +286,7 @@ impl Exporter {
         global_store_tx: Sender<store::global::Lookup>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
-        publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashSet<Pubkey>>>,
+        publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>>,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Self {
@@ -301,7 +303,7 @@ impl Exporter {
             network_state_rx,
             inflight_transactions_tx,
             publisher_permissions_rx,
-            our_prices: HashSet::new(),
+            our_prices: HashMap::new(),
             dynamic_compute_unit_price_update_interval: tokio::time::interval(
                 time::Duration::from_secs(1),
             ),
@@ -468,13 +470,26 @@ impl Exporter {
                "publish_pubkey" => publish_keypair.pubkey().to_string(),
         );
 
+        // Get a fresh system time
+        let now = Utc::now();
+
         // Filter out price accounts we're not permissioned to update
         Ok(fresh_updates
             .into_iter()
             .filter(|(id, _data)| {
                 let key_from_id = Pubkey::from((*id).clone().to_bytes());
-                if self.our_prices.contains(&key_from_id) {
-                    true
+                if let Some(weekly_schedule) = self.our_prices.get(&key_from_id) {
+                    let ret = weekly_schedule.can_publish_at(&now);
+
+		    if !ret {
+			debug!(self.logger, "Exporter: Attempted to publish price outside market hours";
+			       "price_account" => key_from_id.to_string(),
+			       "weekly_schedule" => format!("{:?}", weekly_schedule),
+			       "utc_time" => now.format("%c").to_string(),
+			       );
+		    }
+
+		    ret
                 } else {
                     // Note: This message is not an error. Some
                     // publishers have different permissions on
@@ -570,7 +585,7 @@ impl Exporter {
                                 "Exporter: No permissioned prices were found for the publishing keypair on-chain. This is expected only on startup.";
                                 "publish_pubkey" => publish_pubkey.to_string(),
                             );
-                            HashSet::new()
+                            HashMap::new()
                         });
                     trace!(
                         self.logger,
