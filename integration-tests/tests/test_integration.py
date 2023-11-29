@@ -756,11 +756,13 @@ class TestUpdatePrice(PythTest):
         await client.update_price(price_account, 42, 2, "trading")
         time.sleep(2)
 
-        # Send another "update_price" request to trigger aggregation
+        # Send another update_price request to "trigger" aggregation
+        # (aggregation would happen if market hours were to fail, but
+        # we want to catch that happening if there's a problem)
         await client.update_price(price_account, 81, 1, "trading")
         time.sleep(2)
 
-        # Confirm that the price account has been updated with the values from the first "update_price" request
+        # Confirm that the price account has not been updated
         final_product_state = await client.get_product(product_account)
 
         final_price_account = final_product_state["price_accounts"][0]
