@@ -481,25 +481,25 @@ impl Exporter {
                 if let Some(weekly_schedule) = self.our_prices.get(&key_from_id) {
                     let ret = weekly_schedule.can_publish_at(&now);
 
-		    if !ret {
-			debug!(self.logger, "Exporter: Attempted to publish price outside market hours";
-			       "price_account" => key_from_id.to_string(),
-			       "weekly_schedule" => format!("{:?}", weekly_schedule),
-			       "utc_time" => now.format("%c").to_string(),
-			       );
-		    }
+                    if !ret {
+                        debug!(self.logger, "Exporter: Attempted to publish price outside market hours";
+                            "price_account" => key_from_id.to_string(),
+                            "weekly_schedule" => format!("{:?}", weekly_schedule),
+                            "utc_time" => now.format("%c").to_string(),
+                        );
+                    }
 
-		    ret
+                    ret
                 } else {
                     // Note: This message is not an error. Some
                     // publishers have different permissions on
                     // primary/secondary networks
                     debug!(
-                    self.logger,
-                    "Exporter: Attempted to publish a price without permission, skipping";
-                    "unpermissioned_price_account" => key_from_id.to_string(),
-                    "permissioned_accounts" => format!("{:?}", self.our_prices)
-                            );
+                        self.logger,
+                        "Exporter: Attempted to publish a price without permission, skipping";
+                        "unpermissioned_price_account" => key_from_id.to_string(),
+                        "permissioned_accounts" => format!("{:?}", self.our_prices)
+                    );
                     false
                 }
             })
