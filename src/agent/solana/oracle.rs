@@ -733,7 +733,7 @@ mod subscriber {
                         let account: Account = match update.value.account.decode() {
                             Some(account) => account,
                             None => {
-                                tracing::error!(?update, "Failed to decode account from update.");
+                                error!(self.logger, "Failed to decode account from update."; "update" => format!("{:?}", update));
                                 continue;
                             }
                         };

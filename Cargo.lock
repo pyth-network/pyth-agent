@@ -2771,7 +2771,6 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "toml_edit",
- "tracing",
  "typed-html",
  "warp",
 ]
