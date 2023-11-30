@@ -156,8 +156,8 @@ impl Default for Config {
             compute_unit_limit:                              40000,
             compute_unit_price_micro_lamports:               None,
             dynamic_compute_unit_pricing_enabled:            false,
-            // Maximum total compute unit fee paid for a single transaction (0.0001 SOL)
-            maximum_total_compute_fee_micro_lamports:        100_000_000_000,
+            // Maximum total compute unit fee paid for a single transaction (0.00003 SOL)
+            maximum_total_compute_fee_micro_lamports:        30_000_000_000,
             // A publisher update is not included if it is 25 slots behind the current slot.
             // Due to the delay in the network (until a block gets confirmed) we add 5 slots
             // to make sure we do not overpay.
