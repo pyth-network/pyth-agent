@@ -48,14 +48,6 @@ key_store.program_key = "FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH"
 # Oracle mapping pubkey
 key_store.mapping_key = "AHtgzX45WTKfkPG53L6WYhGEXwQkN1BVknET3sVsLL8J"
 
-# Duration of the interval at which to publish updates. Default interval is 1 seconds.
-# exporter.publish_interval_duration = "1s"
-
-# Price per compute unit offered for update_price transactions.
-# This is needed for solana to be able to land transactions on the network
-# during periods of high network congestion.
-exporter.compute_unit_price_micro_lamports = 40000
-
 # Compute unit limit requested per instruction for transactions that update the price.
 # This should be an upper bound of the compute units a single upd_price instruction might consume.
 # For solana mainnet, this should be set to 20000 instead of the default 40000 since there is no accumulator.
@@ -65,10 +57,10 @@ exporter.compute_unit_limit = 20000
 # This is needed for solana to be able to land transactions on the network
 # during periods of high network congestion.
 exporter.dynamic_compute_unit_pricing_enabled = true
-exporter.maximum_slot_gap_for_dynamic_compute_unit_price = 50
-exporter.maximum_total_compute_fee_micro_lamports = 10000000000
 
-# The interval with which to poll account information.
+# The interval with which to poll account information. We are adding it as an extra
+# layer of protection to ensure we get the latest account information if there are
+# any issues with the ws subscription.
 oracle.poll_interval_duration = "5s"
 
 # Configuration for the JRPC API

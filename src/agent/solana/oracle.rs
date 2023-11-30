@@ -146,9 +146,7 @@ pub fn spawn_oracle(
     let (updates_tx, updates_rx) = mpsc::channel(config.updates_channel_capacity);
     if config.subscriber_enabled {
         let subscriber = Subscriber::new(
-            rpc_url.to_string(),
             wss_url.to_string(),
-            rpc_timeout,
             config.commitment,
             key_store.program_key,
             updates_tx,
@@ -632,39 +630,41 @@ mod subscriber {
             Result,
         },
         slog::Logger,
+        solana_account_decoder::UiAccountEncoding,
+        solana_client::{
+            nonblocking::pubsub_client::PubsubClient,
+            rpc_config::{
+                RpcAccountInfoConfig,
+                RpcProgramAccountsConfig,
+            },
+        },
         solana_sdk::{
             account::Account,
-            commitment_config::CommitmentLevel,
+            commitment_config::{
+                CommitmentConfig,
+                CommitmentLevel,
+            },
             pubkey::Pubkey,
         },
-        solana_shadow::{
-            BlockchainShadow,
-            SyncOptions,
-        },
         std::time::Duration,
-        tokio::sync::{
-            broadcast,
-            mpsc,
+        tokio::{
+            sync::mpsc,
+            time::Instant,
         },
     };
 
     /// Subscriber subscribes to all changes on the given account, and sends those changes
     /// on updates_tx. This is a convenience wrapper around the Blockchain Shadow crate.
     pub struct Subscriber {
-        /// HTTP RPC endpoint
-        rpc_url: String,
         /// WSS RPC endpoint
         wss_url: String,
-
-        /// Timeout for RPC requests
-        rpc_timeout: Duration,
 
         /// Commitment level used to read account data
         commitment: CommitmentLevel,
 
-        /// Public key of the root account to monitor. Note that all
+        /// Public key of the root program account to monitor. Note that all
         /// accounts owned by this account are also monitored.
-        account_key: Pubkey,
+        program_key: Pubkey,
 
         /// Channel on which updates are sent
         updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
@@ -674,75 +674,81 @@ mod subscriber {
 
     impl Subscriber {
         pub fn new(
-            rpc_url: String,
             wss_url: String,
-            rpc_timeout: Duration,
             commitment: CommitmentLevel,
-            account_key: Pubkey,
+            program_key: Pubkey,
             updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
             logger: Logger,
         ) -> Self {
             Subscriber {
-                rpc_url,
                 wss_url,
-                rpc_timeout,
                 commitment,
-                account_key,
+                program_key,
                 updates_tx,
                 logger,
             }
         }
 
         pub async fn run(&self) {
-            match self.start_shadow().await {
-                Ok(mut shadow_rx) => self.forward_updates(&mut shadow_rx).await,
-                Err(err) => {
-                    error!(self.logger, "{}", err);
-                    debug!(self.logger, "error context"; "context" => format!("{:?}", err));
-                }
-            }
-        }
-
-        async fn forward_updates(&self, shadow_rx: &mut broadcast::Receiver<(Pubkey, Account)>) {
             loop {
-                if let Err(err) = self.forward_update(shadow_rx).await {
+                let current_time = Instant::now();
+                if let Err(ref err) = self.start().await {
                     error!(self.logger, "{}", err);
                     debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                    if current_time.elapsed() < Duration::from_secs(30) {
+                        warn!(
+                            self.logger,
+                            "Subscriber restarting too quickly. Sleeping for 1 second."
+                        );
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
                 }
             }
         }
 
-        async fn forward_update(
-            &self,
-            shadow_rx: &mut broadcast::Receiver<(Pubkey, Account)>,
-        ) -> Result<()> {
-            self.updates_tx
-                .send(shadow_rx.recv().await?)
-                .await
-                .map_err(|_| anyhow!("failed to forward update"))
-        }
+        pub async fn start(&self) -> Result<()> {
+            let client = PubsubClient::new(self.wss_url.as_str()).await?;
 
-        pub async fn start_shadow(
-            &self,
-        ) -> Result<broadcast::Receiver<(Pubkey, solana_sdk::account::Account)>> {
-            debug!(self.logger, "subscribed to account updates"; "account" => self.account_key.to_string());
-
-            let shadow = BlockchainShadow::new_for_program(
-                &self.account_key,
-                SyncOptions {
-                    network: solana_shadow::Network::Custom(
-                        self.rpc_url.clone(),
-                        self.wss_url.clone(),
-                    ),
-                    commitment: self.commitment,
-                    rpc_timeout: self.rpc_timeout,
-                    max_lag: Some(10000),
-                    ..SyncOptions::default()
+            let config = RpcProgramAccountsConfig {
+                account_config: RpcAccountInfoConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: self.commitment,
+                    }),
+                    encoding: Some(UiAccountEncoding::Base64Zstd),
+                    ..Default::default()
                 },
-            )
-            .await?;
+                filters:        None,
+                with_context:   Some(true),
+            };
 
-            Ok(shadow.updates_channel())
+            let (mut notif, _unsub) = client
+                .program_subscribe(&self.program_key, Some(config))
+                .await?;
+
+            debug!(self.logger, "subscribed to program account updates"; "program_key" => self.program_key.to_string());
+
+            loop {
+                match tokio_stream::StreamExt::next(&mut notif).await {
+                    Some(update) => {
+                        let account: Account = match update.value.account.decode() {
+                            Some(account) => account,
+                            None => {
+                                error!(self.logger, "Failed to decode account from update."; "update" => format!("{:?}", update));
+                                continue;
+                            }
+                        };
+
+                        self.updates_tx
+                            .send((update.value.pubkey.as_str().try_into()?, account))
+                            .await
+                            .map_err(|_| anyhow!("failed to send update to oracle"))?;
+                    }
+                    None => {
+                        debug!(self.logger, "subscriber closed connection");
+                        return Ok(());
+                    }
+                }
+            }
         }
     }
 }

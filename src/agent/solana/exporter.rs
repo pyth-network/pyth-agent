@@ -156,8 +156,8 @@ impl Default for Config {
             compute_unit_limit:                              40000,
             compute_unit_price_micro_lamports:               None,
             dynamic_compute_unit_pricing_enabled:            false,
-            // Maximum total compute unit fee paid for a single transaction (0.0001 SOL)
-            maximum_total_compute_fee_micro_lamports:        100_000_000_000,
+            // Maximum total compute unit fee paid for a single transaction (0.00003 SOL)
+            maximum_total_compute_fee_micro_lamports:        30_000_000_000,
             // A publisher update is not included if it is 25 slots behind the current slot.
             // Due to the delay in the network (until a block gets confirmed) we add 5 slots
             // to make sure we do not overpay.
@@ -481,25 +481,25 @@ impl Exporter {
                 if let Some(weekly_schedule) = self.our_prices.get(&key_from_id) {
                     let ret = weekly_schedule.can_publish_at(&now);
 
-		    if !ret {
-			debug!(self.logger, "Exporter: Attempted to publish price outside market hours";
-			       "price_account" => key_from_id.to_string(),
-			       "weekly_schedule" => format!("{:?}", weekly_schedule),
-			       "utc_time" => now.format("%c").to_string(),
-			       );
-		    }
+                    if !ret {
+                        debug!(self.logger, "Exporter: Attempted to publish price outside market hours";
+                            "price_account" => key_from_id.to_string(),
+                            "weekly_schedule" => format!("{:?}", weekly_schedule),
+                            "utc_time" => now.format("%c").to_string(),
+                        );
+                    }
 
-		    ret
+                    ret
                 } else {
                     // Note: This message is not an error. Some
                     // publishers have different permissions on
                     // primary/secondary networks
                     debug!(
-                    self.logger,
-                    "Exporter: Attempted to publish a price without permission, skipping";
-                    "unpermissioned_price_account" => key_from_id.to_string(),
-                    "permissioned_accounts" => format!("{:?}", self.our_prices)
-                            );
+                        self.logger,
+                        "Exporter: Attempted to publish a price without permission, skipping";
+                        "unpermissioned_price_account" => key_from_id.to_string(),
+                        "permissioned_accounts" => format!("{:?}", self.our_prices)
+                    );
                     false
                 }
             })
