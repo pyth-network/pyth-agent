@@ -746,38 +746,40 @@ impl Exporter {
             // used instead of the publishers latest update to avoid overpaying.
             let oldest_slot = result
                 .values()
+                .filter(|account| account.min_pub != 255) // Only consider live price accounts
                 .flat_map(|account| {
                     account
                         .comp
                         .iter()
                         .find(|c| c.publisher == publish_keypair.pubkey())
-                        .map(|c| c.latest.pub_slot)
+                        .map(|c| c.latest.pub_slot.max(account.agg.pub_slot))
                 })
-                .min()
-                .ok_or(anyhow!("No price accounts"))?;
+                .min();
 
-            let slot_gap = network_state.current_slot.saturating_sub(oldest_slot);
+            if let Some(oldest_slot) = oldest_slot {
+                let slot_gap = network_state.current_slot.saturating_sub(oldest_slot);
 
-            // Set the dynamic price exponentially based on the slot gap. If the max slot gap is
-            // 25, on this number (or more) the maximum unit price is paid, and then on slot 24 it
-            // is half of that and gets halved each lower slot. Given that we have max total
-            // compute price of 10**12 and 250k compute units in one tx (12 updates) these are the
-            // estimated prices based on slot gaps:
-            // 25 (or more): 4_000_000
-            // 20          :   125_000
-            // 18          :    31_250
-            // 15          :     3_906
-            // 13          :       976
-            // 10          :       122
-            let exponential_price = maximum_unit_price
-                >> self
-                    .config
-                    .maximum_slot_gap_for_dynamic_compute_unit_price
-                    .saturating_sub(slot_gap);
+                // Set the dynamic price exponentially based on the slot gap. If the max slot gap is
+                // 25, on this number (or more) the maximum unit price is paid, and then on slot 24 it
+                // is half of that and gets halved each lower slot. Given that we have max total
+                // compute price of 10**12 and 250k compute units in one tx (12 updates) these are the
+                // estimated prices based on slot gaps:
+                // 25 (or more): 4_000_000
+                // 20          :   125_000
+                // 18          :    31_250
+                // 15          :     3_906
+                // 13          :       976
+                // 10          :       122
+                let exponential_price = maximum_unit_price
+                    >> self
+                        .config
+                        .maximum_slot_gap_for_dynamic_compute_unit_price
+                        .saturating_sub(slot_gap);
 
-            compute_unit_price_micro_lamports = compute_unit_price_micro_lamports
-                .map(|price| price.max(exponential_price))
-                .or(Some(exponential_price));
+                compute_unit_price_micro_lamports = compute_unit_price_micro_lamports
+                    .map(|price| price.max(exponential_price))
+                    .or(Some(exponential_price));
+            }
         }
 
         if let Some(compute_unit_price_micro_lamports) = compute_unit_price_micro_lamports {
