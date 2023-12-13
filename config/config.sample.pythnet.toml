@@ -58,15 +58,8 @@ exporter.compute_unit_limit = 20000
 # during periods of high network congestion.
 exporter.dynamic_compute_unit_pricing_enabled = true
 
-# Maximum slot gap between the current slot and the oldest slot amongst all the accounts in
-# the batch. This is used to calculate the dynamic price per compute unit. When the slot gap
-# reaches this number we will use the maximum total_compute_fee for the transaction.
-exporter.maximum_slot_gap_for_dynamic_compute_unit_price = 40
-
-# The interval with which to poll account information. We are adding it as an extra
-# layer of protection to ensure we get the latest account information if there are
-# any issues with the ws subscription.
-oracle.poll_interval_duration = "5s"
+# Price per compute unit offered for update_price transactions
+exporter.compute_unit_price_micro_lamports = 1000
 
 # Configuration for the JRPC API
 [pythd_adapter]
