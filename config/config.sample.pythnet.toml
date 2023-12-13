@@ -68,6 +68,11 @@ exporter.maximum_slot_gap_for_dynamic_compute_unit_price = 40
 # any issues with the ws subscription.
 oracle.poll_interval_duration = "5s"
 
+# Maximum total compute unit fee paid for a single transaction. Defaults to 0.003 SOL. This
+# is a safety measure while using dynamic compute price to prevent the exporter from paying
+# too much for a single transaction.
+exporter.maximum_total_compute_fee_micro_lamports = 3000000000000
+
 # Configuration for the JRPC API
 [pythd_adapter]
 
