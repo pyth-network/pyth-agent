@@ -135,7 +135,7 @@ pub struct Config {
     /// Maximum total compute unit fee paid for a single transaction. Defaults to 0.001 SOL. This
     /// is a safety measure while using dynamic compute price to prevent the exporter from paying
     /// too much for a single transaction
-    pub maximum_total_compute_fee_micro_lamports:        u64,
+    pub maximum_compute_unit_price_micro_lamports:       u64,
     /// Maximum slot gap between the current slot and the oldest slot amongst all the accounts in
     /// the batch. This is used to calculate the dynamic price per compute unit. When the slot gap
     /// reaches this number we will use the maximum total_compute_fee for the transaction.
@@ -156,12 +156,12 @@ impl Default for Config {
             compute_unit_limit:                              40000,
             compute_unit_price_micro_lamports:               None,
             dynamic_compute_unit_pricing_enabled:            false,
-            // Maximum total compute unit fee paid for a single transaction (0.00003 SOL)
-            maximum_total_compute_fee_micro_lamports:        30_000_000_000,
+            // Maximum compute unit price (as a cap on the dynamic price)
+            maximum_compute_unit_price_micro_lamports:       1_000_000,
             // A publisher update is not included if it is 25 slots behind the current slot.
-            // Due to the delay in the network (until a block gets confirmed) we add 5 slots
-            // to make sure we do not overpay.
-            maximum_slot_gap_for_dynamic_compute_unit_price: 30,
+            // Due to the delay in the network (until a block gets confirmed) and potential
+            // ws issues we add 15 slots to make sure we do not overpay.
+            maximum_slot_gap_for_dynamic_compute_unit_price: 40,
         }
     }
 }
@@ -710,9 +710,6 @@ impl Exporter {
         // keep the uptime high during congestion whereas without it we would publish price after a
         // large gap and then we can publish it again after the next large gap.
         if self.config.dynamic_compute_unit_pricing_enabled {
-            let maximum_unit_price =
-                self.config.maximum_total_compute_fee_micro_lamports / total_compute_limit as u64;
-
             // Use the estimated previous price if it is higher
             // than the current price.
             if let Some(estimated_recent_price) = self.recent_compute_unit_price_micro_lamports {
@@ -720,7 +717,7 @@ impl Exporter {
                 // total compute unit fee. We additionally divide such price by 2 to create an
                 // exponential decay. This will make sure that a spike doesn't get propagated
                 // forever.
-                let estimated_price = (estimated_recent_price >> 1).min(maximum_unit_price);
+                let estimated_price = estimated_recent_price >> 1;
 
                 compute_unit_price_micro_lamports = compute_unit_price_micro_lamports
                     .map(|price| price.max(estimated_price))
@@ -770,7 +767,7 @@ impl Exporter {
                 // 15          :     3_906
                 // 13          :       976
                 // 10          :       122
-                let exponential_price = maximum_unit_price
+                let exponential_price = self.config.maximum_compute_unit_price_micro_lamports
                     >> self
                         .config
                         .maximum_slot_gap_for_dynamic_compute_unit_price
@@ -782,7 +779,10 @@ impl Exporter {
             }
         }
 
-        if let Some(compute_unit_price_micro_lamports) = compute_unit_price_micro_lamports {
+        if let Some(mut compute_unit_price_micro_lamports) = compute_unit_price_micro_lamports {
+            compute_unit_price_micro_lamports = compute_unit_price_micro_lamports
+                .min(self.config.maximum_compute_unit_price_micro_lamports);
+
             debug!(self.logger, "setting compute unit price"; "unit_price" => compute_unit_price_micro_lamports);
             instructions.push(ComputeBudgetInstruction::set_compute_unit_price(
                 compute_unit_price_micro_lamports,

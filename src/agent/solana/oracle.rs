@@ -121,7 +121,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             commitment:               CommitmentLevel::Confirmed,
-            poll_interval_duration:   Duration::from_secs(2 * 60),
+            poll_interval_duration:   Duration::from_secs(5),
             subscriber_enabled:       true,
             updates_channel_capacity: 10000,
             data_channel_capacity:    10000,
