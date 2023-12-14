@@ -61,6 +61,7 @@ use {
             BTreeMap,
             HashMap,
         },
+        sync::Arc,
         time::Duration,
     },
     tokio::{
@@ -228,7 +229,7 @@ pub fn spawn_exporter(
 /// Exporter is responsible for exporting data held in the local store
 /// to the global Pyth Network.
 pub struct Exporter {
-    rpc_client: RpcClient,
+    rpc_client: Arc<RpcClient>,
 
     config: Config,
 
@@ -292,7 +293,10 @@ impl Exporter {
     ) -> Self {
         let publish_interval = time::interval(config.publish_interval_duration);
         Exporter {
-            rpc_client: RpcClient::new_with_timeout(rpc_url.to_string(), rpc_timeout),
+            rpc_client: Arc::new(RpcClient::new_with_timeout(
+                rpc_url.to_string(),
+                rpc_timeout,
+            )),
             config,
             network,
             publish_interval,
@@ -536,7 +540,7 @@ impl Exporter {
         let mut batch_send_interval = time::interval(
             self.config
                 .publish_interval_duration
-                .div_f64(num_batches as f64),
+                .div_f64((num_batches + 1) as f64), // +1 to give enough time for the last batch
         );
         let mut batch_state = HashMap::new();
         let mut batch_futures = vec![];
@@ -796,19 +800,37 @@ impl Exporter {
             network_state.blockhash,
         );
 
-        let signature = self
-            .rpc_client
-            .send_transaction_with_config(
-                &transaction,
-                RpcSendTransactionConfig {
-                    skip_preflight: true,
-                    ..RpcSendTransactionConfig::default()
-                },
-            )
-            .await?;
-        debug!(self.logger, "sent upd_price transaction"; "signature" => signature.to_string(), "instructions" => instructions.len(), "price_accounts" => format!("{:?}", price_accounts));
+        let tx = self.inflight_transactions_tx.clone();
+        let logger = self.logger.clone();
+        let rpc_client = self.rpc_client.clone();
 
-        self.inflight_transactions_tx.send(signature).await?;
+        // Fire this off in a separate task so we don't block the main thread of the exporter
+        tokio::spawn(async move {
+            let signature = match rpc_client
+                .send_transaction_with_config(
+                    &transaction,
+                    RpcSendTransactionConfig {
+                        skip_preflight: true,
+                        ..RpcSendTransactionConfig::default()
+                    },
+                )
+                .await
+            {
+                Ok(signature) => signature,
+                Err(err) => {
+                    error!(logger, "{}", err);
+                    debug!(logger, "error context"; "context" => format!("{:?}", err));
+                    return;
+                }
+            };
+
+            debug!(logger, "sent upd_price transaction"; "signature" => signature.to_string(), "instructions" => instructions.len(), "price_accounts" => format!("{:?}", price_accounts));
+
+            if let Err(err) = tx.send(signature).await {
+                error!(logger, "{}", err);
+                debug!(logger, "error context"; "context" => format!("{:?}", err));
+            }
+        });
 
         Ok(())
     }
