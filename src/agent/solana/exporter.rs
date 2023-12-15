@@ -436,14 +436,6 @@ impl Exporter {
         // and to ignore stale information.
         let fresh_updates = local_store_contents
             .into_iter()
-            .filter(|(identifier, info)| {
-                // Filter out timestamps older than what we already published
-                if let Some(last_info) = self.last_published_state.get(identifier) {
-                    last_info.timestamp < info.timestamp
-                } else {
-                    true // No prior data found, letting the price through
-                }
-            })
             .filter(|(_identifier, info)| {
                 // Filter out timestamps that are old
                 (now - info.timestamp) < self.config.staleness_threshold.as_secs() as i64
@@ -452,7 +444,7 @@ impl Exporter {
                 // Filter out unchanged price data if the max delay wasn't reached
 
                 if let Some(last_info) = self.last_published_state.get(identifier) {
-                    if (info.timestamp - last_info.timestamp)
+                    if info.timestamp.saturating_sub(last_info.timestamp)
                         > self.config.unchanged_publish_threshold.as_secs() as i64
                     {
                         true // max delay since last published state reached, we publish anyway
