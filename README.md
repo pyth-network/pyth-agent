@@ -11,7 +11,7 @@ Note that only permissioned publishers can publish data to the network. Please r
 Prerequisites: Rust 1.68 or higher. A Unix system is recommended.
 
 ```shell
-# Install dependencies
+# Install dependencies (Debian-based systems)
 $ apt install libssl-dev build-essential
 
 # Install Rust
