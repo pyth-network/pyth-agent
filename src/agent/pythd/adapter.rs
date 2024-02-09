@@ -21,7 +21,10 @@ use {
             SubscriptionID,
         },
     },
-    crate::agent::store::global::AllAccountsData,
+    crate::agent::{
+        solana::oracle::PriceEntry,
+        store::global::AllAccountsData,
+    },
     anyhow::{
         anyhow,
         Result,
@@ -404,7 +407,7 @@ impl Adapter {
 
     fn solana_price_account_to_pythd_api_price_account(
         price_account_key: &solana_sdk::pubkey::Pubkey,
-        price_account: &pyth_sdk_solana::state::PriceAccount,
+        price_account: &PriceEntry,
     ) -> api::PriceAccount {
         api::PriceAccount {
             account:            price_account_key.to_string(),
@@ -423,7 +426,7 @@ impl Adapter {
             publisher_accounts: price_account
                 .comp
                 .iter()
-                .filter(|comp| **comp != PriceComp::default())
+                .filter(|comp| *comp != &PriceComp::default())
                 .map(|comp| api::PublisherAccount {
                     account: comp.publisher.to_string(),
                     status:  Self::price_status_to_str(comp.agg.status),
@@ -630,12 +633,12 @@ mod tests {
         iobuffer::IoBuffer,
         pyth_sdk::Identifier,
         pyth_sdk_solana::state::{
-            PriceAccount,
             PriceComp,
             PriceInfo,
             PriceStatus,
             PriceType,
             Rational,
+            SolanaPriceAccount,
         },
         slog_extlog::slog_test,
         std::{
@@ -1076,7 +1079,7 @@ mod tests {
                         "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU",
                     )
                     .unwrap(),
-                    PriceAccount {
+                    SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            7,
                         atype:          9,
@@ -1122,14 +1125,16 @@ mod tests {
                             pub_slot: 7262746,
                         },
                         comp:           [PriceComp::default(); 32],
-                    },
+                        extended:       (),
+                    }
+                    .into(),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr",
                     )
                     .unwrap(),
-                    PriceAccount {
+                    SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            6,
                         atype:          4,
@@ -1194,14 +1199,16 @@ mod tests {
                                 pub_slot: 4368,
                             },
                         }]),
-                    },
+                        extended:       (),
+                    }
+                    .into(),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6",
                     )
                     .unwrap(),
-                    PriceAccount {
+                    SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            7,
                         atype:          6,
@@ -1288,14 +1295,16 @@ mod tests {
                                 },
                             },
                         ]),
-                    },
+                        extended:       (),
+                    }
+                    .into(),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD",
                     )
                     .unwrap(),
-                    PriceAccount {
+                    SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            6,
                         atype:          6,
@@ -1379,14 +1388,16 @@ mod tests {
                                 },
                             },
                         ]),
-                    },
+                        extended:       (),
+                    }
+                    .into(),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "fTNjSfj5uW9e4CAMHzUcm65ftRNBxCN1gG5GS1mYfid",
                     )
                     .unwrap(),
-                    PriceAccount {
+                    SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            8,
                         atype:          4,
@@ -1473,14 +1484,16 @@ mod tests {
                                 },
                             },
                         ]),
-                    },
+                        extended:       (),
+                    }
+                    .into(),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ",
                     )
                     .unwrap(),
-                    PriceAccount {
+                    SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            6,
                         atype:          3,
@@ -1542,7 +1555,9 @@ mod tests {
                                 pub_slot: 7101326,
                             },
                         }]),
-                    },
+                        extended:       (),
+                    }
+                    .into(),
                 ),
             ]),
         }

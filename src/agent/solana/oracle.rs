@@ -1,10 +1,12 @@
-use crate::agent::market_hours::WeeklySchedule;
 // This module is responsible for loading the current state of the
 // on-chain Oracle program accounts from Solana.
 use {
     self::subscriber::Subscriber,
     super::key_store::KeyStore,
-    crate::agent::store::global,
+    crate::agent::{
+        market_hours::WeeklySchedule,
+        store::global,
+    },
     anyhow::{
         anyhow,
         Context,
@@ -12,8 +14,11 @@ use {
     },
     pyth_sdk_solana::state::{
         load_mapping_account,
-        load_price_account,
         load_product_account,
+        GenericPriceAccount,
+        PriceComp,
+        PythnetPriceAccount,
+        SolanaPriceAccount,
     },
     serde::{
         Deserialize,
@@ -42,6 +47,66 @@ use {
         time::Interval,
     },
 };
+
+/// This shim is used to abstract over SolanaPriceAccount and PythnetPriceAccount so we
+/// can iterate over either of these. The API is intended to force users to be aware of
+/// the account type they have, and so doesn't provide this abstraction (a good thing)
+/// and the agent should implement this in a better way.
+///
+/// For now, to implement the abstraction in the smallest way possible we use a shim
+/// type that uses the size of the accounts to determine the underlying representation
+/// and construct the right one regardless of which network we read. This will only work
+/// as long as we don't care about any extended fields.
+///
+/// TODO: Refactor the agent's network handling code.
+#[derive(Copy, Clone, Debug)]
+pub struct PriceEntry {
+    // We intentionally act as if we have a truncated account where the underlying memory is unavailable.
+    account:  GenericPriceAccount<0, ()>,
+    pub comp: [PriceComp; 64],
+}
+
+impl From<SolanaPriceAccount> for PriceEntry {
+    fn from(other: SolanaPriceAccount) -> PriceEntry {
+        unsafe {
+            // NOTE: We know the size is 32 because It's a Solana account. This is for tests only.
+            let comp_mem = std::slice::from_raw_parts(other.comp.as_ptr() as *const PriceComp, 32);
+            let account =
+                *(&other as *const SolanaPriceAccount as *const GenericPriceAccount<0, ()>);
+            let mut comp = [PriceComp::default(); 64];
+            (&mut comp[0..32]).copy_from_slice(comp_mem);
+            PriceEntry { account, comp }
+        }
+    }
+}
+
+impl PriceEntry {
+    /// Construct the right underlying GenericPriceAccount based on the account size.
+    fn load_from_account(acc: &[u8]) -> Option<Self> {
+        unsafe {
+            let size = match acc.len() {
+                n if n == std::mem::size_of::<SolanaPriceAccount>() => 32,
+                n if n == std::mem::size_of::<PythnetPriceAccount>() => 64,
+                _ => return None,
+            };
+
+            let account = *(acc.as_ptr() as *const GenericPriceAccount<0, ()>);
+            let comp_mem =
+                std::slice::from_raw_parts(account.comp.as_ptr() as *const PriceComp, size);
+            let mut comp = [PriceComp::default(); 64];
+            (&mut comp[0..size]).copy_from_slice(comp_mem);
+            Some(Self { account, comp })
+        }
+    }
+}
+
+/// Implement `Deref` so we can access the underlying account fields.
+impl std::ops::Deref for PriceEntry {
+    type Target = GenericPriceAccount<0, ()>;
+    fn deref(&self) -> &Self::Target {
+        &self.account
+    }
+}
 
 #[derive(Default, Debug, Clone)]
 pub struct Data {
@@ -75,7 +140,6 @@ pub struct ProductEntry {
     pub weekly_schedule: WeeklySchedule,
     pub price_accounts:  Vec<Pubkey>,
 }
-pub type PriceEntry = pyth_sdk_solana::state::PriceAccount;
 
 // Oracle is responsible for fetching Solana account data stored in the Pyth on-chain Oracle.
 pub struct Oracle {
@@ -288,14 +352,16 @@ impl Oracle {
         account_key: &Pubkey,
         account: &Account,
     ) -> Result<()> {
-        let price_account = *load_price_account(&account.data)
+        let price_entry = PriceEntry::load_from_account(&account.data)
             .with_context(|| format!("load price account {}", account_key))?;
 
-        debug!(self.logger, "observed on-chain price account update"; "pubkey" => account_key.to_string(), "price" => price_account.agg.price, "conf" => price_account.agg.conf, "status" => format!("{:?}", price_account.agg.status));
+        debug!(self.logger, "observed on-chain price account update"; "pubkey" => account_key.to_string(), "price" => price_entry.agg.price, "conf" => price_entry.agg.conf, "status" => format!("{:?}", price_entry.agg.status));
 
-        self.data.price_accounts.insert(*account_key, price_account);
+        self.data
+            .price_accounts
+            .insert(*account_key, price_entry.clone());
 
-        self.notify_price_account_update(account_key, &price_account)
+        self.notify_price_account_update(account_key, &price_entry)
             .await?;
 
         Ok(())
@@ -337,7 +403,7 @@ impl Oracle {
         self.global_store_tx
             .send(global::Update::PriceAccountUpdate {
                 account_key: *account_key,
-                account:     *account,
+                account:     account.clone(),
             })
             .await
             .map_err(|_| anyhow!("failed to notify price account update"))
@@ -593,12 +659,13 @@ impl Poller {
             // as todo gets replaced with next_todo.
             for (price_key, price_account) in todo.iter().zip(price_accounts) {
                 if let Some(price_acc) = price_account {
-                    let price = load_price_account(&price_acc.data)
+                    let price = PriceEntry::load_from_account(&price_acc.data)
                         .context(format!("Could not parse price account at {}", price_key))?;
 
+                    let next_price = price.next;
                     if let Some(prod) = product_entries.get_mut(&price.prod) {
                         prod.price_accounts.push(*price_key);
-                        price_entries.insert(*price_key, *price);
+                        price_entries.insert(*price_key, price);
                     } else {
                         warn!(self.logger, "Could not find product entry for price, listed in its prod field, skipping";
                          "missing_product" => price.prod.to_string(),
@@ -608,8 +675,8 @@ impl Poller {
                         continue;
                     }
 
-                    if price.next != Pubkey::default() {
-                        next_todo.push(price.next);
+                    if next_price != Pubkey::default() {
+                        next_todo.push(next_price);
                     }
                 } else {
                     warn!(self.logger, "Could not look up price account on chain, skipping"; "price_key" => price_key.to_string(),);
