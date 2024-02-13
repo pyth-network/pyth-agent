@@ -70,11 +70,11 @@ impl From<SolanaPriceAccount> for PriceEntry {
     fn from(other: SolanaPriceAccount) -> PriceEntry {
         unsafe {
             // NOTE: We know the size is 32 because It's a Solana account. This is for tests only.
-            let comp_mem = std::slice::from_raw_parts(other.comp.as_ptr() as *const PriceComp, 32);
+            let comp_mem = std::slice::from_raw_parts(other.comp.as_ptr(), 32);
             let account =
                 *(&other as *const SolanaPriceAccount as *const GenericPriceAccount<0, ()>);
             let mut comp = [PriceComp::default(); 64];
-            (&mut comp[0..32]).copy_from_slice(comp_mem);
+            comp[0..32].copy_from_slice(comp_mem);
             PriceEntry { account, comp }
         }
     }
@@ -90,12 +90,15 @@ impl PriceEntry {
                 _ => return None,
             };
 
-            let account = *(acc.as_ptr() as *const GenericPriceAccount<0, ()>);
-            let comp_mem =
-                std::slice::from_raw_parts(account.comp.as_ptr() as *const PriceComp, size);
+            // Getting a pointer to avoid copying the account
+            let account_ptr = &*(acc.as_ptr() as *const GenericPriceAccount<0, ()>);
+            let comp_mem = std::slice::from_raw_parts(account_ptr.comp.as_ptr(), size);
             let mut comp = [PriceComp::default(); 64];
-            (&mut comp[0..size]).copy_from_slice(comp_mem);
-            Some(Self { account, comp })
+            comp[0..size].copy_from_slice(comp_mem);
+            Some(Self {
+                account: *account_ptr,
+                comp,
+            })
         }
     }
 }
@@ -321,10 +324,10 @@ impl Oracle {
             .collect::<HashSet<_>>();
         let new_publishers = data.publisher_permissions.keys().collect::<HashSet<_>>();
         info!(
-        self.logger,
-        "updated publisher permissions";
-        "new_publishers" => format!("{:?}", new_publishers.difference(&previous_publishers).collect::<HashSet<_>>()),
-        "total_publishers" => new_publishers.len(),
+            self.logger,
+            "updated publisher permissions";
+            "new_publishers" => format!("{:?}", new_publishers.difference(&previous_publishers).collect::<HashSet<_>>()),
+            "total_publishers" => new_publishers.len(),
         );
 
         // Update the data with the new data structs
@@ -499,6 +502,10 @@ impl Poller {
 
         for (price_key, price_entry) in price_accounts.iter() {
             for component in price_entry.comp {
+                if component.publisher == Pubkey::default() {
+                    continue;
+                }
+
                 let component_pub_entry = publisher_permissions
                     .entry(component.publisher)
                     .or_insert(HashMap::new());
@@ -607,16 +614,15 @@ impl Poller {
                     product.iter().find(|(k, _v)| *k == "weekly_schedule")
                 {
                     wsched_val.parse().unwrap_or_else(|err| {
-			warn!(
-			    self.logger,
-			    "Oracle: Product has weekly_schedule defined but it could not be parsed. Falling back to 24/7 publishing.";
-			    "product_key" => product_key.to_string(),
-			    "weekly_schedule" => wsched_val,
-				  );
-			debug!(self.logger, "parsing error context"; "context" => format!("{:?}", err));
-			Default::default()
-			}
-			)
+                        warn!(
+                            self.logger,
+                            "Oracle: Product has weekly_schedule defined but it could not be parsed. Falling back to 24/7 publishing.";
+                            "product_key" => product_key.to_string(),
+                            "weekly_schedule" => wsched_val,
+                        );
+                        debug!(self.logger, "parsing error context"; "context" => format!("{:?}", err));
+                        Default::default()
+                    })
                 } else {
                     Default::default() // No market hours specified, meaning 24/7 publishing
                 };
