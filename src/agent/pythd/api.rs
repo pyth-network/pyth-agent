@@ -813,7 +813,7 @@ pub mod rpc {
 
             // Create and spawn a server (the SUT)
             let (shutdown_tx, shutdown_rx) = broadcast::channel(10);
-            let mut log_buffer = IoBuffer::new();
+            let log_buffer = IoBuffer::new();
             let logger = slog_test::new_test_logger(log_buffer.clone());
             let config = Config {
                 listen_address: format!("127.0.0.1:{:}", listen_port),
