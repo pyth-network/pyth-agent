@@ -462,7 +462,7 @@ impl Exporter {
         self.update_our_prices(&publish_keypair.pubkey());
 
         debug!(self.logger, "Exporter: filtering prices permissioned to us";
-               "our_prices" => format!("{:?}", self.our_prices),
+               "our_prices" => format!("{:?}", self.our_prices.keys()),
                "publish_pubkey" => publish_keypair.pubkey().to_string(),
         );
 
@@ -594,7 +594,6 @@ impl Exporter {
                     trace!(
                         self.logger,
                         "Exporter: No more permissioned price accounts in channel, using cached value";
-                        "cached_value" => format!("{:?}", self.our_prices),
                     );
                     break;
                 }
