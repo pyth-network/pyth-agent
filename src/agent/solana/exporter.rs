@@ -527,23 +527,15 @@ impl Exporter {
         // Split the updates up into batches
         let batches = permissioned_updates.chunks(self.config.max_batch_size);
 
-        // Publish all the batches, staggering the requests over the publish interval
-        let num_batches = batches.len();
-        let mut batch_send_interval = time::interval(
-            self.config
-                .publish_interval_duration
-                .div_f64((num_batches + 1) as f64), // +1 to give enough time for the last batch
-        );
         let mut batch_state = HashMap::new();
         let mut batch_futures = vec![];
+
         for batch in batches {
             batch_futures.push(self.publish_batch(batch));
 
             for (identifier, info) in batch {
                 batch_state.insert(*identifier, (*info).clone());
             }
-
-            batch_send_interval.tick().await;
         }
 
         // Wait for all the update requests to complete. Note that this doesn't wait for the
