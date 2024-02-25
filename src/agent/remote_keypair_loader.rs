@@ -314,8 +314,7 @@ async fn handle_key_requests(
                 match response_tx.send(copied_keypair) {
                     Ok(()) => {}
                     Err(_e) => {
-                        warn!(logger, "remote_keypair_loader: Could not send back secondary keypair to channel";
-                        );
+                        warn!(logger, "remote_keypair_loader: Could not send back secondary keypair to channel");
                     }
                 }
             }

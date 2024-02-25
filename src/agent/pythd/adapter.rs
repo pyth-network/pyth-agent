@@ -214,7 +214,7 @@ impl Adapter {
                 Some(message) = self.message_rx.recv() => {
                     if let Err(err) = self.handle_message(message).await {
                         error!(self.logger, "{}", err);
-            debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                        debug!(self.logger, "error context"; "context" => format!("{:?}", err));
                     }
                 }
                 _ = self.shutdown_rx.recv() => {
@@ -224,7 +224,7 @@ impl Adapter {
                 _ = self.notify_price_sched_interval.tick() => {
                     if let Err(err) = self.send_notify_price_sched().await {
                         error!(self.logger, "{}", err);
-            debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                        debug!(self.logger, "error context"; "context" => format!("{:?}", err));
                     }
                 }
             }
@@ -508,12 +508,14 @@ impl Adapter {
 
     async fn send_notify_price_sched(&self) -> Result<()> {
         for subscription in self.notify_price_sched_subscriptions.values().flatten() {
+            // Send the notify price sched update without awaiting. This results in raising errors
+            // if the channel is full which normally should not happen. This is because we do not
+            // want to block the adapter if the channel is full.
             subscription
                 .notify_price_sched_tx
-                .send(NotifyPriceSched {
+                .try_send(NotifyPriceSched {
                     subscription: subscription.subscription_id,
-                })
-                .await?;
+                })?;
         }
 
         Ok(())
@@ -580,19 +582,19 @@ impl Adapter {
 
         // Send the Notify Price update to each subscription
         for subscription in subscriptions {
-            subscription
-                .notify_price_tx
-                .send(NotifyPrice {
-                    subscription: subscription.subscription_id,
-                    result:       PriceUpdate {
-                        price,
-                        conf,
-                        status: Self::price_status_to_str(status),
-                        valid_slot,
-                        pub_slot,
-                    },
-                })
-                .await?;
+            // Send the notify price update without awaiting. This results in raising errors if the
+            // channel is full which normally should not happen. This is because we do not want to
+            // block the adapter if the channel is full.
+            subscription.notify_price_tx.try_send(NotifyPrice {
+                subscription: subscription.subscription_id,
+                result:       PriceUpdate {
+                    price,
+                    conf,
+                    status: Self::price_status_to_str(status),
+                    valid_slot,
+                    pub_slot,
+                },
+            })?;
         }
 
         Ok(())
