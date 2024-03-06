@@ -61,6 +61,8 @@ exporter.dynamic_compute_unit_pricing_enabled = true
 # Price per compute unit offered for update_price transactions
 exporter.compute_unit_price_micro_lamports = 1000
 
+exporter.maximum_compute_unit_price_micro_lamports = 100000
+
 # Configuration for the JRPC API
 [pythd_adapter]
 
