@@ -17,7 +17,7 @@ use {
     },
     toml_edit::{
         value,
-        Document,
+        DocumentMut,
         Item,
     },
 };
@@ -41,7 +41,7 @@ pub fn main() -> Result<()> {
 
     f.read_to_string(&mut old_cfg_contents)?;
 
-    let mut doc: Document = old_cfg_contents
+    let mut doc: DocumentMut = old_cfg_contents
         .parse()
         .context("Could not parse config file contents as TOML")?;
 
