@@ -15,7 +15,7 @@ use {
         },
     },
     crate::agent::metrics::MetricsServer,
-    chrono::NaiveDateTime,
+    chrono::DateTime,
     pyth_sdk::{
         Identifier,
         PriceIdentifier,
@@ -92,9 +92,7 @@ impl MetricsServer {
                 };
 
                 let last_publish_string = if let Some(global_data) = price_data.global_data {
-                    if let Some(datetime) =
-                        NaiveDateTime::from_timestamp_opt(global_data.timestamp, 0)
-                    {
+                    if let Some(datetime) = DateTime::from_timestamp(global_data.timestamp, 0) {
                         datetime.format("%Y-%m-%d %H:%M:%S").to_string()
                     } else {
                         format!("Invalid timestamp {}", global_data.timestamp)
@@ -104,9 +102,7 @@ impl MetricsServer {
                 };
 
                 let last_local_update_string = if let Some(local_data) = price_data.local_data {
-                    if let Some(datetime) =
-                        NaiveDateTime::from_timestamp_opt(local_data.timestamp, 0)
-                    {
+                    if let Some(datetime) = DateTime::from_timestamp(local_data.timestamp, 0) {
                         datetime.format("%Y-%m-%d %H:%M:%S").to_string()
                     } else {
                         format!("Invalid timestamp {}", local_data.timestamp)
@@ -176,9 +172,9 @@ pub struct DashboardSymbolView {
 
 #[derive(Debug)]
 pub struct DashboardPriceView {
-    local_data:      Option<PriceInfo>,
-    global_data:     Option<PriceEntry>,
-    global_metadata: Option<PriceAccountMetadata>,
+    local_data:       Option<PriceInfo>,
+    global_data:      Option<PriceEntry>,
+    _global_metadata: Option<PriceAccountMetadata>,
 }
 
 /// Turn global/local store state into a single per-symbol view.
@@ -261,9 +257,9 @@ pub fn build_dashboard_data(
                 prices.insert(
                     price_key,
                     DashboardPriceView {
-                        local_data:      price_local_data,
-                        global_data:     price_global_data,
-                        global_metadata: price_global_metadata,
+                        local_data:       price_local_data,
+                        global_data:      price_global_data,
+                        _global_metadata: price_global_metadata,
                     },
                 );
                 // Mark this price as done
