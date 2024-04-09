@@ -4,7 +4,11 @@ use {
     self::subscriber::Subscriber,
     super::key_store::KeyStore,
     crate::agent::{
-        market_hours::WeeklySchedule,
+        schedule::{
+            holiday_hours::HolidaySchedule,
+            market_hours::WeeklySchedule,
+            Schedule,
+        },
         store::global,
     },
     anyhow::{
@@ -117,7 +121,7 @@ pub struct Data {
     pub product_accounts:      HashMap<Pubkey, ProductEntry>,
     pub price_accounts:        HashMap<Pubkey, PriceEntry>,
     /// publisher => {their permissioned price accounts => market hours}
-    pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>,
+    pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, Schedule>>,
 }
 
 impl Data {
@@ -125,7 +129,7 @@ impl Data {
         mapping_accounts: HashMap<Pubkey, MappingAccount>,
         product_accounts: HashMap<Pubkey, ProductEntry>,
         price_accounts: HashMap<Pubkey, PriceEntry>,
-        publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>,
+        publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, Schedule>>,
     ) -> Self {
         Data {
             mapping_accounts,
@@ -139,9 +143,9 @@ impl Data {
 pub type MappingAccount = pyth_sdk_solana::state::MappingAccount;
 #[derive(Debug, Clone)]
 pub struct ProductEntry {
-    pub account_data:    pyth_sdk_solana::state::ProductAccount,
-    pub weekly_schedule: WeeklySchedule,
-    pub price_accounts:  Vec<Pubkey>,
+    pub account_data:   pyth_sdk_solana::state::ProductAccount,
+    pub schedule:       Schedule,
+    pub price_accounts: Vec<Pubkey>,
 }
 
 // Oracle is responsible for fetching Solana account data stored in the Pyth on-chain Oracle.
@@ -203,7 +207,7 @@ pub fn spawn_oracle(
     wss_url: &str,
     rpc_timeout: Duration,
     global_store_update_tx: mpsc::Sender<global::Update>,
-    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>>,
+    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, Schedule>>>,
     key_store: KeyStore,
     logger: Logger,
 ) -> Vec<JoinHandle<()>> {
@@ -418,7 +422,7 @@ struct Poller {
     data_tx: mpsc::Sender<Data>,
 
     /// Updates about permissioned price accounts from oracle to exporter
-    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>>,
+    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, Schedule>>>,
 
     /// The RPC client to use to poll data from the RPC node
     rpc_client: RpcClient,
@@ -438,7 +442,7 @@ struct Poller {
 impl Poller {
     pub fn new(
         data_tx: mpsc::Sender<Data>,
-        publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, WeeklySchedule>>>,
+        publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, Schedule>>>,
         rpc_url: &str,
         rpc_timeout: Duration,
         commitment: CommitmentLevel,
@@ -510,10 +514,8 @@ impl Poller {
                     .entry(component.publisher)
                     .or_insert(HashMap::new());
 
-                let weekly_schedule = if let Some(prod_entry) =
-                    product_accounts.get(&price_entry.prod)
-                {
-                    prod_entry.weekly_schedule.clone()
+                let schedule = if let Some(prod_entry) = product_accounts.get(&price_entry.prod) {
+                    prod_entry.schedule.clone()
                 } else {
                     warn!(&self.logger, "Oracle: INTERNAL: could not find product from price `prod` field, market hours falling back to 24/7.";
                       "price" => price_key.to_string(),
@@ -522,7 +524,7 @@ impl Poller {
                     Default::default()
                 };
 
-                component_pub_entry.insert(*price_key, weekly_schedule);
+                component_pub_entry.insert(*price_key, schedule);
             }
         }
 
@@ -627,11 +629,33 @@ impl Poller {
                     Default::default() // No market hours specified, meaning 24/7 publishing
                 };
 
+                let holiday_schedule: HolidaySchedule = if let Some((_hsched_key, hsched_val)) =
+                    product.iter().find(|(k, _v)| *k == "holidays")
+                {
+                    hsched_val.parse().unwrap_or_else(|err| {
+                        warn!(
+                            self.logger,
+                            "Oracle: Product has weekly_schedule defined but it could not be parsed. Falling back to 24/7 publishing.";
+                            "product_key" => product_key.to_string(),
+                            "holiday_schedule" => hsched_val,
+                        );
+                        debug!(self.logger, "parsing error context"; "context" => format!("{:?}", err));
+                        Default::default()
+                    })
+                } else {
+                    Default::default() // No market hours specified, meaning 24/7 publishing
+                };
+
                 product_entries.insert(
                     *product_key,
                     ProductEntry {
-                        account_data: *product,
-                        weekly_schedule,
+                        account_data:   *product,
+                        schedule:       {
+                            Schedule {
+                                market_hours:  weekly_schedule,
+                                holiday_hours: holiday_schedule,
+                            }
+                        },
                         price_accounts: vec![],
                     },
                 );
