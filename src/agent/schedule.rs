@@ -1,5 +1,7 @@
-use holiday_hours::HolidaySchedule;
-use market_hours::WeeklySchedule;
+use {
+    holiday_hours::HolidaySchedule,
+    market_hours::WeeklySchedule,
+};
 
 pub mod holiday_hours;
 pub mod market_hours;
