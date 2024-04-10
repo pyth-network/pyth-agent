@@ -3285,6 +3285,7 @@ dependencies = [
  "toml_edit 0.22.9",
  "typed-html",
  "warp",
+ "winnow 0.6.5",
 ]
 
 [[package]]
