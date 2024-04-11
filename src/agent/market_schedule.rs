@@ -10,6 +10,7 @@ use {
         naive::NaiveTime,
         DateTime,
         Datelike,
+        Duration,
         Utc,
     },
     chrono_tz::Tz,
@@ -35,6 +36,15 @@ use {
         Parser,
     },
 };
+
+
+/// Helper time value representing 24:00:00 as 00:00:00 minus 1
+/// nanosecond (underflowing to 23:59:59.999(...) ). While chrono
+/// has this value internally exposed as NaiveTime::MAX, it is not
+/// exposed outside the crate.
+const MAX_TIME_INSTANT: NaiveTime = NaiveTime::MIN
+    .overflowing_sub_signed(Duration::nanoseconds(1))
+    .0;
 
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -158,13 +168,20 @@ impl Default for ScheduleDayKind {
     }
 }
 
-fn time_range_parser<'s>(input: &mut &'s str) -> PResult<ScheduleDayKind> {
-    let (start_str, end_str) = separated_pair(take(4usize), "-", take(4usize)).parse_next(input)?;
+fn time_parser<'s>(input: &mut &'s str) -> PResult<NaiveTime> {
+    alt((
+        "2400",
+        take(4usize).verify(|s| NaiveTime::parse_from_str(s, "%H%M").is_ok()),
+    ))
+    .map(|time_str| match time_str {
+        "2400" => MAX_TIME_INSTANT,
+        _ => NaiveTime::parse_from_str(time_str, "%H%M").unwrap(),
+    })
+    .parse_next(input)
+}
 
-    let start_time = NaiveTime::parse_from_str(start_str, "%H%M")
-        .map_err(|_| ErrMode::from_error_kind(input, ErrorKind::Verify))?;
-    let end_time = NaiveTime::parse_from_str(end_str, "%H%M")
-        .map_err(|_| ErrMode::from_error_kind(input, ErrorKind::Verify))?;
+fn time_range_parser<'s>(input: &mut &'s str) -> PResult<ScheduleDayKind> {
+    let (start_time, end_time) = separated_pair(time_parser, "-", time_parser).parse_next(input)?;
 
     Ok(ScheduleDayKind::TimeRange(start_time, end_time))
 }
@@ -201,6 +218,7 @@ mod tests {
         let open = "O";
         let closed = "C";
         let valid = "1234-1347";
+        let valid2400 = "1234-2400";
         let invalid = "1234-5668";
         let invalid_format = "1234-56";
 
@@ -217,6 +235,13 @@ mod tests {
             ScheduleDayKind::TimeRange(
                 NaiveTime::from_hms_opt(12, 34, 0).unwrap(),
                 NaiveTime::from_hms_opt(13, 47, 0).unwrap(),
+            )
+        );
+        assert_eq!(
+            valid2400.parse::<ScheduleDayKind>().unwrap(),
+            ScheduleDayKind::TimeRange(
+                NaiveTime::from_hms_opt(12, 34, 0).unwrap(),
+                MAX_TIME_INSTANT,
             )
         );
         assert!(invalid.parse::<ScheduleDayKind>().is_err());
@@ -269,7 +294,7 @@ mod tests {
 
     #[test]
     fn test_parsing_market_schedule() -> Result<()> {
-        let input = "America/New_York;O,1234-1347,C,C,C,C,O;0412/O,0413/C,0414/1234-1347";
+        let input = "America/New_York;O,1234-1347,0930-2400,C,C,C,O;0412/O,0413/C,0414/1234-1347,1230/0930-2400";
         let expected = MarketSchedule {
             timezone:        Tz::America__New_York,
             weekly_schedule: vec![
@@ -278,7 +303,10 @@ mod tests {
                     NaiveTime::from_hms_opt(12, 34, 0).unwrap(),
                     NaiveTime::from_hms_opt(13, 47, 0).unwrap(),
                 ),
-                ScheduleDayKind::Closed,
+                ScheduleDayKind::TimeRange(
+                    NaiveTime::from_hms_opt(09, 30, 0).unwrap(),
+                    MAX_TIME_INSTANT,
+                ),
                 ScheduleDayKind::Closed,
                 ScheduleDayKind::Closed,
                 ScheduleDayKind::Closed,
@@ -303,6 +331,14 @@ mod tests {
                         NaiveTime::from_hms_opt(13, 47, 0).unwrap(),
                     ),
                 },
+                HolidayDaySchedule {
+                    month: 12,
+                    day:   30,
+                    kind:  ScheduleDayKind::TimeRange(
+                        NaiveTime::from_hms_opt(09, 30, 0).unwrap(),
+                        MAX_TIME_INSTANT,
+                    ),
+                },
             ],
         };
 
@@ -322,7 +358,7 @@ mod tests {
     fn test_market_schedule_can_publish_at() -> Result<()> {
         // Prepare a schedule of narrow ranges
         let market_schedule: MarketSchedule =
-            "UTC;O,O,O,O,O,O,O;0422/0900-1700,1109/0930-1730,1201/O,1225/C,1231/0900-1700"
+            "UTC;O,O,O,O,O,O,O;0422/0900-1700,1109/0930-1730,1201/O,1225/C,1231/0930-2400"
                 .parse()
                 .unwrap();
 
@@ -351,6 +387,10 @@ mod tests {
         // Date match after range
         assert!(!market_schedule
             .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 17:01", format)?.and_utc()));
+
+        // Date 2400 range
+        assert!(market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2023-12-31 23:59", format)?.and_utc()));
         Ok(())
     }
 }
