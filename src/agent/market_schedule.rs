@@ -19,7 +19,6 @@ use {
             separated,
             separated_pair,
             seq,
-            terminated,
         },
         error::{
             ErrMode,
