@@ -22,11 +22,6 @@ use {
             separated_pair,
             seq,
         },
-        error::{
-            ErrMode,
-            ErrorKind,
-            ParserError,
-        },
         stream::ToUsize,
         token::{
             take,
@@ -87,7 +82,7 @@ impl MarketSchedule {
 fn market_schedule_parser<'s>(input: &mut &'s str) -> PResult<MarketSchedule> {
     seq!(
         MarketSchedule {
-            timezone: take_till(0.., ';').verify(|s| Tz::from_str(s).is_ok()).map(|s| Tz::from_str(s).unwrap()),
+            timezone: take_till(0.., ';').map(|s| Tz::from_str(s)).verify(|s| s.is_ok()).map(|s| s.unwrap()),
             _: ';',
             weekly_schedule: separated(7, schedule_day_kind_parser, ","),
             _: ';',
@@ -171,12 +166,14 @@ impl Default for ScheduleDayKind {
 fn time_parser<'s>(input: &mut &'s str) -> PResult<NaiveTime> {
     alt((
         "2400",
-        take(4usize).verify(|s| NaiveTime::parse_from_str(s, "%H%M").is_ok()),
+        take(4usize),
     ))
     .map(|time_str| match time_str {
-        "2400" => MAX_TIME_INSTANT,
-        _ => NaiveTime::parse_from_str(time_str, "%H%M").unwrap(),
+        "2400" => Ok(MAX_TIME_INSTANT),
+        _ => NaiveTime::parse_from_str(time_str, "%H%M"),
     })
+    .verify(|time| time.is_ok())
+    .map(|time| time.unwrap())
     .parse_next(input)
 }
 
