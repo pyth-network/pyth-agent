@@ -69,4 +69,4 @@ exporter.maximum_compute_unit_price_micro_lamports = 100000
 # The duration of the interval at which `notify_price_sched` notifications will be sent.
 # Note that this doesn't affect the rate at which transactions are published:
 # this is soley a backwards-compatibility API feature.
-notify_price_sched_interval_duration = "100ms"
+notify_price_sched_interval_duration = "400ms"
