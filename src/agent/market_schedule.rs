@@ -1,7 +1,10 @@
 //! Holiday hours metadata parsing and evaluation logic
 
 use {
-    super::legacy_schedule::MHKind,
+    super::legacy_schedule::{
+        LegacySchedule,
+        MHKind,
+    },
     anyhow::{
         anyhow,
         Result,
@@ -102,6 +105,24 @@ impl FromStr for MarketSchedule {
     }
 }
 
+impl From<LegacySchedule> for MarketSchedule {
+    fn from(legacy: LegacySchedule) -> Self {
+        Self {
+            timezone:        legacy.timezone,
+            weekly_schedule: vec![
+                legacy.mon.into(),
+                legacy.tue.into(),
+                legacy.wed.into(),
+                legacy.thu.into(),
+                legacy.fri.into(),
+                legacy.sat.into(),
+                legacy.sun.into(),
+            ],
+            holidays:        vec![],
+        }
+    }
+}
+
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HolidayDaySchedule {
@@ -156,14 +177,6 @@ impl ScheduleDayKind {
             Self::TimeRange(start, end) => start <= &when_local && &when_local <= end,
         }
     }
-
-    pub fn from_mhkind(mhkind: MHKind) -> Self {
-        match mhkind {
-            MHKind::Open => ScheduleDayKind::Open,
-            MHKind::Closed => ScheduleDayKind::Closed,
-            MHKind::TimeRange(start, end) => ScheduleDayKind::TimeRange(start, end),
-        }
-    }
 }
 
 impl Default for ScheduleDayKind {
@@ -209,6 +222,15 @@ impl FromStr for ScheduleDayKind {
     }
 }
 
+impl From<MHKind> for ScheduleDayKind {
+    fn from(mhkind: MHKind) -> Self {
+        match mhkind {
+            MHKind::Open => ScheduleDayKind::Open,
+            MHKind::Closed => ScheduleDayKind::Closed,
+            MHKind::TimeRange(start, end) => ScheduleDayKind::TimeRange(start, end),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

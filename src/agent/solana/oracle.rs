@@ -656,19 +656,7 @@ impl Poller {
                     *product_key,
                     ProductEntry {
                         account_data:   *product,
-                        schedule:       market_schedule.unwrap_or_else(|| MarketSchedule {
-                            timezone:        legacy_schedule.timezone,
-                            weekly_schedule: vec![
-                                ScheduleDayKind::from_mhkind(legacy_schedule.mon),
-                                ScheduleDayKind::from_mhkind(legacy_schedule.tue),
-                                ScheduleDayKind::from_mhkind(legacy_schedule.wed),
-                                ScheduleDayKind::from_mhkind(legacy_schedule.thu),
-                                ScheduleDayKind::from_mhkind(legacy_schedule.fri),
-                                ScheduleDayKind::from_mhkind(legacy_schedule.sat),
-                                ScheduleDayKind::from_mhkind(legacy_schedule.sun),
-                            ],
-                            holidays:        vec![],
-                        }),
+                        schedule:       market_schedule.unwrap_or_else(|| legacy_schedule.into()),
                         price_accounts: vec![],
                     },
                 );
