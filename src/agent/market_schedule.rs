@@ -159,9 +159,9 @@ fn time_range_parser<'s>(input: &mut &'s str) -> PResult<ScheduleDayKind> {
     let (start_str, end_str) = separated_pair(take(4usize), "-", take(4usize)).parse_next(input)?;
 
     let start_time = NaiveTime::parse_from_str(start_str, "%H%M")
-        .map_err(|e| ErrMode::from_error_kind(input, ErrorKind::Verify))?;
+        .map_err(|_| ErrMode::from_error_kind(input, ErrorKind::Verify))?;
     let end_time = NaiveTime::parse_from_str(end_str, "%H%M")
-        .map_err(|e| ErrMode::from_error_kind(input, ErrorKind::Verify))?;
+        .map_err(|_| ErrMode::from_error_kind(input, ErrorKind::Verify))?;
 
     Ok(ScheduleDayKind::TimeRange(start_time, end_time))
 }
@@ -348,7 +348,6 @@ mod tests {
         // Date match after range
         assert!(!market_schedule
             .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 17:01", format)?.and_utc()));
-
         Ok(())
     }
 }
