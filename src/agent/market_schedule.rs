@@ -109,6 +109,9 @@ fn holiday_day_schedule_parser<'s>(input: &mut &'s str) -> PResult<HolidayDaySch
         separated_pair((take(2usize), take(2usize)), "/", schedule_day_kind_parser)
             .parse_next(input)?;
 
+    // day and month are not validated to be correct dates
+    // if they are invalid, it will be ignored since there
+    // are no real dates that match the invalid input
     let month = month_str.parse::<u32>().unwrap();
     let day = day_str.parse::<u32>().unwrap();
 
