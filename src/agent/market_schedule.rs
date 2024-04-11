@@ -3,33 +3,115 @@
 use {
     anyhow::{
         anyhow,
-        Context,
         Result,
     },
     chrono::{
         naive::NaiveTime,
         DateTime,
         Datelike,
-        Duration,
         Utc,
     },
     chrono_tz::Tz,
-    lazy_static::lazy_static,
     std::str::FromStr,
     winnow::{
-        ascii::digit1,
         combinator::{
             alt,
             repeat,
             separated_pair,
         },
-        error::ContextError,
-        token::take,
+        error::{
+            ErrMode,
+            ErrorKind,
+            ParserError,
+        },
+        stream::ToUsize,
+        token::{
+            take,
+            take_till,
+        },
         PResult,
         Parser,
     },
 };
 
+
+#[derive(Clone, Debug)]
+pub struct MarketSchedule {
+    pub timezone:        Tz,
+    pub weekly_schedule: Vec<ScheduleDayKind>,
+    pub holidays:        Vec<HolidayDaySchedule>,
+}
+
+impl MarketSchedule {
+    pub fn can_publish_at(&self, when: &DateTime<Utc>) -> bool {
+        let when_local = when.with_timezone(&self.timezone);
+
+        let month = when_local.date_naive().month0() + 1;
+        let day = when_local.date_naive().day0() + 1;
+        let time = when_local.time();
+        let weekday = when_local.weekday().number_from_monday().to_usize();
+
+        for holiday in &self.holidays {
+            // Check if the day matches
+            if holiday.month == month && holiday.day == day {
+                return holiday.kind.can_publish_at(time);
+            }
+        }
+
+        self.weekly_schedule[weekday].can_publish_at(time)
+    }
+}
+
+fn market_schedule_parser<'s>(input: &mut &'s str) -> PResult<MarketSchedule> {
+    let timezone: Tz = take_till(0.., ';').parse_next(input)?.parse().unwrap();
+    let weekly_schedule = repeat(7, schedule_day_kind_parser).parse_next(input)?;
+    let holidays = repeat(0.., holiday_day_schedule_parser).parse_next(input)?;
+
+    Ok(MarketSchedule {
+        timezone,
+        weekly_schedule,
+        holidays,
+    })
+}
+
+impl FromStr for MarketSchedule {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self> {
+        market_schedule_parser
+            .parse_next(&mut s.to_owned().as_str())
+            .map_err(|e| anyhow!(e))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HolidayDaySchedule {
+    pub month: u32,
+    pub day:   u32,
+    pub kind:  ScheduleDayKind,
+}
+
+
+fn holiday_day_schedule_parser<'s>(input: &mut &'s str) -> PResult<HolidayDaySchedule> {
+    let ((month_str, day_str), kind) =
+        separated_pair((take(2usize), take(2usize)), "/", schedule_day_kind_parser)
+            .parse_next(input)?;
+
+    dbg!(month_str, day_str, kind.clone());
+
+    let month = month_str.parse::<u32>().unwrap();
+    let day = day_str.parse::<u32>().unwrap();
+
+    Ok(HolidayDaySchedule { month, day, kind })
+}
+
+impl FromStr for HolidayDaySchedule {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self> {
+        holiday_day_schedule_parser
+            .parse_next(&mut s.to_owned().as_str())
+            .map_err(|e| anyhow!(e))
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ScheduleDayKind {
@@ -39,11 +121,11 @@ pub enum ScheduleDayKind {
 }
 
 impl ScheduleDayKind {
-    pub fn can_publish_at(&self, when_market_local: NaiveTime) -> bool {
+    pub fn can_publish_at(&self, when_local: NaiveTime) -> bool {
         match self {
             Self::Open => true,
             Self::Closed => false,
-            Self::TimeRange(start, end) => start <= &when_market_local && &when_market_local <= end,
+            Self::TimeRange(start, end) => start <= &when_local && &when_local <= end,
         }
     }
 }
@@ -55,10 +137,12 @@ impl Default for ScheduleDayKind {
 }
 
 fn time_range_parser<'s>(input: &mut &'s str) -> PResult<ScheduleDayKind> {
-    let (start_str, end_str) = separated_pair(take(2usize), "-", take(2usize)).parse_next(input)?;
+    let (start_str, end_str) = separated_pair(take(4usize), "-", take(4usize)).parse_next(input)?;
 
-    let start_time = NaiveTime::parse_from_str(start_str, "%H%M").unwrap();
-    let end_time = NaiveTime::parse_from_str(end_str, "%H%M").unwrap();
+    let start_time = NaiveTime::parse_from_str(start_str, "%H%M")
+        .map_err(|e| ErrMode::from_error_kind(input, ErrorKind::Verify))?;
+    let end_time = NaiveTime::parse_from_str(end_str, "%H%M")
+        .map_err(|e| ErrMode::from_error_kind(input, ErrorKind::Verify))?;
 
     Ok(ScheduleDayKind::TimeRange(start_time, end_time))
 }
@@ -86,11 +170,6 @@ impl FromStr for ScheduleDayKind {
 mod tests {
     use {
         super::*,
-        crate::agent::schedule::holiday_hours::HolidayDayKind,
-        chrono::{
-            NaiveDate,
-            NaiveDateTime,
-        },
     };
 
     #[test]
@@ -103,22 +182,64 @@ mod tests {
         let invalid_format = "1234-56";
 
         assert_eq!(
-            open.parse::<HolidayDayKind>().unwrap(),
-            HolidayDayKind::Open
+            open.parse::<ScheduleDayKind>().unwrap(),
+            ScheduleDayKind::Open
         );
         assert_eq!(
-            closed.parse::<HolidayDayKind>().unwrap(),
-            HolidayDayKind::Closed
+            closed.parse::<ScheduleDayKind>().unwrap(),
+            ScheduleDayKind::Closed
         );
         assert_eq!(
-            valid.parse::<HolidayDayKind>().unwrap(),
-            HolidayDayKind::TimeRange(
+            valid.parse::<ScheduleDayKind>().unwrap(),
+            ScheduleDayKind::TimeRange(
                 NaiveTime::from_hms(12, 34, 0),
                 NaiveTime::from_hms(13, 47, 0)
             )
         );
-        assert!(invalid.parse::<HolidayDayKind>().is_err());
-        assert!(invalid_format.parse::<HolidayDayKind>().is_err());
+        assert!(invalid.parse::<ScheduleDayKind>().is_err());
+        assert!(invalid_format.parse::<ScheduleDayKind>().is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_holiday_day_schedule() -> Result<()> {
+        let input = "0412/O";
+        let expected = HolidayDaySchedule {
+            month: 04,
+            day:   12,
+            kind:  ScheduleDayKind::Open,
+        };
+
+        let parsed = input.parse::<HolidayDaySchedule>()?;
+        assert_eq!(parsed, expected);
+
+        let input = "0412/C";
+        let expected = HolidayDaySchedule {
+            month: 04,
+            day:   12,
+            kind:  ScheduleDayKind::Closed,
+        };
+        let parsed = input.parse::<HolidayDaySchedule>()?;
+        assert_eq!(parsed, expected);
+
+        let input = "0412/1234-1347";
+        let expected = HolidayDaySchedule {
+            month: 04,
+            day:   12,
+            kind:  ScheduleDayKind::TimeRange(
+                NaiveTime::from_hms_opt(12, 34, 0).unwrap(),
+                NaiveTime::from_hms_opt(13, 47, 0).unwrap(),
+            ),
+        };
+        let parsed = input.parse::<HolidayDaySchedule>()?;
+        assert_eq!(parsed, expected);
+
+        let input = "0412/1234-5332";
+        assert!(input.parse::<HolidayDaySchedule>().is_err());
+
+        let input = "0412/1234-53";
+        assert!(input.parse::<HolidayDaySchedule>().is_err());
 
         Ok(())
     }
