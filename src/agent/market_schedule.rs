@@ -168,9 +168,7 @@ impl FromStr for ScheduleDayKind {
 
 #[cfg(test)]
 mod tests {
-    use {
-        super::*,
-    };
+    use super::*;
 
     #[test]
     fn test_parsing_schedule_day_kind() -> Result<()> {
@@ -192,8 +190,8 @@ mod tests {
         assert_eq!(
             valid.parse::<ScheduleDayKind>().unwrap(),
             ScheduleDayKind::TimeRange(
-                NaiveTime::from_hms(12, 34, 0),
-                NaiveTime::from_hms(13, 47, 0)
+                NaiveTime::from_hms_opt(12, 34, 0).unwrap(),
+                NaiveTime::from_hms_opt(13, 47, 0).unwrap(),
             )
         );
         assert!(invalid.parse::<ScheduleDayKind>().is_err());
