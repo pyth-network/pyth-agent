@@ -164,23 +164,24 @@ impl Default for ScheduleDayKind {
 }
 
 fn time_parser<'s>(input: &mut &'s str) -> PResult<NaiveTime> {
-    alt((
-        "2400",
-        take(4usize),
-    ))
-    .map(|time_str| match time_str {
-        "2400" => Ok(MAX_TIME_INSTANT),
-        _ => NaiveTime::parse_from_str(time_str, "%H%M"),
-    })
-    .verify(|time| time.is_ok())
-    .map(|time| time.unwrap())
-    .parse_next(input)
+    alt(("2400", take(4usize)))
+        .map(|time_str| match time_str {
+            "2400" => Ok(MAX_TIME_INSTANT),
+            _ => NaiveTime::parse_from_str(time_str, "%H%M"),
+        })
+        .verify(|time| time.is_ok())
+        .map(|time| time.unwrap())
+        .parse_next(input)
 }
 
 fn time_range_parser<'s>(input: &mut &'s str) -> PResult<ScheduleDayKind> {
-    let (start_time, end_time) = separated_pair(time_parser, "-", time_parser).parse_next(input)?;
-
-    Ok(ScheduleDayKind::TimeRange(start_time, end_time))
+    seq!(
+        time_parser,
+        _: "-",
+        time_parser,
+    )
+    .map(|s| ScheduleDayKind::TimeRange(s.0, s.1))
+    .parse_next(input)
 }
 
 fn schedule_day_kind_parser<'s>(input: &mut &'s str) -> PResult<ScheduleDayKind> {
