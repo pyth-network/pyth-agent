@@ -98,8 +98,6 @@ fn holiday_day_schedule_parser<'s>(input: &mut &'s str) -> PResult<HolidayDaySch
         separated_pair((take(2usize), take(2usize)), "/", schedule_day_kind_parser)
             .parse_next(input)?;
 
-    dbg!(month_str, day_str, kind.clone());
-
     let month = month_str.parse::<u32>().unwrap();
     let day = day_str.parse::<u32>().unwrap();
 
@@ -170,6 +168,7 @@ impl FromStr for ScheduleDayKind {
 
 #[cfg(test)]
 mod tests {
+    use chrono::NaiveDateTime;
     use super::*;
 
     #[test]
@@ -293,5 +292,42 @@ mod tests {
     fn invalid_timezone_is_err() {
         let input = "Invalid/Timezone;O,C,C,C,C,C,O;0412/O,0413/C,0414/1234-1347";
         assert!(input.parse::<MarketSchedule>().is_err());
+    }
+
+    #[test]
+    fn test_market_schedule_can_publish_at() -> Result<()> {
+        // Prepare a schedule of narrow ranges
+        let market_schedule: MarketSchedule =
+            "UTC;O,O,O,O,O,O,O;0422/0900-1700,1109/0930-1730,1201/O,1225/C,1231/0900-1700"
+                .parse()
+                .unwrap();
+
+        let format = "%Y-%m-%d %H:%M";
+
+        // Date no match
+        assert!(market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2023-11-20 05:30", format)?.and_utc()));
+
+        // Date match before range
+        assert!(!market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 08:59", format)?.and_utc()));
+
+        // Date match at start of range
+        assert!(market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 09:00", format)?.and_utc()));
+
+        // Date match in range
+        assert!(market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 12:00", format)?.and_utc()));
+
+        // Date match at end of range
+        assert!(market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 17:00", format)?.and_utc()));
+
+        // Date match after range
+        assert!(!market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 17:01", format)?.and_utc()));
+
+        Ok(())
     }
 }
