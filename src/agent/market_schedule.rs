@@ -83,7 +83,7 @@ impl MarketSchedule {
 fn market_schedule_parser<'s>(input: &mut &'s str) -> PResult<MarketSchedule> {
     seq!(
         MarketSchedule {
-            timezone: take_till(0.., ';').map(|s| Tz::from_str(s)).verify(|s| s.is_ok()).map(|s| s.unwrap()),
+            timezone: take_till(0.., ';').verify_map(|s| Tz::from_str(s).ok()),
             _: ';',
             weekly_schedule: separated(7, schedule_day_kind_parser, ","),
             _: ';',
@@ -102,13 +102,13 @@ impl FromStr for MarketSchedule {
     }
 }
 
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HolidayDaySchedule {
     pub month: u32,
     pub day:   u32,
     pub kind:  ScheduleDayKind,
 }
-
 
 fn two_digit_parser<'s>(input: &mut &'s str) -> PResult<u32> {
     take(2usize)
@@ -139,6 +139,7 @@ impl FromStr for HolidayDaySchedule {
             .map_err(|e| anyhow!(e))
     }
 }
+
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ScheduleDayKind {
@@ -173,12 +174,10 @@ impl Default for ScheduleDayKind {
 
 fn time_parser<'s>(input: &mut &'s str) -> PResult<NaiveTime> {
     alt(("2400", take(4usize)))
-        .map(|time_str| match time_str {
-            "2400" => Ok(MAX_TIME_INSTANT),
-            _ => NaiveTime::parse_from_str(time_str, "%H%M"),
+        .verify_map(|time_str| match time_str {
+            "2400" => Some(MAX_TIME_INSTANT),
+            _ => NaiveTime::parse_from_str(time_str, "%H%M").ok(),
         })
-        .verify(|time| time.is_ok())
-        .map(|time| time.unwrap())
         .parse_next(input)
 }
 
