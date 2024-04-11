@@ -10,11 +10,11 @@ use {
         network::Network,
     },
     crate::agent::{
+        market_schedule::MarketSchedule,
         remote_keypair_loader::{
             KeypairRequest,
             RemoteKeypairLoader,
         },
-        schedule::Schedule,
     },
     anyhow::{
         anyhow,
@@ -172,7 +172,7 @@ pub fn spawn_exporter(
     network: Network,
     rpc_url: &str,
     rpc_timeout: Duration,
-    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, Schedule>>>,
+    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     global_store_tx: Sender<store::global::Lookup>,
@@ -260,10 +260,10 @@ pub struct Exporter {
     inflight_transactions_tx: Sender<Signature>,
 
     /// publisher => { permissioned_price => market hours } as read by the oracle module
-    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, Schedule>>>,
+    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
 
     /// Currently known permissioned prices of this publisher along with their market hours
-    our_prices: HashMap<Pubkey, Schedule>,
+    our_prices: HashMap<Pubkey, MarketSchedule>,
 
     /// Interval to update the dynamic price (if enabled)
     dynamic_compute_unit_price_update_interval: Interval,
@@ -287,7 +287,7 @@ impl Exporter {
         global_store_tx: Sender<store::global::Lookup>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
-        publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, Schedule>>>,
+        publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Self {
@@ -474,10 +474,8 @@ impl Exporter {
             .into_iter()
             .filter(|(id, _data)| {
                 let key_from_id = Pubkey::from((*id).clone().to_bytes());
-                if let Some(schedule) = self.our_prices.get_mut(&key_from_id) {
-                    // let ret = schedule.market_hours.can_publish_at(&now);
-                    schedule.holiday_hours.timezone = Some(schedule.market_hours.timezone);
-                    let ret = schedule.market_hours.can_publish_at(&now) && schedule.holiday_hours.can_publish_at(now);
+                if let Some(schedule) = self.our_prices.get(&key_from_id) {
+                    let ret = schedule.can_publish_at(&now);
 
                     if !ret {
                         debug!(self.logger, "Exporter: Attempted to publish price outside market hours";

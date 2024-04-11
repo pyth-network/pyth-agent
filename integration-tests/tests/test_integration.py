@@ -64,7 +64,7 @@ BTC_USD = {
         "quote_currency": "USD",
         "generic_symbol": "BTCUSD",
         "description": "BTC/USD",
-        "holidays": f"{datetime.now().strftime('%m%d')}/O"
+        "schedule": f"America/New_York;O,O,O,O,O,O,O;{datetime.now().strftime('%m%d')}/O"
     },
     "metadata": {"jump_id": "78876709", "jump_symbol": "BTCUSD", "price_exp": -8, "min_publishers": 1},
 }
@@ -77,7 +77,7 @@ SOL_USD = {
         "quote_currency": "USD",
         "generic_symbol": "SOLUSD",
         "description": "SOL/USD",
-        "holidays": f"{datetime.now().strftime('%m%d')}/C"
+        "schedule": f"America/New_York;O,O,O,O,O,O,O;{datetime.now().strftime('%m%d')}/C"
     },
     "metadata": {"jump_id": "78876711", "jump_symbol": "SOLUSD", "price_exp": -8, "min_publishers": 1},
 }

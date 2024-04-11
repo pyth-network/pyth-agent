@@ -1,6 +1,7 @@
 //! Holiday hours metadata parsing and evaluation logic
 
 use {
+    super::schedule::market_hours::MHKind,
     anyhow::{
         anyhow,
         Result,
@@ -41,6 +42,16 @@ pub struct MarketSchedule {
     pub timezone:        Tz,
     pub weekly_schedule: Vec<ScheduleDayKind>,
     pub holidays:        Vec<HolidayDaySchedule>,
+}
+
+impl Default for MarketSchedule {
+    fn default() -> Self {
+        Self {
+            timezone:        Tz::UTC,
+            weekly_schedule: vec![ScheduleDayKind::Open; 7],
+            holidays:        vec![],
+        }
+    }
 }
 
 impl MarketSchedule {
@@ -128,6 +139,14 @@ impl ScheduleDayKind {
             Self::TimeRange(start, end) => start <= &when_local && &when_local <= end,
         }
     }
+
+    pub fn from_mhkind(mhkind: MHKind) -> Self {
+        match mhkind {
+            MHKind::Open => ScheduleDayKind::Open,
+            MHKind::Closed => ScheduleDayKind::Closed,
+            MHKind::TimeRange(start, end) => ScheduleDayKind::TimeRange(start, end),
+        }
+    }
 }
 
 impl Default for ScheduleDayKind {
@@ -168,8 +187,10 @@ impl FromStr for ScheduleDayKind {
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDateTime;
-    use super::*;
+    use {
+        super::*,
+        chrono::NaiveDateTime,
+    };
 
     #[test]
     fn test_parsing_schedule_day_kind() -> Result<()> {

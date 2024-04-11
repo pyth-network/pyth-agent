@@ -4,11 +4,11 @@ use {
     self::subscriber::Subscriber,
     super::key_store::KeyStore,
     crate::agent::{
-        schedule::{
-            holiday_hours::HolidaySchedule,
-            market_hours::WeeklySchedule,
-            Schedule,
+        market_schedule::{
+            MarketSchedule,
+            ScheduleDayKind,
         },
+        schedule::market_hours::WeeklySchedule,
         store::global,
     },
     anyhow::{
@@ -121,7 +121,7 @@ pub struct Data {
     pub product_accounts:      HashMap<Pubkey, ProductEntry>,
     pub price_accounts:        HashMap<Pubkey, PriceEntry>,
     /// publisher => {their permissioned price accounts => market hours}
-    pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, Schedule>>,
+    pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>,
 }
 
 impl Data {
@@ -129,7 +129,7 @@ impl Data {
         mapping_accounts: HashMap<Pubkey, MappingAccount>,
         product_accounts: HashMap<Pubkey, ProductEntry>,
         price_accounts: HashMap<Pubkey, PriceEntry>,
-        publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, Schedule>>,
+        publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>,
     ) -> Self {
         Data {
             mapping_accounts,
@@ -144,7 +144,7 @@ pub type MappingAccount = pyth_sdk_solana::state::MappingAccount;
 #[derive(Debug, Clone)]
 pub struct ProductEntry {
     pub account_data:   pyth_sdk_solana::state::ProductAccount,
-    pub schedule:       Schedule,
+    pub schedule:       MarketSchedule,
     pub price_accounts: Vec<Pubkey>,
 }
 
@@ -207,7 +207,7 @@ pub fn spawn_oracle(
     wss_url: &str,
     rpc_timeout: Duration,
     global_store_update_tx: mpsc::Sender<global::Update>,
-    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, Schedule>>>,
+    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
     key_store: KeyStore,
     logger: Logger,
 ) -> Vec<JoinHandle<()>> {
@@ -422,7 +422,7 @@ struct Poller {
     data_tx: mpsc::Sender<Data>,
 
     /// Updates about permissioned price accounts from oracle to exporter
-    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, Schedule>>>,
+    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
 
     /// The RPC client to use to poll data from the RPC node
     rpc_client: RpcClient,
@@ -442,7 +442,7 @@ struct Poller {
 impl Poller {
     pub fn new(
         data_tx: mpsc::Sender<Data>,
-        publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, Schedule>>>,
+        publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
         rpc_url: &str,
         rpc_timeout: Duration,
         commitment: CommitmentLevel,
@@ -612,7 +612,7 @@ impl Poller {
                 let product = load_product_account(prod_acc.data.as_slice())
                     .context(format!("Could not parse product account {}", product_key))?;
 
-                let weekly_schedule: WeeklySchedule = if let Some((_wsched_key, wsched_val)) =
+                let legacy_schedule: WeeklySchedule = if let Some((_wsched_key, wsched_val)) =
                     product.iter().find(|(k, _v)| *k == "weekly_schedule")
                 {
                     wsched_val.parse().unwrap_or_else(|err| {
@@ -629,33 +629,45 @@ impl Poller {
                     Default::default() // No market hours specified, meaning 24/7 publishing
                 };
 
-                let holiday_schedule: HolidaySchedule = if let Some((_hsched_key, hsched_val)) =
-                    product.iter().find(|(k, _v)| *k == "holidays")
+                let market_schedule: Option<MarketSchedule> = if let Some((
+                    _msched_key,
+                    msched_val,
+                )) =
+                    product.iter().find(|(k, _v)| *k == "schedule")
                 {
-                    hsched_val.parse().unwrap_or_else(|err| {
+                    let schedule = msched_val.parse::<MarketSchedule>();
+                    if schedule.is_ok() {
+                        Some(schedule.unwrap())
+                    } else {
                         warn!(
                             self.logger,
-                            "Oracle: Product has weekly_schedule defined but it could not be parsed. Falling back to 24/7 publishing.";
+                            "Oracle: Product has schedule defined but it could not be parsed. Falling back to legacy schedule.";
                             "product_key" => product_key.to_string(),
-                            "holiday_schedule" => hsched_val,
+                            "schedule" => msched_val,
                         );
-                        debug!(self.logger, "parsing error context"; "context" => format!("{:?}", err));
-                        Default::default()
-                    })
+                        None
+                    }
                 } else {
-                    Default::default() // No market hours specified, meaning 24/7 publishing
+                    None
                 };
 
                 product_entries.insert(
                     *product_key,
                     ProductEntry {
                         account_data:   *product,
-                        schedule:       {
-                            Schedule {
-                                market_hours:  weekly_schedule,
-                                holiday_hours: holiday_schedule,
-                            }
-                        },
+                        schedule:       market_schedule.unwrap_or_else(|| MarketSchedule {
+                            timezone:        legacy_schedule.timezone,
+                            weekly_schedule: vec![
+                                ScheduleDayKind::from_mhkind(legacy_schedule.mon),
+                                ScheduleDayKind::from_mhkind(legacy_schedule.tue),
+                                ScheduleDayKind::from_mhkind(legacy_schedule.wed),
+                                ScheduleDayKind::from_mhkind(legacy_schedule.thu),
+                                ScheduleDayKind::from_mhkind(legacy_schedule.fri),
+                                ScheduleDayKind::from_mhkind(legacy_schedule.sat),
+                                ScheduleDayKind::from_mhkind(legacy_schedule.sun),
+                            ],
+                            holidays:        vec![],
+                        }),
                         price_accounts: vec![],
                     },
                 );
