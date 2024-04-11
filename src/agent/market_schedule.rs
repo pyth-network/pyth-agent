@@ -16,6 +16,7 @@ use {
     chrono_tz::Tz,
     std::str::FromStr,
     winnow::{
+        ascii::dec_uint,
         combinator::{
             alt,
             separated,
@@ -109,18 +110,25 @@ pub struct HolidayDaySchedule {
 }
 
 
-fn holiday_day_schedule_parser<'s>(input: &mut &'s str) -> PResult<HolidayDaySchedule> {
-    let ((month_str, day_str), kind) =
-        separated_pair((take(2usize), take(2usize)), "/", schedule_day_kind_parser)
-            .parse_next(input)?;
+fn two_digit_parser<'s>(input: &mut &'s str) -> PResult<u32> {
+    take(2usize)
+        .verify_map(|s| u32::from_str(s).ok())
+        .parse_next(input)
+}
 
+fn holiday_day_schedule_parser<'s>(input: &mut &'s str) -> PResult<HolidayDaySchedule> {
     // day and month are not validated to be correct dates
     // if they are invalid, it will be ignored since there
     // are no real dates that match the invalid input
-    let month = month_str.parse::<u32>().unwrap();
-    let day = day_str.parse::<u32>().unwrap();
-
-    Ok(HolidayDaySchedule { month, day, kind })
+    seq!(
+        HolidayDaySchedule {
+            month: two_digit_parser,
+            day: two_digit_parser,
+            _: "/",
+            kind: schedule_day_kind_parser,
+        }
+    )
+    .parse_next(input)
 }
 
 impl FromStr for HolidayDaySchedule {
