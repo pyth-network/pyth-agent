@@ -635,17 +635,18 @@ impl Poller {
                 )) =
                     product.iter().find(|(k, _v)| *k == "schedule")
                 {
-                    let schedule = msched_val.parse::<MarketSchedule>();
-                    if schedule.is_ok() {
-                        Some(schedule.unwrap())
-                    } else {
-                        warn!(
-                            self.logger,
-                            "Oracle: Product has schedule defined but it could not be parsed. Falling back to legacy schedule.";
-                            "product_key" => product_key.to_string(),
-                            "schedule" => msched_val,
-                        );
-                        None
+                    match msched_val.parse::<MarketSchedule>() {
+                        Ok(schedule) => Some(schedule),
+                        Err(err) => {
+                            warn!(
+                                self.logger,
+                                "Oracle: Product has schedule defined but it could not be parsed. Falling back to legacy schedule.";
+                                "product_key" => product_key.to_string(),
+                                "schedule" => msched_val,
+                            );
+                            debug!(self.logger, "parsing error context"; "context" => format!("{:?}", err));
+                            None
+                        }
                     }
                 } else {
                     None
