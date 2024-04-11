@@ -4,7 +4,7 @@ use {
     self::subscriber::Subscriber,
     super::key_store::KeyStore,
     crate::agent::{
-        market_hours::WeeklySchedule,
+        legacy_schedule::LegacySchedule,
         market_schedule::{
             MarketSchedule,
             ScheduleDayKind,
@@ -612,7 +612,7 @@ impl Poller {
                 let product = load_product_account(prod_acc.data.as_slice())
                     .context(format!("Could not parse product account {}", product_key))?;
 
-                let legacy_schedule: WeeklySchedule = if let Some((_wsched_key, wsched_val)) =
+                let legacy_schedule: LegacySchedule = if let Some((_wsched_key, wsched_val)) =
                     product.iter().find(|(k, _v)| *k == "weekly_schedule")
                 {
                     wsched_val.parse().unwrap_or_else(|err| {

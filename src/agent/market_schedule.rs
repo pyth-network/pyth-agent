@@ -1,7 +1,7 @@
 //! Holiday hours metadata parsing and evaluation logic
 
 use {
-    super::market_hours::MHKind,
+    super::legacy_schedule::MHKind,
     anyhow::{
         anyhow,
         Result,
