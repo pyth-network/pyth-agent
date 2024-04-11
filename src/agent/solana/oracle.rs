@@ -4,11 +4,11 @@ use {
     self::subscriber::Subscriber,
     super::key_store::KeyStore,
     crate::agent::{
+        market_hours::WeeklySchedule,
         market_schedule::{
             MarketSchedule,
             ScheduleDayKind,
         },
-        schedule::market_hours::WeeklySchedule,
         store::global,
     },
     anyhow::{
