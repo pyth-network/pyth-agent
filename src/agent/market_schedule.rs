@@ -16,8 +16,10 @@ use {
     winnow::{
         combinator::{
             alt,
-            repeat,
+            separated,
             separated_pair,
+            seq,
+            terminated,
         },
         error::{
             ErrMode,
@@ -35,7 +37,7 @@ use {
 };
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarketSchedule {
     pub timezone:        Tz,
     pub weekly_schedule: Vec<ScheduleDayKind>,
@@ -63,15 +65,16 @@ impl MarketSchedule {
 }
 
 fn market_schedule_parser<'s>(input: &mut &'s str) -> PResult<MarketSchedule> {
-    let timezone: Tz = take_till(0.., ';').parse_next(input)?.parse().unwrap();
-    let weekly_schedule = repeat(7, schedule_day_kind_parser).parse_next(input)?;
-    let holidays = repeat(0.., holiday_day_schedule_parser).parse_next(input)?;
-
-    Ok(MarketSchedule {
-        timezone,
-        weekly_schedule,
-        holidays,
-    })
+    seq!(
+        MarketSchedule {
+            timezone: take_till(0.., ';').verify(|s| Tz::from_str(s).is_ok()).map(|s| Tz::from_str(s).unwrap()),
+            _: ';',
+            weekly_schedule: separated(7, schedule_day_kind_parser, ","),
+            _: ';',
+            holidays: separated(0.., holiday_day_schedule_parser, ","),
+        }
+    )
+    .parse_next(input)
 }
 
 impl FromStr for MarketSchedule {
@@ -240,5 +243,56 @@ mod tests {
         assert!(input.parse::<HolidayDaySchedule>().is_err());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_parsing_market_schedule() -> Result<()> {
+        let input = "America/New_York;O,1234-1347,C,C,C,C,O;0412/O,0413/C,0414/1234-1347";
+        let expected = MarketSchedule {
+            timezone:        Tz::America__New_York,
+            weekly_schedule: vec![
+                ScheduleDayKind::Open,
+                ScheduleDayKind::TimeRange(
+                    NaiveTime::from_hms_opt(12, 34, 0).unwrap(),
+                    NaiveTime::from_hms_opt(13, 47, 0).unwrap(),
+                ),
+                ScheduleDayKind::Closed,
+                ScheduleDayKind::Closed,
+                ScheduleDayKind::Closed,
+                ScheduleDayKind::Closed,
+                ScheduleDayKind::Open,
+            ],
+            holidays:        vec![
+                HolidayDaySchedule {
+                    month: 04,
+                    day:   12,
+                    kind:  ScheduleDayKind::Open,
+                },
+                HolidayDaySchedule {
+                    month: 04,
+                    day:   13,
+                    kind:  ScheduleDayKind::Closed,
+                },
+                HolidayDaySchedule {
+                    month: 04,
+                    day:   14,
+                    kind:  ScheduleDayKind::TimeRange(
+                        NaiveTime::from_hms_opt(12, 34, 0).unwrap(),
+                        NaiveTime::from_hms_opt(13, 47, 0).unwrap(),
+                    ),
+                },
+            ],
+        };
+
+        let parsed = input.parse::<MarketSchedule>()?;
+        assert_eq!(parsed, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_timezone_is_err() {
+        let input = "Invalid/Timezone;O,C,C,C,C,C,O;0412/O,0413/C,0414/1234-1347";
+        assert!(input.parse::<MarketSchedule>().is_err());
     }
 }
