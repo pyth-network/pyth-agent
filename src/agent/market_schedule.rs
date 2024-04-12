@@ -518,9 +518,11 @@ prop_compose! {
     }
 }
 
+// Matches C or O or hhmm-hhmm with 24-hour time
 const VALID_SCHEDULE_DAY_KIND_REGEX: &str =
-    "C|O|(0[1-9]|1[0-2])([0-5][0-9])-(0[1-9]|1[0-2])([0-5][0-9])";
+    "C|O|([01][1-9]|2[0-3])([0-5][0-9])-([01][1-9]|2[0-3])([0-5][0-9])";
 
+// Matches MMDD with MM and DD being 01-12 and 01-31 respectively
 const VALID_MONTH_DAY_REGEX: &str = "(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])";
 
 proptest!(
