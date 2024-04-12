@@ -28,8 +28,10 @@ lazy_static! {
 }
 
 /// Weekly market hours schedule
+/// TODO: Remove after all publishers have upgraded to support the new schedule format
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
-pub struct WeeklySchedule {
+#[deprecated(note = "This struct is deprecated, use MarketSchedule instead.")]
+pub struct LegacySchedule {
     pub timezone: Tz,
     pub mon:      MHKind,
     pub tue:      MHKind,
@@ -40,7 +42,7 @@ pub struct WeeklySchedule {
     pub sun:      MHKind,
 }
 
-impl WeeklySchedule {
+impl LegacySchedule {
     pub fn all_closed() -> Self {
         Self {
             timezone: Default::default(),
@@ -76,7 +78,7 @@ impl WeeklySchedule {
     }
 }
 
-impl FromStr for WeeklySchedule {
+impl FromStr for LegacySchedule {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self> {
         let mut split_by_commas = s.split(",");
@@ -235,9 +237,9 @@ mod tests {
         // Mon-Fri 9-5, inconsistent leading space on Tuesday, leading 0 on Friday (expected to be fine)
         let s = "Europe/Warsaw,9:00-17:00, 9:00-17:00,9:00-17:00,9:00-17:00,09:00-17:00,C,C";
 
-        let parsed: WeeklySchedule = s.parse()?;
+        let parsed: LegacySchedule = s.parse()?;
 
-        let expected = WeeklySchedule {
+        let expected = LegacySchedule {
             timezone: Tz::Europe__Warsaw,
             mon:      MHKind::TimeRange(
                 NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
@@ -273,7 +275,7 @@ mod tests {
         // Valid but missing a timezone
         let s = "O,C,O,C,O,C,O";
 
-        let parsing_result: Result<WeeklySchedule> = s.parse();
+        let parsing_result: Result<LegacySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -284,7 +286,7 @@ mod tests {
         // One day short
         let s = "Asia/Hong_Kong,C,O,C,O,C,O";
 
-        let parsing_result: Result<WeeklySchedule> = s.parse();
+        let parsing_result: Result<LegacySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -294,7 +296,7 @@ mod tests {
     fn test_parsing_gibberish_timezone_is_error() {
         // Pretty sure that one's extinct
         let s = "Pangea/New_Dino_City,O,O,O,O,O,O,O";
-        let parsing_result: Result<WeeklySchedule> = s.parse();
+        let parsing_result: Result<LegacySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -303,7 +305,7 @@ mod tests {
     #[test]
     fn test_parsing_gibberish_day_schedule_is_error() {
         let s = "Europe/Amsterdam,mondays are alright I guess,O,O,O,O,O,O";
-        let parsing_result: Result<WeeklySchedule> = s.parse();
+        let parsing_result: Result<LegacySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -313,7 +315,7 @@ mod tests {
     fn test_parsing_too_many_days_is_error() {
         // One day too many
         let s = "Europe/Lisbon,O,O,O,O,O,O,O,O,C";
-        let parsing_result: Result<WeeklySchedule> = s.parse();
+        let parsing_result: Result<LegacySchedule> = s.parse();
 
         dbg!(&parsing_result);
         assert!(parsing_result.is_err());
@@ -322,7 +324,7 @@ mod tests {
     #[test]
     fn test_market_hours_happy_path() -> Result<()> {
         // Prepare a schedule of narrow ranges
-        let wsched: WeeklySchedule = "America/New_York,00:00-1:00,1:00-2:00,2:00-3:00,3:00-4:00,4:00-5:00,5:00-6:00,6:00-7:00".parse()?;
+        let wsched: LegacySchedule = "America/New_York,00:00-1:00,1:00-2:00,2:00-3:00,3:00-4:00,4:00-5:00,5:00-6:00,6:00-7:00".parse()?;
 
         // Prepare UTC datetimes that fall before, within and after market hours
         let format = "%Y-%m-%d %H:%M";
@@ -379,7 +381,7 @@ mod tests {
     #[test]
     fn test_market_hours_midnight_00_24() -> Result<()> {
         // Prepare a schedule of midnight-neighboring ranges
-        let wsched: WeeklySchedule =
+        let wsched: LegacySchedule =
             "Europe/Amsterdam,23:00-24:00,00:00-01:00,O,C,C,C,C".parse()?;
 
         let format = "%Y-%m-%d %H:%M";
@@ -433,8 +435,8 @@ mod tests {
         //   CDT/CET 6h offset in use for 2 weeks, CDT/CEST 7h offset after)
         // * Autumn 2023: Oct29(EU)-Nov5(US) (clocks go back 1h,
         //   CDT/CET 6h offset in use 1 week, CST/CET 7h offset after)
-        let wsched_eu: WeeklySchedule = "Europe/Amsterdam,9:00-17:00,O,O,O,O,O,O".parse()?;
-        let wsched_us: WeeklySchedule = "America/Chicago,2:00-10:00,O,O,O,O,O,O".parse()?;
+        let wsched_eu: LegacySchedule = "Europe/Amsterdam,9:00-17:00,O,O,O,O,O,O".parse()?;
+        let wsched_us: LegacySchedule = "America/Chicago,2:00-10:00,O,O,O,O,O,O".parse()?;
 
         let format = "%Y-%m-%d %H:%M";
 

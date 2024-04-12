@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 import json
 import os
 import requests
@@ -63,8 +64,22 @@ BTC_USD = {
         "quote_currency": "USD",
         "generic_symbol": "BTCUSD",
         "description": "BTC/USD",
+        "schedule": f"America/New_York;O,O,O,O,O,O,O;{datetime.now().strftime('%m%d')}/O"
     },
     "metadata": {"jump_id": "78876709", "jump_symbol": "BTCUSD", "price_exp": -8, "min_publishers": 1},
+}
+SOL_USD = {
+    "account": "",
+    "attr_dict": {
+        "symbol": "Crypto.SOL/USD",
+        "asset_type": "Crypto",
+        "base": "SOL",
+        "quote_currency": "USD",
+        "generic_symbol": "SOLUSD",
+        "description": "SOL/USD",
+        "schedule": f"America/New_York;O,O,O,O,O,O,O;{datetime.now().strftime('%m%d')}/C"
+    },
+    "metadata": {"jump_id": "78876711", "jump_symbol": "SOLUSD", "price_exp": -8, "min_publishers": 1},
 }
 AAPL_USD = {
     "account": "",
@@ -95,7 +110,7 @@ ETH_USD = {
     },
     "metadata": {"jump_id": "78876710", "jump_symbol": "ETHUSD", "price_exp": -8, "min_publishers": 1},
 }
-ALL_PRODUCTS=[BTC_USD, AAPL_USD, ETH_USD]
+ALL_PRODUCTS=[BTC_USD, AAPL_USD, ETH_USD, SOL_USD]
 
 asyncio.set_event_loop(asyncio.new_event_loop())
 
@@ -277,6 +292,7 @@ class PythTest:
                     "AAPL": {"price": ["some_publisher_a"]},
                     "BTCUSD": {"price": ["some_publisher_b", "some_publisher_a"]}, # Reversed order helps ensure permission discovery works correctly for publisher A
                     "ETHUSD": {"price": ["some_publisher_b"]},
+                    "SOLUSD": {"price": ["some_publisher_a"]},
                     }))
             f.flush()
             yield f.name
@@ -747,6 +763,41 @@ class TestUpdatePrice(PythTest):
 
         # Find the product account ID corresponding to the AAPL/USD symbol
         product = products[AAPL_USD["attr_dict"]["symbol"]]
+        product_account = product["account"]
+
+        # Get the price account with which to send updates
+        price_account = product["price_accounts"][0]["account"]
+
+        # Send an "update_price" request
+        await client.update_price(price_account, 42, 2, "trading")
+        time.sleep(2)
+
+        # Send another update_price request to "trigger" aggregation
+        # (aggregation would happen if market hours were to fail, but
+        # we want to catch that happening if there's a problem)
+        await client.update_price(price_account, 81, 1, "trading")
+        time.sleep(2)
+
+        # Confirm that the price account has not been updated
+        final_product_state = await client.get_product(product_account)
+
+        final_price_account = final_product_state["price_accounts"][0]
+        assert final_price_account["price"] == 0
+        assert final_price_account["conf"] == 0
+        assert final_price_account["status"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_agent_respects_holiday_hours(self, client: PythAgentClient):
+        '''
+        Similar to test_agent_respects_market_hours, but using SOL_USD and
+        asserting that nothing is published due to the symbol's all-closed holiday.
+        '''
+
+        # Fetch all products
+        products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
+
+        # Find the product account ID corresponding to the AAPL/USD symbol
+        product = products[SOL_USD["attr_dict"]["symbol"]]
         product_account = product["account"]
 
         # Get the price account with which to send updates

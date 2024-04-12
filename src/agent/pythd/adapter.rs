@@ -960,7 +960,7 @@ mod tests {
                     )
                     .unwrap(),
                     solana::oracle::ProductEntry {
-                        account_data:    pyth_sdk_solana::state::ProductAccount {
+                        account_data:   pyth_sdk_solana::state::ProductAccount {
                             magic:  0xa1b2c3d4,
                             ver:    6,
                             atype:  4,
@@ -997,8 +997,8 @@ mod tests {
                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                             ],
                         },
-                        weekly_schedule: Default::default(),
-                        price_accounts:  vec![
+                        schedule:       Default::default(),
+                        price_accounts: vec![
                             solana_sdk::pubkey::Pubkey::from_str(
                                 "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU",
                             )
@@ -1020,7 +1020,7 @@ mod tests {
                     )
                     .unwrap(),
                     solana::oracle::ProductEntry {
-                        account_data:    pyth_sdk_solana::state::ProductAccount {
+                        account_data:   pyth_sdk_solana::state::ProductAccount {
                             magic:  0xa1b2c3d4,
                             ver:    5,
                             atype:  3,
@@ -1057,8 +1057,8 @@ mod tests {
                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                             ],
                         },
-                        weekly_schedule: Default::default(),
-                        price_accounts:  vec![
+                        schedule:       Default::default(),
+                        price_accounts: vec![
                             solana_sdk::pubkey::Pubkey::from_str(
                                 "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD",
                             )

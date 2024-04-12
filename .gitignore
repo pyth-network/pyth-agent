@@ -10,3 +10,6 @@ result
 **/*.rs.bk
 __pycache__
 keystore
+
+# Mac OS
+.DS_Store
