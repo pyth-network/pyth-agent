@@ -28,7 +28,7 @@ lazy_static! {
 }
 
 /// Weekly market hours schedule
-/// TODO: Remove after the migration
+/// TODO: Remove after all publishers have upgraded to support the new schedule format
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 #[deprecated(note = "This struct is deprecated, use MarketSchedule instead.")]
 pub struct LegacySchedule {
