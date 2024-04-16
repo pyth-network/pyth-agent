@@ -96,7 +96,7 @@ impl MarketSchedule {
         let month = when_local.date_naive().month0() + 1;
         let day = when_local.date_naive().day0() + 1;
         let time = when_local.time();
-        let weekday = when_local.weekday().number_from_monday().to_usize();
+        let weekday0 = when_local.weekday().number_from_monday().to_usize() - 1;
 
         for holiday in &self.holidays {
             // Check if the day matches
@@ -105,7 +105,12 @@ impl MarketSchedule {
             }
         }
 
-        self.weekly_schedule[weekday].can_publish_at(time)
+        let day_schedule = self.weekly_schedule.get(weekday0);
+
+        match day_schedule {
+            Some(day_schedule) => day_schedule.can_publish_at(time),
+            None => false,
+        }
     }
 }
 
@@ -462,6 +467,15 @@ mod tests {
         // Date 2400 range
         assert!(market_schedule
             .can_publish_at(&NaiveDateTime::parse_from_str("2023-12-31 23:59", format)?.and_utc()));
+
+        // Sunday
+        assert!(market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2024-04-14 12:00", format)?.and_utc()));
+
+        // Monday
+        assert!(market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2024-04-15 12:00", format)?.and_utc()));
+
         Ok(())
     }
 }
