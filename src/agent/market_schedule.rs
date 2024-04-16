@@ -471,6 +471,11 @@ mod tests {
         // Sunday
         assert!(market_schedule
             .can_publish_at(&NaiveDateTime::parse_from_str("2024-04-14 12:00", format)?.and_utc()));
+
+        // Monday
+        assert!(market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2024-04-15 12:00", format)?.and_utc()));
+
         Ok(())
     }
 }
