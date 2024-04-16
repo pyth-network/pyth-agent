@@ -222,6 +222,7 @@ impl Adapter {
                     return;
                 }
                 _ = self.notify_price_sched_interval.tick() => {
+                    //this channel gets full
                     if let Err(err) = self.send_notify_price_sched().await {
                         error!(self.logger, "{}", err);
                         debug!(self.logger, "error context"; "context" => format!("{:?}", err));

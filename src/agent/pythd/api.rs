@@ -266,6 +266,9 @@ pub mod rpc {
         }
 
         async fn handle_next(&mut self) -> Result<()> {
+            //this loop can be decoupled to read messages in a separate task than writing. Currently, when a publisher is dealing with > 300 markets
+            // the last branch has to send 300 notifications while competing with receiving/responding the incoming price updates.  
+            //In our testing, that improved throughput, but there is still another memory leak.
             tokio::select! {
                 msg = self.ws_rx.next() => {
                     match msg {
@@ -277,6 +280,7 @@ pub mod rpc {
                     self.handle_notify_price(notify_price).await
                 }
                 Some(notify_price_sched) = self.notify_price_sched_rx.recv() => {
+                    // this branch could be better served by sending a single ws message with an array of subscription, rather than >300 messages.
                     self.handle_notify_price_sched(notify_price_sched).await
                 }
             }
@@ -549,6 +553,9 @@ pub mod rpc {
         }
 
         async fn send_text(&mut self, msg: &str) -> Result<()> {
+            // as per the docs of `send` down here "A future that completes after the given item has been fully processed into the sink, including flushing.
+            //Note that, because of the flushing requirement, it is usually better to batch together items to send via feed or send_all, rather than flushing between each item."
+            // the current design actively flushes between each item and does not take advantage of any batching. This is the reason the notify_price_sched channel gets full.
             self.ws_tx
                 .send(Message::text(msg.to_string()))
                 .await
