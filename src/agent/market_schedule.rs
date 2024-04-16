@@ -462,6 +462,10 @@ mod tests {
         // Date 2400 range
         assert!(market_schedule
             .can_publish_at(&NaiveDateTime::parse_from_str("2023-12-31 23:59", format)?.and_utc()));
+
+        // Sunday
+        assert!(market_schedule
+            .can_publish_at(&NaiveDateTime::parse_from_str("2024-04-14 12:00", format)?.and_utc()));
         Ok(())
     }
 }
