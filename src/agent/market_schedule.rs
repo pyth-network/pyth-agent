@@ -105,7 +105,12 @@ impl MarketSchedule {
             }
         }
 
-        self.weekly_schedule[weekday0].can_publish_at(time)
+        let day_schedule = self.weekly_schedule.get(weekday0);
+
+        match day_schedule {
+            Some(day_schedule) => day_schedule.can_publish_at(time),
+            None => false,
+        }
     }
 }
 
