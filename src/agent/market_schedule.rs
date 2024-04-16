@@ -96,7 +96,7 @@ impl MarketSchedule {
         let month = when_local.date_naive().month0() + 1;
         let day = when_local.date_naive().day0() + 1;
         let time = when_local.time();
-        let weekday = when_local.weekday().number_from_monday().to_usize();
+        let weekday0 = when_local.weekday().number_from_monday().to_usize() - 1;
 
         for holiday in &self.holidays {
             // Check if the day matches
@@ -105,7 +105,7 @@ impl MarketSchedule {
             }
         }
 
-        self.weekly_schedule[weekday].can_publish_at(time)
+        self.weekly_schedule[weekday0].can_publish_at(time)
     }
 }
 
