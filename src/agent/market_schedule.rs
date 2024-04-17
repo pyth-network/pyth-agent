@@ -17,11 +17,6 @@ use {
         Utc,
     },
     chrono_tz::Tz,
-    proptest::{
-        arbitrary::any,
-        prop_compose,
-        proptest,
-    },
     std::{
         fmt::Display,
         str::FromStr,
@@ -42,7 +37,6 @@ use {
     },
 };
 
-
 /// Helper time value representing 24:00:00 as 00:00:00 minus 1
 /// nanosecond (underflowing to 23:59:59.999(...) ). While chrono
 /// has this value internally exposed as NaiveTime::MAX, it is not
@@ -50,7 +44,6 @@ use {
 const MAX_TIME_INSTANT: NaiveTime = NaiveTime::MIN
     .overflowing_sub_signed(Duration::nanoseconds(1))
     .0;
-
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarketSchedule {
@@ -154,7 +147,6 @@ impl From<LegacySchedule> for MarketSchedule {
     }
 }
 
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HolidayDaySchedule {
     pub month: u32,
@@ -197,7 +189,6 @@ impl Display for HolidayDaySchedule {
         write!(f, "{:02}{:02}/{}", self.month, self.day, self.kind)
     }
 }
-
 
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub enum ScheduleDayKind {
@@ -286,6 +277,11 @@ mod tests {
     use {
         super::*,
         chrono::NaiveDateTime,
+        proptest::{
+            arbitrary::any,
+            prop_compose,
+            proptest,
+        },
     };
 
     #[test]
@@ -478,98 +474,98 @@ mod tests {
 
         Ok(())
     }
-}
 
-prop_compose! {
-    fn schedule_day_kind()(
-        r in any::<u8>(),
-        t1 in any::<u32>(),
-        t2 in any::<u32>(),
-    ) -> ScheduleDayKind {
-        match r % 3 {
-            0 => ScheduleDayKind::Open,
-            1 => ScheduleDayKind::Closed,
-            _ => ScheduleDayKind::TimeRange(
-                NaiveTime::from_hms_opt(t1 % 24, t1 / 24 % 60, 0).unwrap(),
-                NaiveTime::from_hms_opt(t2 % 24, t2 / 24 % 60, 0).unwrap(),
-            ),
+    prop_compose! {
+        fn schedule_day_kind()(
+            r in any::<u8>(),
+            t1 in any::<u32>(),
+            t2 in any::<u32>(),
+        ) -> ScheduleDayKind {
+            match r % 3 {
+                0 => ScheduleDayKind::Open,
+                1 => ScheduleDayKind::Closed,
+                _ => ScheduleDayKind::TimeRange(
+                    NaiveTime::from_hms_opt(t1 % 24, t1 / 24 % 60, 0).unwrap(),
+                    NaiveTime::from_hms_opt(t2 % 24, t2 / 24 % 60, 0).unwrap(),
+                ),
+            }
         }
     }
-}
 
-prop_compose! {
-    fn holiday_day_schedule()(
-        m in 1..=12u32,
-        d in 1..=31u32,
-        s in schedule_day_kind(),
-    ) -> HolidayDaySchedule {
-        HolidayDaySchedule {
-            month: m,
-            day: d,
-            kind: s,
+    prop_compose! {
+        fn holiday_day_schedule()(
+            m in 1..=12u32,
+            d in 1..=31u32,
+            s in schedule_day_kind(),
+        ) -> HolidayDaySchedule {
+            HolidayDaySchedule {
+                month: m,
+                day: d,
+                kind: s,
+            }
         }
     }
-}
 
-prop_compose! {
-    fn market_schedule()(
-        tz in proptest::sample::select(vec![
-            Tz::UTC,
-            Tz::America__New_York,
-            Tz::America__Los_Angeles,
-            Tz::America__Chicago,
-            Tz::Singapore,
-            Tz::Australia__Sydney,
-        ]),
-        weekly_schedule in proptest::collection::vec(schedule_day_kind(), 7..=7),
-        holidays in proptest::collection::vec(holiday_day_schedule(), 0..12),
-    ) -> MarketSchedule {
-        MarketSchedule {
-            timezone: tz,
-            weekly_schedule,
-            holidays,
+    prop_compose! {
+        fn market_schedule()(
+            tz in proptest::sample::select(vec![
+                Tz::UTC,
+                Tz::America__New_York,
+                Tz::America__Los_Angeles,
+                Tz::America__Chicago,
+                Tz::Singapore,
+                Tz::Australia__Sydney,
+            ]),
+            weekly_schedule in proptest::collection::vec(schedule_day_kind(), 7..=7),
+            holidays in proptest::collection::vec(holiday_day_schedule(), 0..12),
+        ) -> MarketSchedule {
+            MarketSchedule {
+                timezone: tz,
+                weekly_schedule,
+                holidays,
+            }
         }
     }
+
+    // Matches C or O or hhmm-hhmm with 24-hour time
+    const VALID_SCHEDULE_DAY_KIND_REGEX: &str =
+        "C|O|([01][1-9]|2[0-3])([0-5][0-9])-([01][1-9]|2[0-3])([0-5][0-9])";
+
+    // Matches MMDD with MM and DD being 01-12 and 01-31 respectively
+    const VALID_MONTH_DAY_REGEX: &str = "(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])";
+
+    proptest!(
+        #[test]
+        fn doesnt_crash(s in "\\PC*") {
+            _ = s.parse::<MarketSchedule>();
+            _ = s.parse::<HolidayDaySchedule>();
+            _ = s.parse::<ScheduleDayKind>();
+        }
+
+        #[test]
+        fn parse_valid_schedule_day_kind(s in VALID_SCHEDULE_DAY_KIND_REGEX) {
+            assert!(s.parse::<ScheduleDayKind>().is_ok());
+        }
+
+        #[test]
+        fn test_valid_schedule_day_kind(s in schedule_day_kind()) {
+            assert_eq!(s, s.to_string().parse::<ScheduleDayKind>().unwrap());
+        }
+
+        #[test]
+        fn parse_valid_holiday_day_schedule(s in VALID_SCHEDULE_DAY_KIND_REGEX, d in VALID_MONTH_DAY_REGEX) {
+            let valid_holiday_day = format!("{}/{}", d, s);
+            assert!(valid_holiday_day.parse::<HolidayDaySchedule>().is_ok());
+        }
+
+        #[test]
+        fn test_valid_holiday_day_schedule(s in holiday_day_schedule()) {
+            assert_eq!(s, s.to_string().parse::<HolidayDaySchedule>().unwrap());
+        }
+
+        #[test]
+        fn test_valid_market_schedule(s in market_schedule()) {
+            assert_eq!(s, s.to_string().parse::<MarketSchedule>().unwrap());
+        }
+    );
 }
-
-// Matches C or O or hhmm-hhmm with 24-hour time
-const VALID_SCHEDULE_DAY_KIND_REGEX: &str =
-    "C|O|([01][1-9]|2[0-3])([0-5][0-9])-([01][1-9]|2[0-3])([0-5][0-9])";
-
-// Matches MMDD with MM and DD being 01-12 and 01-31 respectively
-const VALID_MONTH_DAY_REGEX: &str = "(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])";
-
-proptest!(
-    #[test]
-    fn doesnt_crash(s in "\\PC*") {
-        _ = s.parse::<MarketSchedule>();
-        _ = s.parse::<HolidayDaySchedule>();
-        _ = s.parse::<ScheduleDayKind>();
-    }
-
-    #[test]
-    fn parse_valid_schedule_day_kind(s in VALID_SCHEDULE_DAY_KIND_REGEX) {
-        assert!(s.parse::<ScheduleDayKind>().is_ok());
-    }
-
-    #[test]
-    fn test_valid_schedule_day_kind(s in schedule_day_kind()) {
-        assert_eq!(s, s.to_string().parse::<ScheduleDayKind>().unwrap());
-    }
-
-    #[test]
-    fn parse_valid_holiday_day_schedule(s in VALID_SCHEDULE_DAY_KIND_REGEX, d in VALID_MONTH_DAY_REGEX) {
-        let valid_holiday_day = format!("{}/{}", d, s);
-        assert!(valid_holiday_day.parse::<HolidayDaySchedule>().is_ok());
-    }
-
-    #[test]
-    fn test_valid_holiday_day_schedule(s in holiday_day_schedule()) {
-        assert_eq!(s, s.to_string().parse::<HolidayDaySchedule>().unwrap());
-    }
-
-    #[test]
-    fn test_valid_market_schedule(s in market_schedule()) {
-        assert_eq!(s, s.to_string().parse::<MarketSchedule>().unwrap());
-    }
-);

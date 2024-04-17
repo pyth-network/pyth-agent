@@ -5,10 +5,7 @@ use {
     super::key_store::KeyStore,
     crate::agent::{
         legacy_schedule::LegacySchedule,
-        market_schedule::{
-            MarketSchedule,
-            ScheduleDayKind,
-        },
+        market_schedule::MarketSchedule,
         store::global,
     },
     anyhow::{
