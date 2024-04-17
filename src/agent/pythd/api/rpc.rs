@@ -52,7 +52,6 @@ use {
     tokio::sync::{
         broadcast,
         mpsc,
-        oneshot,
     },
     warp::{
         ws::{
@@ -327,119 +326,20 @@ async fn dispatch_and_catch_error(
     }
 }
 
-async fn get_product_list(
-    adapter_tx: &mpsc::Sender<adapter::Message>,
-) -> Result<serde_json::Value> {
-    let (result_tx, result_rx) = oneshot::channel();
-    adapter_tx
-        .send(adapter::Message::GetProductList { result_tx })
-        .await?;
-    Ok(serde_json::to_value(result_rx.await??)?)
-}
-
-async fn get_product(
-    adapter_tx: &mpsc::Sender<adapter::Message>,
-    request: &Request<Method, Value>,
-) -> Result<serde_json::Value> {
-    let params: GetProductParams = {
-        let value = request.params.clone();
-        serde_json::from_value(value.ok_or_else(|| anyhow!("Missing request parameters"))?)
-    }?;
-
-    let (result_tx, result_rx) = oneshot::channel();
-    adapter_tx
-        .send(adapter::Message::GetProduct {
-            account: params.account,
-            result_tx,
-        })
-        .await?;
-    Ok(serde_json::to_value(result_rx.await??)?)
-}
-
-async fn get_all_products(
-    adapter_tx: &mpsc::Sender<adapter::Message>,
-) -> Result<serde_json::Value> {
-    let (result_tx, result_rx) = oneshot::channel();
-    adapter_tx
-        .send(adapter::Message::GetAllProducts { result_tx })
-        .await?;
-    Ok(serde_json::to_value(result_rx.await??)?)
-}
-
-async fn subscribe_price(
-    adapter_tx: &mpsc::Sender<adapter::Message>,
-    notify_price_tx: &mpsc::Sender<NotifyPrice>,
-    request: &Request<Method, Value>,
-) -> Result<serde_json::Value> {
-    let params: SubscribePriceParams = serde_json::from_value(
-        request
-            .params
-            .clone()
-            .ok_or_else(|| anyhow!("Missing request parameters"))?,
-    )?;
-
-    let (result_tx, result_rx) = oneshot::channel();
-    adapter_tx
-        .send(adapter::Message::SubscribePrice {
-            result_tx,
-            account: params.account,
-            notify_price_tx: notify_price_tx.clone(),
-        })
-        .await?;
-
-    Ok(serde_json::to_value(SubscribeResult {
-        subscription: result_rx.await??,
-    })?)
-}
-
-async fn subscribe_price_sched(
-    adapter_tx: &mpsc::Sender<adapter::Message>,
-    notify_price_sched_tx: &mpsc::Sender<NotifyPriceSched>,
-    request: &Request<Method, Value>,
-) -> Result<serde_json::Value> {
-    let params: SubscribePriceSchedParams = serde_json::from_value(
-        request
-            .params
-            .clone()
-            .ok_or_else(|| anyhow!("Missing request parameters"))?,
-    )?;
-
-    let (result_tx, result_rx) = oneshot::channel();
-    adapter_tx
-        .send(adapter::Message::SubscribePriceSched {
-            result_tx,
-            account: params.account,
-            notify_price_sched_tx: notify_price_sched_tx.clone(),
-        })
-        .await?;
-
-    Ok(serde_json::to_value(SubscribeResult {
-        subscription: result_rx.await??,
-    })?)
-}
-
-async fn update_price(
-    adapter_tx: &mpsc::Sender<adapter::Message>,
-    request: &Request<Method, Value>,
-) -> Result<serde_json::Value> {
-    let params: UpdatePriceParams = serde_json::from_value(
-        request
-            .params
-            .clone()
-            .ok_or_else(|| anyhow!("Missing request parameters"))?,
-    )?;
-
-    adapter_tx
-        .send(adapter::Message::UpdatePrice {
-            account: params.account,
-            price:   params.price,
-            conf:    params.conf,
-            status:  params.status,
-        })
-        .await?;
-
-    Ok(serde_json::to_value(0)?)
-}
+mod get_all_products;
+mod get_product;
+mod get_product_list;
+mod subscribe_price;
+mod subscribe_price_sched;
+mod update_price;
+use {
+    get_all_products::*,
+    get_product::*,
+    get_product_list::*,
+    subscribe_price::*,
+    subscribe_price_sched::*,
+    update_price::*,
+};
 
 async fn send_error(
     ws_tx: &mut SplitSink<WebSocket, Message>,
