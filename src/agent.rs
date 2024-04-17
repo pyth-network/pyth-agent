@@ -175,12 +175,12 @@ impl Agent {
         ));
 
         // Spawn the Pythd API Server
-        jhs.push(rpc::spawn_server(
+        jhs.push(tokio::spawn(rpc::run(
             self.config.pythd_api_server.clone(),
+            logger.clone(),
             pythd_adapter_tx,
             shutdown_rx,
-            logger.clone(),
-        ));
+        )));
 
         // Spawn the metrics server
         jhs.push(tokio::spawn(metrics::MetricsServer::spawn(

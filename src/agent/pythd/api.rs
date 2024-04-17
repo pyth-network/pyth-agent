@@ -136,13 +136,10 @@ pub mod rpc {
             fmt::Debug,
             net::SocketAddr,
         },
-        tokio::{
-            sync::{
-                broadcast,
-                mpsc,
-                oneshot,
-            },
-            task::JoinHandle,
+        tokio::sync::{
+            broadcast,
+            mpsc,
+            oneshot,
         },
         warp::{
             ws::{
@@ -584,53 +581,33 @@ pub mod rpc {
         }
     }
 
-    pub fn spawn_server(
+    pub async fn run(
         config: Config,
+        logger: Logger,
         adapter_tx: mpsc::Sender<adapter::Message>,
         shutdown_rx: broadcast::Receiver<()>,
-        logger: Logger,
-    ) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            Server::new(adapter_tx, config, logger)
-                .run(shutdown_rx)
-                .await
-        })
+    ) {
+        if let Err(err) = serve(config, &logger, adapter_tx, shutdown_rx).await {
+            error!(logger, "{}", err);
+            debug!(logger, "error context"; "context" => format!("{:?}", err));
+        }
     }
 
-    pub struct Server {
+    async fn serve(
+        config: Config,
+        logger: &Logger,
         adapter_tx: mpsc::Sender<adapter::Message>,
-        config:     Config,
-        logger:     Logger,
-    }
+        mut shutdown_rx: broadcast::Receiver<()>,
+    ) -> Result<()> {
+        let adapter_tx = adapter_tx.clone();
+        let config = config.clone();
+        let with_logger = WithLogger {
+            logger: logger.clone(),
+        };
 
-    impl Server {
-        pub fn new(
-            adapter_tx: mpsc::Sender<adapter::Message>,
-            config: Config,
-            logger: Logger,
-        ) -> Self {
-            Server {
-                adapter_tx,
-                config,
-                logger,
-            }
-        }
-
-        pub async fn run(&self, shutdown_rx: broadcast::Receiver<()>) {
-            if let Err(err) = self.serve(shutdown_rx).await {
-                error!(self.logger, "{}", err);
-                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
-            }
-        }
-
-        async fn serve(&self, mut shutdown_rx: broadcast::Receiver<()>) -> Result<()> {
-            let adapter_tx = self.adapter_tx.clone();
-            let config = self.config.clone();
-            let with_logger = WithLogger {
-                logger: self.logger.clone(),
-            };
-
-            let index = warp::path::end()
+        let index = {
+            let config = config.clone();
+            warp::path::end()
                 .and(warp::ws())
                 .and(warp::any().map(move || adapter_tx.clone()))
                 .and(warp::any().map(move || with_logger.clone()))
@@ -654,19 +631,19 @@ pub mod rpc {
                             .await
                         })
                     },
-                );
+                )
+        };
 
-            let (_, serve) = warp::serve(index).bind_with_graceful_shutdown(
-                self.config.listen_address.as_str().parse::<SocketAddr>()?,
-                async move {
-                    let _ = shutdown_rx.recv().await;
-                },
-            );
+        let (_, serve) = warp::serve(index).bind_with_graceful_shutdown(
+            config.listen_address.as_str().parse::<SocketAddr>()?,
+            async move {
+                let _ = shutdown_rx.recv().await;
+            },
+        );
 
-            info!(self.logger, "starting api server"; "listen address" => self.config.listen_address.clone());
+        info!(logger, "starting api server"; "listen address" => config.listen_address.clone());
 
-            tokio::task::spawn(serve).await.map_err(|e| e.into())
-        }
+        tokio::task::spawn(serve).await.map_err(|e| e.into())
     }
 
     #[cfg(test)]
@@ -685,7 +662,6 @@ pub mod rpc {
                     SubscriptionID,
                 },
                 Config,
-                Server,
             },
             crate::agent::pythd::{
                 adapter,
@@ -819,10 +795,7 @@ pub mod rpc {
                 listen_address: format!("127.0.0.1:{:}", listen_port),
                 ..Default::default()
             };
-            let server = Server::new(adapter_tx, config, logger);
-            let jh = tokio::spawn(async move {
-                server.run(shutdown_rx).await;
-            });
+            let jh = tokio::spawn(super::run(config, logger, adapter_tx, shutdown_rx));
             let test_server = TestServer { shutdown_tx, jh };
 
             // Create a test client to interact with the server
