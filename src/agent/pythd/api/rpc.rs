@@ -113,348 +113,378 @@ enum ConnectionError {
     WebsocketConnectionClosed,
 }
 
-struct Connection {
-    // Channel for communicating with the adapter
+async fn handle_connection(
+    ws_conn: WebSocket,
     adapter_tx: mpsc::Sender<adapter::Message>,
-
-    // Channel Websocket messages are sent and received on
-    ws_tx: SplitSink<WebSocket, Message>,
-    ws_rx: SplitStream<WebSocket>,
-
-    // Channel NotifyPrice events are sent and received on
-    notify_price_tx: mpsc::Sender<NotifyPrice>,
-    notify_price_rx: mpsc::Receiver<NotifyPrice>,
-
-    // Channel NotifyPriceSched events are sent and received on
-    notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
-    notify_price_sched_rx: mpsc::Receiver<NotifyPriceSched>,
-
+    notify_price_tx_buffer: usize,
+    notify_price_sched_tx_buffer: usize,
     logger: Logger,
+) {
+    // Create the channels
+    let (mut ws_tx, mut ws_rx) = ws_conn.split();
+    let (mut notify_price_tx, mut notify_price_rx) = mpsc::channel(notify_price_tx_buffer);
+    let (mut notify_price_sched_tx, mut notify_price_sched_rx) =
+        mpsc::channel(notify_price_sched_tx_buffer);
+
+    loop {
+        if let Err(err) = handle_next(
+            &logger,
+            &adapter_tx,
+            &mut ws_tx,
+            &mut ws_rx,
+            &mut notify_price_tx,
+            &mut notify_price_rx,
+            &mut notify_price_sched_tx,
+            &mut notify_price_sched_rx,
+        )
+        .await
+        {
+            if let Some(ConnectionError::WebsocketConnectionClosed) =
+                err.downcast_ref::<ConnectionError>()
+            {
+                info!(logger, "websocket connection closed");
+                return;
+            }
+
+            error!(logger, "{}", err);
+            debug!(logger, "error context"; "context" => format!("{:?}", err));
+        }
+    }
 }
 
-impl Connection {
-    fn new(
-        ws_conn: WebSocket,
-        adapter_tx: mpsc::Sender<adapter::Message>,
-        notify_price_tx_buffer: usize,
-        notify_price_sched_tx_buffer: usize,
-        logger: Logger,
-    ) -> Self {
-        // Create the channels
-        let (ws_tx, ws_rx) = ws_conn.split();
-        let (notify_price_tx, notify_price_rx) = mpsc::channel(notify_price_tx_buffer);
-        let (notify_price_sched_tx, notify_price_sched_rx) =
-            mpsc::channel(notify_price_sched_tx_buffer);
+async fn handle_next(
+    logger: &Logger,
+    adapter_tx: &mpsc::Sender<adapter::Message>,
+    ws_tx: &mut SplitSink<WebSocket, Message>,
+    ws_rx: &mut SplitStream<WebSocket>,
+    notify_price_tx: &mut mpsc::Sender<NotifyPrice>,
+    notify_price_rx: &mut mpsc::Receiver<NotifyPrice>,
+    notify_price_sched_tx: &mut mpsc::Sender<NotifyPriceSched>,
+    notify_price_sched_rx: &mut mpsc::Receiver<NotifyPriceSched>,
+) -> Result<()> {
+    tokio::select! {
+        msg = ws_rx.next() => {
+            match msg {
+                Some(body) => match body {
+                    Ok(msg) => {
+                        handle(
+                            logger,
+                            ws_tx,
+                            adapter_tx,
+                            notify_price_tx,
+                            notify_price_sched_tx,
+                            msg,
+                        )
+                        .await
+                    }
+                    Err(e) => send_error(ws_tx, e.into(), None).await,
+                },
+                None => Err(ConnectionError::WebsocketConnectionClosed)?,
+            }
+        }
+        Some(notify_price) = notify_price_rx.recv() => {
+            send_notification(ws_tx, Method::NotifyPrice, Some(notify_price))
+                .await
+        }
+        Some(notify_price_sched) = notify_price_sched_rx.recv() => {
+            send_notification(ws_tx, Method::NotifyPriceSched, Some(notify_price_sched))
+                .await
+        }
+    }
+}
 
-        // Create the new connection object
-        Connection {
-            adapter_tx,
-            ws_tx,
-            ws_rx,
-            notify_price_tx,
-            notify_price_rx,
-            notify_price_sched_tx,
-            notify_price_sched_rx,
-            logger,
+async fn handle(
+    logger: &Logger,
+    ws_tx: &mut SplitSink<WebSocket, Message>,
+    adapter_tx: &mpsc::Sender<adapter::Message>,
+    notify_price_tx: &mpsc::Sender<NotifyPrice>,
+    notify_price_sched_tx: &mpsc::Sender<NotifyPriceSched>,
+    msg: Message,
+) -> Result<()> {
+    // Ignore control and binary messages
+    if !msg.is_text() {
+        debug!(logger, "JSON RPC API: skipped non-text message");
+        return Ok(());
+    }
+
+    // Parse and dispatch the message
+    match parse(msg).await {
+        Ok((requests, is_batch)) => {
+            let mut responses = Vec::with_capacity(requests.len());
+
+            // Perform requests in sequence and gather responses
+            for request in requests {
+                let response = dispatch_and_catch_error(
+                    logger,
+                    adapter_tx,
+                    notify_price_tx,
+                    notify_price_sched_tx,
+                    &request,
+                )
+                .await;
+                responses.push(response)
+            }
+
+            // Send an array if we're handling a batch
+            // request, single response object otherwise
+            if is_batch {
+                send_text(ws_tx, &serde_json::to_string(&responses)?).await?;
+            } else {
+                send_text(ws_tx, &serde_json::to_string(&responses[0])?).await?;
+            }
+        }
+        // The top-level parsing errors are fine to share with client
+        Err(e) => {
+            send_error(ws_tx, e, None).await?;
         }
     }
 
-    async fn consume(&mut self) {
-        loop {
-            if let Err(err) = self.handle_next().await {
-                if let Some(ConnectionError::WebsocketConnectionClosed) =
-                    err.downcast_ref::<ConnectionError>()
-                {
-                    info!(self.logger, "websocket connection closed");
-                    return;
-                }
+    Ok(())
+}
 
-                error!(self.logger, "{}", err);
-                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
-            }
-        }
-    }
+/// Parse a JSONRPC request object or a batch of them. The
+/// bool in result informs request handling whether it needs
+/// to respond with a single object or an array, to prevent
+/// sending unexpected
+/// `[{<just one response, but request was not array>}]`
+/// array payloads.
+async fn parse(msg: Message) -> Result<(Vec<Request<Method, Value>>, bool)> {
+    let s = msg
+        .to_str()
+        .map_err(|_| anyhow!("Could not parse message as text"))?;
 
-    async fn handle_next(&mut self) -> Result<()> {
-        tokio::select! {
-            msg = self.ws_rx.next() => {
-                match msg {
-                    Some(body) => self.handle_ws_rx(body).await,
-                    None => Err(ConnectionError::WebsocketConnectionClosed)?,
-                }
-            }
-            Some(notify_price) = self.notify_price_rx.recv() => {
-                self.handle_notify_price(notify_price).await
-            }
-            Some(notify_price_sched) = self.notify_price_sched_rx.recv() => {
-                self.handle_notify_price_sched(notify_price_sched).await
-            }
-        }
-    }
-
-    async fn handle_ws_rx(&mut self, body: Result<Message, warp::Error>) -> Result<()> {
-        match body {
-            Ok(msg) => self.handle(msg).await,
-            Err(e) => self.send_error(e.into(), None).await,
-        }
-    }
-
-    async fn handle_notify_price(&mut self, notify_price: NotifyPrice) -> Result<()> {
-        self.send_notification(Method::NotifyPrice, Some(notify_price))
-            .await
-    }
-
-    async fn handle_notify_price_sched(
-        &mut self,
-        notify_price_sched: NotifyPriceSched,
-    ) -> Result<()> {
-        self.send_notification(Method::NotifyPriceSched, Some(notify_price_sched))
-            .await
-    }
-
-    async fn handle(&mut self, msg: Message) -> Result<()> {
-        // Ignore control and binary messages
-        if !msg.is_text() {
-            debug!(self.logger, "JSON RPC API: skipped non-text message");
-            return Ok(());
-        }
-
-        // Parse and dispatch the message
-        match self.parse(msg).await {
-            Ok((requests, is_batch)) => {
-                let mut responses = Vec::with_capacity(requests.len());
-
-                // Perform requests in sequence and gather responses
-                for request in requests {
-                    let response = self.dispatch_and_catch_error(&request).await;
-                    responses.push(response)
-                }
-
-                // Send an array if we're handling a batch
-                // request, single response object otherwise
-                if is_batch {
-                    self.send_text(&serde_json::to_string(&responses)?).await?;
-                } else {
-                    self.send_text(&serde_json::to_string(&responses[0])?)
-                        .await?;
-                }
-            }
-            // The top-level parsing errors are fine to share with client
-            Err(e) => {
-                self.send_error(e, None).await?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Parse a JSONRPC request object or a batch of them. The
-    /// bool in result informs request handling whether it needs
-    /// to respond with a single object or an array, to prevent
-    /// sending unexpected
-    /// `[{<just one response, but request was not array>}]`
-    /// array payloads.
-    async fn parse(&mut self, msg: Message) -> Result<(Vec<Request<Method, Value>>, bool)> {
-        let s = msg
-            .to_str()
-            .map_err(|_| anyhow!("Could not parse message as text"))?;
-
-        let json_value: Value = serde_json::from_str(s)?;
-        if let Some(array) = json_value.as_array() {
-            // Interpret request as JSON-RPC 2.0 batch if value is an array
-            let mut requests = Vec::with_capacity(array.len());
-            for maybe_request in array {
-                // Re-serialize for parse_request(), it's the only
-                // jrpc parsing function available and it's taking
-                // &str.
-                let maybe_request_string = serde_json::to_string(maybe_request)?;
-                requests.push(
-                    parse_request::<Method>(&maybe_request_string)
-                        .map_err(|e| anyhow!("Could not parse message: {}", e.error.message))?,
-                );
-            }
-
-            Ok((requests, true))
-        } else {
-            // Base single request case
-            let single = parse_request::<Method>(s)
-                .map_err(|e| anyhow!("Could not parse message: {}", e.error.message))?;
-            Ok((vec![single], false))
-        }
-    }
-
-    async fn dispatch_and_catch_error(
-        &mut self,
-        request: &Request<Method, Value>,
-    ) -> Response<serde_json::Value> {
-        debug!(self.logger,
-         "JSON RPC API: handling request";
-        "method" => format!("{:?}", request.method),
+    let json_value: Value = serde_json::from_str(s)?;
+    if let Some(array) = json_value.as_array() {
+        // Interpret request as JSON-RPC 2.0 batch if value is an array
+        let mut requests = Vec::with_capacity(array.len());
+        for maybe_request in array {
+            // Re-serialize for parse_request(), it's the only
+            // jrpc parsing function available and it's taking
+            // &str.
+            let maybe_request_string = serde_json::to_string(maybe_request)?;
+            requests.push(
+                parse_request::<Method>(&maybe_request_string)
+                    .map_err(|e| anyhow!("Could not parse message: {}", e.error.message))?,
             );
-        let result = match request.method {
-            Method::GetProductList => self.get_product_list().await,
-            Method::GetProduct => self.get_product(request).await,
-            Method::GetAllProducts => self.get_all_products().await,
-            Method::SubscribePrice => self.subscribe_price(request).await,
-            Method::SubscribePriceSched => self.subscribe_price_sched(request).await,
-            Method::UpdatePrice => self.update_price(request).await,
-            Method::NotifyPrice | Method::NotifyPriceSched => {
-                Err(anyhow!("unsupported method: {:?}", request.method))
-            }
-        };
+        }
 
-        // Consider errors internal, print details to logs.
-        match result {
-            Ok(payload) => {
-                Response::success(request.id.clone().to_id().unwrap_or(Id::from(0)), payload)
-            }
-            Err(e) => {
-                warn!(
-                self.logger,
-                  "Error handling JSON RPC request";
+        Ok((requests, true))
+    } else {
+        // Base single request case
+        let single = parse_request::<Method>(s)
+            .map_err(|e| anyhow!("Could not parse message: {}", e.error.message))?;
+        Ok((vec![single], false))
+    }
+}
+
+async fn dispatch_and_catch_error(
+    logger: &Logger,
+    adapter_tx: &mpsc::Sender<adapter::Message>,
+    notify_price_tx: &mpsc::Sender<NotifyPrice>,
+    notify_price_sched_tx: &mpsc::Sender<NotifyPriceSched>,
+    request: &Request<Method, Value>,
+) -> Response<serde_json::Value> {
+    debug!(
+        logger,
+        "JSON RPC API: handling request";
+        "method" => format!("{:?}", request.method),
+    );
+
+    let result = match request.method {
+        Method::GetProductList => get_product_list(adapter_tx).await,
+        Method::GetProduct => get_product(adapter_tx, request).await,
+        Method::GetAllProducts => get_all_products(adapter_tx).await,
+        Method::UpdatePrice => update_price(adapter_tx, request).await,
+        Method::SubscribePrice => subscribe_price(adapter_tx, notify_price_tx, request).await,
+        Method::SubscribePriceSched => {
+            subscribe_price_sched(adapter_tx, notify_price_sched_tx, request).await
+        }
+        Method::NotifyPrice | Method::NotifyPriceSched => {
+            Err(anyhow!("unsupported method: {:?}", request.method))
+        }
+    };
+
+    // Consider errors internal, print details to logs.
+    match result {
+        Ok(payload) => {
+            Response::success(request.id.clone().to_id().unwrap_or(Id::from(0)), payload)
+        }
+        Err(e) => {
+            warn!(
+                logger,
+                "Error handling JSON RPC request";
                 "request" => format!("{:?}", request),
                 "error" => format!("{}", e.to_string()),
-                );
-                Response::error(
-                    request.id.clone().to_id().unwrap_or(Id::from(0)),
-                    ErrorCode::InternalError,
-                    e.to_string(),
-                    None,
-                )
-            }
+            );
+
+            Response::error(
+                request.id.clone().to_id().unwrap_or(Id::from(0)),
+                ErrorCode::InternalError,
+                e.to_string(),
+                None,
+            )
         }
     }
+}
 
-    async fn get_product_list(&mut self) -> Result<serde_json::Value> {
-        let (result_tx, result_rx) = oneshot::channel();
-        self.adapter_tx
-            .send(adapter::Message::GetProductList { result_tx })
-            .await?;
+async fn get_product_list(
+    adapter_tx: &mpsc::Sender<adapter::Message>,
+) -> Result<serde_json::Value> {
+    let (result_tx, result_rx) = oneshot::channel();
+    adapter_tx
+        .send(adapter::Message::GetProductList { result_tx })
+        .await?;
+    Ok(serde_json::to_value(result_rx.await??)?)
+}
 
-        Ok(serde_json::to_value(result_rx.await??)?)
-    }
+async fn get_product(
+    adapter_tx: &mpsc::Sender<adapter::Message>,
+    request: &Request<Method, Value>,
+) -> Result<serde_json::Value> {
+    let params: GetProductParams = {
+        let value = request.params.clone();
+        serde_json::from_value(value.ok_or_else(|| anyhow!("Missing request parameters"))?)
+    }?;
 
-    async fn get_product(&mut self, request: &Request<Method, Value>) -> Result<serde_json::Value> {
-        let params: GetProductParams = self.deserialize_params(request.params.clone())?;
+    let (result_tx, result_rx) = oneshot::channel();
+    adapter_tx
+        .send(adapter::Message::GetProduct {
+            account: params.account,
+            result_tx,
+        })
+        .await?;
+    Ok(serde_json::to_value(result_rx.await??)?)
+}
 
-        let (result_tx, result_rx) = oneshot::channel();
-        self.adapter_tx
-            .send(adapter::Message::GetProduct {
-                account: params.account,
-                result_tx,
-            })
-            .await?;
+async fn get_all_products(
+    adapter_tx: &mpsc::Sender<adapter::Message>,
+) -> Result<serde_json::Value> {
+    let (result_tx, result_rx) = oneshot::channel();
+    adapter_tx
+        .send(adapter::Message::GetAllProducts { result_tx })
+        .await?;
+    Ok(serde_json::to_value(result_rx.await??)?)
+}
 
-        Ok(serde_json::to_value(result_rx.await??)?)
-    }
+async fn subscribe_price(
+    adapter_tx: &mpsc::Sender<adapter::Message>,
+    notify_price_tx: &mpsc::Sender<NotifyPrice>,
+    request: &Request<Method, Value>,
+) -> Result<serde_json::Value> {
+    let params: SubscribePriceParams = serde_json::from_value(
+        request
+            .params
+            .clone()
+            .ok_or_else(|| anyhow!("Missing request parameters"))?,
+    )?;
 
-    async fn get_all_products(&mut self) -> Result<serde_json::Value> {
-        let (result_tx, result_rx) = oneshot::channel();
-        self.adapter_tx
-            .send(adapter::Message::GetAllProducts { result_tx })
-            .await?;
+    let (result_tx, result_rx) = oneshot::channel();
+    adapter_tx
+        .send(adapter::Message::SubscribePrice {
+            result_tx,
+            account: params.account,
+            notify_price_tx: notify_price_tx.clone(),
+        })
+        .await?;
 
-        Ok(serde_json::to_value(result_rx.await??)?)
-    }
+    Ok(serde_json::to_value(SubscribeResult {
+        subscription: result_rx.await??,
+    })?)
+}
 
-    async fn subscribe_price(
-        &mut self,
-        request: &Request<Method, Value>,
-    ) -> Result<serde_json::Value> {
-        let params: SubscribePriceParams = self.deserialize_params(request.params.clone())?;
+async fn subscribe_price_sched(
+    adapter_tx: &mpsc::Sender<adapter::Message>,
+    notify_price_sched_tx: &mpsc::Sender<NotifyPriceSched>,
+    request: &Request<Method, Value>,
+) -> Result<serde_json::Value> {
+    let params: SubscribePriceSchedParams = serde_json::from_value(
+        request
+            .params
+            .clone()
+            .ok_or_else(|| anyhow!("Missing request parameters"))?,
+    )?;
 
-        let (result_tx, result_rx) = oneshot::channel();
-        self.adapter_tx
-            .send(adapter::Message::SubscribePrice {
-                result_tx,
-                account: params.account,
-                notify_price_tx: self.notify_price_tx.clone(),
-            })
-            .await?;
+    let (result_tx, result_rx) = oneshot::channel();
+    adapter_tx
+        .send(adapter::Message::SubscribePriceSched {
+            result_tx,
+            account: params.account,
+            notify_price_sched_tx: notify_price_sched_tx.clone(),
+        })
+        .await?;
 
-        Ok(serde_json::to_value(SubscribeResult {
-            subscription: result_rx.await??,
-        })?)
-    }
+    Ok(serde_json::to_value(SubscribeResult {
+        subscription: result_rx.await??,
+    })?)
+}
 
-    async fn subscribe_price_sched(
-        &mut self,
-        request: &Request<Method, Value>,
-    ) -> Result<serde_json::Value> {
-        let params: SubscribePriceSchedParams = self.deserialize_params(request.params.clone())?;
+async fn update_price(
+    adapter_tx: &mpsc::Sender<adapter::Message>,
+    request: &Request<Method, Value>,
+) -> Result<serde_json::Value> {
+    let params: UpdatePriceParams = serde_json::from_value(
+        request
+            .params
+            .clone()
+            .ok_or_else(|| anyhow!("Missing request parameters"))?,
+    )?;
 
-        let (result_tx, result_rx) = oneshot::channel();
-        self.adapter_tx
-            .send(adapter::Message::SubscribePriceSched {
-                result_tx,
-                account: params.account,
-                notify_price_sched_tx: self.notify_price_sched_tx.clone(),
-            })
-            .await?;
+    adapter_tx
+        .send(adapter::Message::UpdatePrice {
+            account: params.account,
+            price:   params.price,
+            conf:    params.conf,
+            status:  params.status,
+        })
+        .await?;
 
-        Ok(serde_json::to_value(SubscribeResult {
-            subscription: result_rx.await??,
-        })?)
-    }
+    Ok(serde_json::to_value(0)?)
+}
 
-    async fn update_price(
-        &mut self,
-        request: &Request<Method, Value>,
-    ) -> Result<serde_json::Value> {
-        let params: UpdatePriceParams = self.deserialize_params(request.params.clone())?;
+async fn send_error(
+    ws_tx: &mut SplitSink<WebSocket, Message>,
+    error: anyhow::Error,
+    id: Option<Id>,
+) -> Result<()> {
+    let response: Response<Value> = Response::error(
+        id.unwrap_or_else(|| Id::from(0)),
+        ErrorCode::InternalError,
+        error.to_string(),
+        None,
+    );
+    send_text(ws_tx, &response.to_string()).await
+}
 
-        self.adapter_tx
-            .send(adapter::Message::UpdatePrice {
-                account: params.account,
-                price:   params.price,
-                conf:    params.conf,
-                status:  params.status,
-            })
-            .await?;
+async fn send_notification<T>(
+    ws_tx: &mut SplitSink<WebSocket, Message>,
+    method: Method,
+    params: Option<T>,
+) -> Result<()>
+where
+    T: Sized + Serialize + DeserializeOwned,
+{
+    send_request(ws_tx, IdReq::Notification, method, params).await
+}
 
-        Ok(serde_json::to_value(0)?)
-    }
+async fn send_request<I, T>(
+    ws_tx: &mut SplitSink<WebSocket, Message>,
+    id: I,
+    method: Method,
+    params: Option<T>,
+) -> Result<()>
+where
+    I: Into<IdReq>,
+    T: Sized + Serialize + DeserializeOwned,
+{
+    let request = Request::with_params(id, method, params);
+    send_text(ws_tx, &request.to_string()).await
+}
 
-    fn deserialize_params<T>(&self, value: Option<Value>) -> Result<T>
-    where
-        T: DeserializeOwned,
-    {
-        serde_json::from_value::<T>(value.ok_or_else(|| anyhow!("Missing request parameters"))?)
-            .map_err(|e| e.into())
-    }
-
-    async fn send_error(&mut self, error: anyhow::Error, id: Option<Id>) -> Result<()> {
-        let response: Response<Value> = Response::error(
-            id.unwrap_or_else(|| Id::from(0)),
-            ErrorCode::InternalError,
-            error.to_string(),
-            None,
-        );
-        self.send_text(&response.to_string()).await
-    }
-
-    async fn send_notification<T>(&mut self, method: Method, params: Option<T>) -> Result<()>
-    where
-        T: Sized + Serialize + DeserializeOwned,
-    {
-        self.send_request(IdReq::Notification, method, params).await
-    }
-
-    async fn send_request<I, T>(&mut self, id: I, method: Method, params: Option<T>) -> Result<()>
-    where
-        I: Into<IdReq>,
-        T: Sized + Serialize + DeserializeOwned,
-    {
-        let request = Request::with_params(id, method, params);
-        self.send_text(&request.to_string()).await
-    }
-
-    async fn send_text(&mut self, msg: &str) -> Result<()> {
-        self.ws_tx
-            .send(Message::text(msg.to_string()))
-            .await
-            .map_err(|e| e.into())
-    }
+async fn send_text(ws_tx: &mut SplitSink<WebSocket, Message>, msg: &str) -> Result<()> {
+    ws_tx
+        .send(Message::text(msg.to_string()))
+        .await
+        .map_err(|e| e.into())
 }
 
 #[derive(Clone)]
@@ -523,15 +553,13 @@ async fn serve(
                  config: Config| {
                     ws.on_upgrade(move |conn| async move {
                         info!(with_logger.logger, "websocket user connected");
-
-                        Connection::new(
+                        handle_connection(
                             conn,
                             adapter_tx,
                             config.notify_price_tx_buffer,
                             config.notify_price_sched_tx_buffer,
                             with_logger.logger,
                         )
-                        .consume()
                         .await
                     })
                 },
