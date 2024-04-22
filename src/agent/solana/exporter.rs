@@ -172,7 +172,7 @@ pub fn spawn_exporter(
     network: Network,
     rpc_url: &str,
     rpc_timeout: Duration,
-    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+    publisher_permissions_rx: watch::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     global_store_tx: Sender<store::global::Lookup>,
@@ -260,7 +260,7 @@ pub struct Exporter {
     inflight_transactions_tx: Sender<Signature>,
 
     /// publisher => { permissioned_price => market hours } as read by the oracle module
-    publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+    publisher_permissions_rx: watch::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
 
     /// Currently known permissioned prices of this publisher along with their market hours
     our_prices: HashMap<Pubkey, MarketSchedule>,
@@ -287,7 +287,7 @@ impl Exporter {
         global_store_tx: Sender<store::global::Lookup>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
-        publisher_permissions_rx: mpsc::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+        publisher_permissions_rx: watch::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Self {
@@ -556,51 +556,34 @@ impl Exporter {
     /// The loop ensures that we clear the channel and use
     /// only the final, latest message; try_recv() is
     /// non-blocking.
-    ///
-    /// Note: This behavior is similar to
-    /// tokio::sync::watch::channel(), which was not appropriate here
-    /// because its internal RwLock would complain about not being
-    /// Send with the HashMap<HashSet<Pubkey>> inside.
-    /// TODO(2023-05-05): Debug the watch::channel() compilation errors
     fn update_our_prices(&mut self, publish_pubkey: &Pubkey) {
-        loop {
-            match self.publisher_permissions_rx.try_recv() {
-                Ok(publisher_permissions) => {
-                    self.our_prices = publisher_permissions.get(publish_pubkey) .cloned()
-                        .unwrap_or_else( || {
-                            warn!(
-                                self.logger,
-                                "Exporter: No permissioned prices were found for the publishing keypair on-chain. This is expected only on startup.";
-                                "publish_pubkey" => publish_pubkey.to_string(),
-                            );
-                            HashMap::new()
-                        });
-                    trace!(
-                        self.logger,
-                        "Exporter: read permissioned price accounts from channel";
-                        "new_value" => format!("{:?}", self.our_prices),
-                    );
-                }
-                // Expected failures when channel is empty
-                Err(TryRecvError::Empty) => {
-                    trace!(
-                        self.logger,
-                        "Exporter: No more permissioned price accounts in channel, using cached value";
-                    );
-                    break;
-                }
-                // Unexpected failures (channel closed, internal errors etc.)
-                Err(other) => {
-                    warn!(
-                        self.logger,
-                        "Exporter: Updating permissioned price accounts failed unexpectedly, using cached value";
-                        "cached_value" => format!("{:?}", self.our_prices),
-                        "error" => other.to_string(),
-                    );
-                    break;
-                }
+        match self.publisher_permissions_rx.has_changed() {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(other) => {
+                warn!(
+                    self.logger,
+                    "Exporter: Updating permissioned price accounts failed unexpectedly, using cached value";
+                    "cached_value" => format!("{:?}", self.our_prices),
+                    "error" => other.to_string(),
+                );
+                return;
             }
         }
+
+        self.our_prices = self
+            .publisher_permissions_rx
+            .borrow_and_update()
+            .get(publish_pubkey)
+            .cloned()
+            .unwrap_or_else(|| {
+                warn!(
+                    self.logger,
+                    "Exporter: No permissioned prices were found for the publishing keypair on-chain. This is expected only on startup.";
+                    "publish_pubkey" => publish_pubkey.to_string(),
+                );
+                HashMap::new()
+            });
     }
 
     async fn fetch_local_store_contents(&self) -> Result<HashMap<PriceIdentifier, PriceInfo>> {
