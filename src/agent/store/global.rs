@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 // The Global Store stores a copy of all the product and price information held in the Pyth
 // on-chain aggregation contracts, across both the primary and secondary networks.
 // This enables this data to be easily queried by other components.
@@ -14,7 +13,7 @@ use {
             ProductGlobalMetrics,
             PROMETHEUS_REGISTRY,
         },
-        pythd::adapter,
+        pythd::adapter::AdapterApi,
         solana::network::Network,
     },
     anyhow::{
@@ -24,9 +23,13 @@ use {
     pyth_sdk::Identifier,
     slog::Logger,
     solana_sdk::pubkey::Pubkey,
-    std::collections::{
-        BTreeMap,
-        HashMap,
+    std::{
+        collections::{
+            BTreeMap,
+            HashMap,
+            HashSet,
+        },
+        sync::Arc,
     },
     tokio::{
         sync::{
@@ -119,7 +122,7 @@ pub enum Lookup {
     },
 }
 
-pub struct Store {
+pub struct Store<S> {
     /// The actual data on primary network
     account_data_primary: AllAccountsData,
 
@@ -147,25 +150,31 @@ pub struct Store {
     /// Channel on which account updates are received from the secondary network
     secondary_updates_rx: mpsc::Receiver<Update>,
 
-    /// Channel on which to communicate with the pythd API adapter
-    pythd_adapter_tx: mpsc::Sender<adapter::Message>,
+    /// Reference the Pythd Adapter.
+    pythd_adapter: Arc<S>,
 
     logger: Logger,
 }
 
-pub fn spawn_store(
+pub fn spawn_store<S>(
     lookup_rx: mpsc::Receiver<Lookup>,
     primary_updates_rx: mpsc::Receiver<Update>,
     secondary_updates_rx: mpsc::Receiver<Update>,
-    pythd_adapter_tx: mpsc::Sender<adapter::Message>,
+    pythd_adapter: Arc<S>,
     logger: Logger,
-) -> JoinHandle<()> {
+) -> JoinHandle<()>
+where
+    S: AdapterApi,
+    S: Send,
+    S: Sync,
+    S: 'static,
+{
     tokio::spawn(async move {
         Store::new(
             lookup_rx,
             primary_updates_rx,
             secondary_updates_rx,
-            pythd_adapter_tx,
+            pythd_adapter,
             logger,
         )
         .await
@@ -174,12 +183,17 @@ pub fn spawn_store(
     })
 }
 
-impl Store {
+impl<S> Store<S>
+where
+    S: AdapterApi,
+    S: Send,
+    S: Sync,
+{
     pub async fn new(
         lookup_rx: mpsc::Receiver<Lookup>,
         primary_updates_rx: mpsc::Receiver<Update>,
         secondary_updates_rx: mpsc::Receiver<Update>,
-        pythd_adapter_tx: mpsc::Sender<adapter::Message>,
+        pythd_adapter: Arc<S>,
         logger: Logger,
     ) -> Self {
         let prom_registry_ref = &mut &mut PROMETHEUS_REGISTRY.lock().await;
@@ -193,7 +207,7 @@ impl Store {
             lookup_rx,
             primary_updates_rx,
             secondary_updates_rx,
-            pythd_adapter_tx,
+            pythd_adapter,
             logger,
         }
     }
@@ -277,15 +291,15 @@ impl Store {
                 // As the account data might differ between the two networks
                 // we only notify the adapter of the primary network updates.
                 if let Network::Primary = network {
-                    self.pythd_adapter_tx
-                        .send(adapter::Message::GlobalStoreUpdate {
-                            price_identifier: Identifier::new(account_key.to_bytes()),
-                            price:            account.agg.price,
-                            conf:             account.agg.conf,
-                            status:           account.agg.status,
-                            valid_slot:       account.valid_slot,
-                            pub_slot:         account.agg.pub_slot,
-                        })
+                    self.pythd_adapter
+                        .global_store_update(
+                            Identifier::new(account_key.to_bytes()),
+                            account.agg.price,
+                            account.agg.conf,
+                            account.agg.status,
+                            account.valid_slot,
+                            account.agg.pub_slot,
+                        )
                         .await
                         .map_err(|_| anyhow!("failed to notify pythd adapter of account update"))?;
                 }

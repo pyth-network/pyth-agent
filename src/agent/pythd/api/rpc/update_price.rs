@@ -12,13 +12,15 @@ use {
         Request,
         Value,
     },
-    tokio::sync::mpsc,
 };
 
-pub async fn update_price(
-    adapter_tx: &mpsc::Sender<adapter::Message>,
+pub async fn update_price<S>(
+    adapter: &S,
     request: &Request<Method, Value>,
-) -> Result<serde_json::Value> {
+) -> Result<serde_json::Value>
+where
+    S: adapter::AdapterApi,
+{
     let params: UpdatePriceParams = serde_json::from_value(
         request
             .params
@@ -26,13 +28,13 @@ pub async fn update_price(
             .ok_or_else(|| anyhow!("Missing request parameters"))?,
     )?;
 
-    adapter_tx
-        .send(adapter::Message::UpdatePrice {
-            account: params.account,
-            price:   params.price,
-            conf:    params.conf,
-            status:  params.status,
-        })
+    adapter
+        .update_price(
+            &params.account.parse::<solana_sdk::pubkey::Pubkey>()?,
+            params.price,
+            params.conf,
+            params.status,
+        )
         .await?;
 
     Ok(serde_json::to_value(0)?)

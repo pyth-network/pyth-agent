@@ -1,39 +1,15 @@
 use {
     super::{
-        super::{
-            solana,
-            store::{
-                global,
-                local,
-                PriceIdentifier,
-            },
+        super::store::{
+            global,
+            local,
+            PriceIdentifier,
         },
         api::{
-            self,
-            Conf,
             NotifyPrice,
             NotifyPriceSched,
-            Price,
-            PriceAccountMetadata,
-            PriceUpdate,
-            ProductAccount,
-            ProductAccountMetadata,
             SubscriptionID,
         },
-    },
-    crate::agent::{
-        solana::oracle::PriceEntry,
-        store::global::AllAccountsData,
-    },
-    anyhow::{
-        anyhow,
-        Result,
-    },
-    chrono::Utc,
-    pyth_sdk::Identifier,
-    pyth_sdk_solana::state::{
-        PriceComp,
-        PriceStatus,
     },
     serde::{
         Deserialize,
@@ -42,20 +18,19 @@ use {
     slog::Logger,
     std::{
         collections::HashMap,
+        sync::atomic::AtomicI64,
         time::Duration,
     },
-    tokio::{
-        sync::{
-            broadcast,
-            mpsc,
-            oneshot,
-        },
-        task::JoinHandle,
-        time::{
-            self,
-            Interval,
-        },
+    tokio::sync::{
+        mpsc,
+        RwLock,
     },
+};
+
+mod api;
+pub use api::{
+    notifier,
+    AdapterApi,
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -79,29 +54,24 @@ impl Default for Config {
 /// It is responsible for implementing the business logic for responding to
 /// the pythd websocket API calls.
 pub struct Adapter {
-    /// Channel on which messages are received
-    message_rx: mpsc::Receiver<Message>,
-
-    /// Subscription ID counter
-    subscription_id_count: SubscriptionID,
+    /// Subscription ID sequencer.
+    subscription_id_seq: AtomicI64,
 
     /// Notify Price Sched subscriptions
-    notify_price_sched_subscriptions: HashMap<PriceIdentifier, Vec<NotifyPriceSchedSubscription>>,
+    notify_price_sched_subscriptions:
+        RwLock<HashMap<PriceIdentifier, Vec<NotifyPriceSchedSubscription>>>,
 
     // Notify Price Subscriptions
-    notify_price_subscriptions: HashMap<PriceIdentifier, Vec<NotifyPriceSubscription>>,
+    notify_price_subscriptions: RwLock<HashMap<PriceIdentifier, Vec<NotifyPriceSubscription>>>,
 
     /// The fixed interval at which Notify Price Sched notifications are sent
-    notify_price_sched_interval: Interval,
+    notify_price_sched_interval_duration: Duration,
 
     /// Channel on which to communicate with the global store
     global_store_lookup_tx: mpsc::Sender<global::Lookup>,
 
     /// Channel on which to communicate with the local store
     local_store_tx: mpsc::Sender<local::Message>,
-
-    /// Channel on which the shutdown is broadcast
-    shutdown_rx: broadcast::Receiver<()>,
 
     /// The logger
     logger: Logger,
@@ -123,481 +93,22 @@ struct NotifyPriceSubscription {
     notify_price_tx: mpsc::Sender<NotifyPrice>,
 }
 
-#[derive(Debug)]
-pub enum Message {
-    GlobalStoreUpdate {
-        price_identifier: PriceIdentifier,
-        price:            i64,
-        conf:             u64,
-        status:           PriceStatus,
-        valid_slot:       u64,
-        pub_slot:         u64,
-    },
-    GetProductList {
-        result_tx: oneshot::Sender<Result<Vec<ProductAccountMetadata>>>,
-    },
-    GetProduct {
-        account:   api::Pubkey,
-        result_tx: oneshot::Sender<Result<ProductAccount>>,
-    },
-    GetAllProducts {
-        result_tx: oneshot::Sender<Result<Vec<ProductAccount>>>,
-    },
-    SubscribePrice {
-        account:         api::Pubkey,
-        notify_price_tx: mpsc::Sender<NotifyPrice>,
-        result_tx:       oneshot::Sender<Result<SubscriptionID>>,
-    },
-    SubscribePriceSched {
-        account:               api::Pubkey,
-        notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
-        result_tx:             oneshot::Sender<Result<SubscriptionID>>,
-    },
-    UpdatePrice {
-        account: api::Pubkey,
-        price:   Price,
-        conf:    Conf,
-        status:  String,
-    },
-}
-
-pub fn spawn_adapter(
-    config: Config,
-    message_rx: mpsc::Receiver<Message>,
-    global_store_lookup_tx: mpsc::Sender<global::Lookup>,
-    local_store_tx: mpsc::Sender<local::Message>,
-    shutdown_rx: broadcast::Receiver<()>,
-    logger: Logger,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        Adapter::new(
-            config,
-            message_rx,
-            global_store_lookup_tx,
-            local_store_tx,
-            shutdown_rx,
-            logger,
-        )
-        .run()
-        .await
-    })
-}
-
 impl Adapter {
     pub fn new(
         config: Config,
-        message_rx: mpsc::Receiver<Message>,
         global_store_lookup_tx: mpsc::Sender<global::Lookup>,
         local_store_tx: mpsc::Sender<local::Message>,
-        shutdown_rx: broadcast::Receiver<()>,
         logger: Logger,
     ) -> Self {
         Adapter {
-            message_rx,
-            subscription_id_count: 0,
-            notify_price_sched_subscriptions: HashMap::new(),
-            notify_price_subscriptions: HashMap::new(),
-            notify_price_sched_interval: time::interval(
-                config.notify_price_sched_interval_duration,
-            ),
+            subscription_id_seq: 1.into(),
+            notify_price_sched_subscriptions: RwLock::new(HashMap::new()),
+            notify_price_subscriptions: RwLock::new(HashMap::new()),
+            notify_price_sched_interval_duration: config.notify_price_sched_interval_duration,
             global_store_lookup_tx,
             local_store_tx,
-            shutdown_rx,
             logger,
         }
-    }
-
-    pub async fn run(&mut self) {
-        loop {
-            self.drop_closed_subscriptions();
-            tokio::select! {
-                Some(message) = self.message_rx.recv() => {
-                    if let Err(err) = self.handle_message(message).await {
-                        error!(self.logger, "{}", err);
-                        debug!(self.logger, "error context"; "context" => format!("{:?}", err));
-                    }
-                }
-                _ = self.shutdown_rx.recv() => {
-                    info!(self.logger, "shutdown signal received");
-                    return;
-                }
-                _ = self.notify_price_sched_interval.tick() => {
-                    if let Err(err) = self.send_notify_price_sched().await {
-                        error!(self.logger, "{}", err);
-                        debug!(self.logger, "error context"; "context" => format!("{:?}", err));
-                    }
-                }
-            }
-        }
-    }
-
-    async fn handle_message(&mut self, message: Message) -> Result<()> {
-        match message {
-            Message::GetProductList { result_tx } => {
-                self.send(result_tx, self.handle_get_product_list().await)
-            }
-            Message::GetProduct { account, result_tx } => {
-                self.send(result_tx, self.handle_get_product(&account.parse()?).await)
-            }
-            Message::GetAllProducts { result_tx } => {
-                self.send(result_tx, self.handle_get_all_products().await)
-            }
-            Message::SubscribePrice {
-                account,
-                notify_price_tx,
-                result_tx,
-            } => {
-                let subscription_id = self
-                    .handle_subscribe_price(&account.parse()?, notify_price_tx)
-                    .await;
-                self.send(result_tx, Ok(subscription_id))
-            }
-            Message::SubscribePriceSched {
-                account,
-                notify_price_sched_tx,
-                result_tx,
-            } => {
-                let subscription_id = self
-                    .handle_subscribe_price_sched(&account.parse()?, notify_price_sched_tx)
-                    .await;
-                self.send(result_tx, Ok(subscription_id))
-            }
-            Message::UpdatePrice {
-                account,
-                price,
-                conf,
-                status,
-            } => {
-                self.handle_update_price(&account.parse()?, price, conf, status)
-                    .await
-            }
-            Message::GlobalStoreUpdate {
-                price_identifier,
-                price,
-                conf,
-                status,
-                valid_slot,
-                pub_slot,
-            } => {
-                self.handle_global_store_update(
-                    price_identifier,
-                    price,
-                    conf,
-                    status,
-                    valid_slot,
-                    pub_slot,
-                )
-                .await
-            }
-        }
-    }
-
-    fn send<T>(&self, tx: oneshot::Sender<T>, item: T) -> Result<()> {
-        tx.send(item).map_err(|_| anyhow!("sending channel full"))
-    }
-
-    async fn handle_get_product_list(&self) -> Result<Vec<ProductAccountMetadata>> {
-        let all_accounts_metadata = self.lookup_all_accounts_metadata().await?;
-
-        let mut result = Vec::new();
-        for (product_account_key, product_account) in
-            all_accounts_metadata.product_accounts_metadata
-        {
-            // Transform the price accounts into the API PriceAccountMetadata structs
-            // the API uses.
-            let price_accounts_metadata = product_account
-                .price_accounts
-                .iter()
-                .filter_map(|price_account_key| {
-                    all_accounts_metadata
-                        .price_accounts_metadata
-                        .get(price_account_key)
-                        .map(|acc| (price_account_key, acc))
-                })
-                .map(|(price_account_key, price_account)| PriceAccountMetadata {
-                    account:        price_account_key.to_string(),
-                    price_type:     "price".to_owned(),
-                    price_exponent: price_account.expo as i64,
-                })
-                .collect();
-
-            // Create the product account metadata struct
-            result.push(ProductAccountMetadata {
-                account:   product_account_key.to_string(),
-                attr_dict: product_account.attr_dict,
-                price:     price_accounts_metadata,
-            })
-        }
-
-        Ok(result)
-    }
-
-    // Fetches the Solana-specific Oracle data from the global store
-    async fn lookup_all_accounts_metadata(&self) -> Result<global::AllAccountsMetadata> {
-        let (result_tx, result_rx) = oneshot::channel();
-        self.global_store_lookup_tx
-            .send(global::Lookup::LookupAllAccountsMetadata { result_tx })
-            .await?;
-        result_rx.await?
-    }
-
-    async fn handle_get_all_products(&self) -> Result<Vec<ProductAccount>> {
-        let solana_data = self.lookup_all_accounts_data().await?;
-
-        let mut result = Vec::new();
-        for (product_account_key, product_account) in &solana_data.product_accounts {
-            let product_account_api = Self::solana_product_account_to_pythd_api_product_account(
-                product_account,
-                &solana_data,
-                product_account_key,
-            );
-
-            result.push(product_account_api)
-        }
-
-        Ok(result)
-    }
-
-    async fn lookup_all_accounts_data(&self) -> Result<AllAccountsData> {
-        let (result_tx, result_rx) = oneshot::channel();
-        self.global_store_lookup_tx
-            .send(global::Lookup::LookupAllAccountsData {
-                network: solana::network::Network::Primary,
-                result_tx,
-            })
-            .await?;
-        result_rx.await?
-    }
-
-    fn solana_product_account_to_pythd_api_product_account(
-        product_account: &solana::oracle::ProductEntry,
-        all_accounts_data: &AllAccountsData,
-        product_account_key: &solana_sdk::pubkey::Pubkey,
-    ) -> ProductAccount {
-        // Extract all the price accounts from the product account
-        let price_accounts = product_account
-            .price_accounts
-            .iter()
-            .filter_map(|price_account_key| {
-                all_accounts_data
-                    .price_accounts
-                    .get(price_account_key)
-                    .map(|acc| (price_account_key, acc))
-            })
-            .map(|(price_account_key, price_account)| {
-                Self::solana_price_account_to_pythd_api_price_account(
-                    price_account_key,
-                    price_account,
-                )
-            })
-            .collect();
-
-        // Create the product account metadata struct
-        ProductAccount {
-            account: product_account_key.to_string(),
-            attr_dict: product_account
-                .account_data
-                .iter()
-                .filter(|(key, val)| !key.is_empty() && !val.is_empty())
-                .map(|(key, val)| (key.to_owned(), val.to_owned()))
-                .collect(),
-            price_accounts,
-        }
-    }
-
-    fn solana_price_account_to_pythd_api_price_account(
-        price_account_key: &solana_sdk::pubkey::Pubkey,
-        price_account: &PriceEntry,
-    ) -> api::PriceAccount {
-        api::PriceAccount {
-            account:            price_account_key.to_string(),
-            price_type:         "price".to_string(),
-            price_exponent:     price_account.expo as i64,
-            status:             Self::price_status_to_str(price_account.agg.status),
-            price:              price_account.agg.price,
-            conf:               price_account.agg.conf,
-            twap:               price_account.ema_price.val,
-            twac:               price_account.ema_conf.val,
-            valid_slot:         price_account.valid_slot,
-            pub_slot:           price_account.agg.pub_slot,
-            prev_slot:          price_account.prev_slot,
-            prev_price:         price_account.prev_price,
-            prev_conf:          price_account.prev_conf,
-            publisher_accounts: price_account
-                .comp
-                .iter()
-                .filter(|comp| *comp != &PriceComp::default())
-                .map(|comp| api::PublisherAccount {
-                    account: comp.publisher.to_string(),
-                    status:  Self::price_status_to_str(comp.agg.status),
-                    price:   comp.agg.price,
-                    conf:    comp.agg.conf,
-                    slot:    comp.agg.pub_slot,
-                })
-                .collect(),
-        }
-    }
-
-    // TODO: implement Display on PriceStatus and then just call PriceStatus::to_string
-    fn price_status_to_str(price_status: PriceStatus) -> String {
-        match price_status {
-            PriceStatus::Unknown => "unknown",
-            PriceStatus::Trading => "trading",
-            PriceStatus::Halted => "halted",
-            PriceStatus::Auction => "auction",
-            PriceStatus::Ignored => "ignored",
-        }
-        .to_string()
-    }
-
-    async fn handle_get_product(
-        &self,
-        product_account_key: &solana_sdk::pubkey::Pubkey,
-    ) -> Result<ProductAccount> {
-        let all_accounts_data = self.lookup_all_accounts_data().await?;
-
-        // Look up the product account
-        let product_account = all_accounts_data
-            .product_accounts
-            .get(product_account_key)
-            .ok_or_else(|| anyhow!("product account not found"))?;
-
-        Ok(Self::solana_product_account_to_pythd_api_product_account(
-            product_account,
-            &all_accounts_data,
-            product_account_key,
-        ))
-    }
-
-    async fn handle_subscribe_price_sched(
-        &mut self,
-        account_pubkey: &solana_sdk::pubkey::Pubkey,
-        notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
-    ) -> SubscriptionID {
-        let subscription_id = self.next_subscription_id();
-        self.notify_price_sched_subscriptions
-            .entry(Identifier::new(account_pubkey.to_bytes()))
-            .or_default()
-            .push(NotifyPriceSchedSubscription {
-                subscription_id,
-                notify_price_sched_tx,
-            });
-        subscription_id
-    }
-
-    fn next_subscription_id(&mut self) -> SubscriptionID {
-        self.subscription_id_count += 1;
-        self.subscription_id_count
-    }
-
-    async fn handle_subscribe_price(
-        &mut self,
-        account: &solana_sdk::pubkey::Pubkey,
-        notify_price_tx: mpsc::Sender<NotifyPrice>,
-    ) -> SubscriptionID {
-        let subscription_id = self.next_subscription_id();
-        self.notify_price_subscriptions
-            .entry(Identifier::new(account.to_bytes()))
-            .or_default()
-            .push(NotifyPriceSubscription {
-                subscription_id,
-                notify_price_tx,
-            });
-        subscription_id
-    }
-
-    async fn send_notify_price_sched(&self) -> Result<()> {
-        for subscription in self.notify_price_sched_subscriptions.values().flatten() {
-            // Send the notify price sched update without awaiting. This results in raising errors
-            // if the channel is full which normally should not happen. This is because we do not
-            // want to block the adapter if the channel is full.
-            subscription
-                .notify_price_sched_tx
-                .try_send(NotifyPriceSched {
-                    subscription: subscription.subscription_id,
-                })?;
-        }
-
-        Ok(())
-    }
-
-    fn drop_closed_subscriptions(&mut self) {
-        for subscriptions in self.notify_price_subscriptions.values_mut() {
-            subscriptions.retain(|subscription| !subscription.notify_price_tx.is_closed())
-        }
-
-        for subscriptions in self.notify_price_sched_subscriptions.values_mut() {
-            subscriptions.retain(|subscription| !subscription.notify_price_sched_tx.is_closed())
-        }
-    }
-
-    async fn handle_update_price(
-        &self,
-        account: &solana_sdk::pubkey::Pubkey,
-        price: Price,
-        conf: Conf,
-        status: String,
-    ) -> Result<()> {
-        self.local_store_tx
-            .send(local::Message::Update {
-                price_identifier: pyth_sdk::Identifier::new(account.to_bytes()),
-                price_info:       local::PriceInfo {
-                    status: Adapter::map_status(&status)?,
-                    price,
-                    conf,
-                    timestamp: Utc::now().timestamp(),
-                },
-            })
-            .await
-            .map_err(|_| anyhow!("failed to send update to local store"))
-    }
-
-    // TODO: implement FromStr method on PriceStatus
-    fn map_status(status: &str) -> Result<PriceStatus> {
-        match status {
-            "unknown" => Ok(PriceStatus::Unknown),
-            "trading" => Ok(PriceStatus::Trading),
-            "halted" => Ok(PriceStatus::Halted),
-            "auction" => Ok(PriceStatus::Auction),
-            "ignored" => Ok(PriceStatus::Ignored),
-            _ => Err(anyhow!("invalid price status: {:#?}", status)),
-        }
-    }
-
-    async fn handle_global_store_update(
-        &self,
-        price_identifier: PriceIdentifier,
-        price: i64,
-        conf: u64,
-        status: PriceStatus,
-        valid_slot: u64,
-        pub_slot: u64,
-    ) -> Result<()> {
-        // Look up any subcriptions associated with the price identifier
-        let empty = Vec::new();
-        let subscriptions = self
-            .notify_price_subscriptions
-            .get(&price_identifier)
-            .unwrap_or(&empty);
-
-        // Send the Notify Price update to each subscription
-        for subscription in subscriptions {
-            // Send the notify price update without awaiting. This results in raising errors if the
-            // channel is full which normally should not happen. This is because we do not want to
-            // block the adapter if the channel is full.
-            subscription.notify_price_tx.try_send(NotifyPrice {
-                subscription: subscription.subscription_id,
-                result:       PriceUpdate {
-                    price,
-                    conf,
-                    status: Self::price_status_to_str(status),
-                    valid_slot,
-                    pub_slot,
-                },
-            })?;
-        }
-
-        Ok(())
     }
 }
 
@@ -605,9 +116,10 @@ impl Adapter {
 mod tests {
     use {
         super::{
+            notifier,
             Adapter,
+            AdapterApi,
             Config,
-            Message,
         },
         crate::agent::{
             pythd::{
@@ -649,56 +161,48 @@ mod tests {
                 HashMap,
             },
             str::FromStr,
+            sync::Arc,
             time::Duration,
         },
         tokio::{
             sync::{
                 broadcast,
                 mpsc,
-                oneshot,
             },
             task::JoinHandle,
         },
     };
 
     struct TestAdapter {
-        message_tx:             mpsc::Sender<Message>,
-        shutdown_tx:            broadcast::Sender<()>,
+        adapter:                Arc<Adapter>,
         global_store_lookup_rx: mpsc::Receiver<global::Lookup>,
         local_store_rx:         mpsc::Receiver<local::Message>,
+        shutdown_tx:            broadcast::Sender<()>,
         jh:                     JoinHandle<()>,
-    }
-
-    impl Drop for TestAdapter {
-        fn drop(&mut self) {
-            let _ = self.shutdown_tx.send(());
-            self.jh.abort();
-        }
     }
 
     async fn setup() -> TestAdapter {
         // Create and spawn an adapter
-        let (adapter_tx, adapter_rx) = mpsc::channel(100);
         let (global_store_lookup_tx, global_store_lookup_rx) = mpsc::channel(1000);
         let (local_store_tx, local_store_rx) = mpsc::channel(1000);
         let notify_price_sched_interval_duration = Duration::from_nanos(10);
         let logger = slog_test::new_test_logger(IoBuffer::new());
-        let (shutdown_tx, shutdown_rx) = broadcast::channel(10);
         let config = Config {
             notify_price_sched_interval_duration,
         };
-        let mut adapter = Adapter::new(
+        let adapter = Arc::new(Adapter::new(
             config,
-            adapter_rx,
             global_store_lookup_tx,
             local_store_tx,
-            shutdown_rx,
             logger,
-        );
-        let jh = tokio::spawn(async move { adapter.run().await });
+        ));
+        let (shutdown_tx, _) = broadcast::channel(1);
+
+        // Spawn Price Notifier
+        let jh = tokio::spawn(notifier(adapter.clone(), shutdown_tx.subscribe()));
 
         TestAdapter {
-            message_tx: adapter_tx,
+            adapter,
             global_store_lookup_rx,
             local_store_rx,
             shutdown_tx,
@@ -711,20 +215,14 @@ mod tests {
         let test_adapter = setup().await;
 
         // Send a Subscribe Price Sched message
-        let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF".to_string();
-        let (notify_price_sched_tx, mut notify_price_sched_rx) = mpsc::channel(1000);
-        let (result_tx, result_rx) = oneshot::channel();
-        test_adapter
-            .message_tx
-            .send(Message::SubscribePriceSched {
-                account,
-                notify_price_sched_tx,
-                result_tx,
-            })
-            .await
+        let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF"
+            .parse::<solana_sdk::pubkey::Pubkey>()
             .unwrap();
-
-        let subscription_id = result_rx.await.unwrap().unwrap();
+        let (notify_price_sched_tx, mut notify_price_sched_rx) = mpsc::channel(1000);
+        let subscription_id = test_adapter
+            .adapter
+            .subscribe_price_sched(&account, notify_price_sched_tx)
+            .await;
 
         // Expect that we recieve several Notify Price Sched notifications
         for _ in 0..10 {
@@ -735,6 +233,9 @@ mod tests {
                 }
             )
         }
+
+        let _ = test_adapter.shutdown_tx.send(());
+        test_adapter.jh.abort();
     }
 
     fn get_test_all_accounts_metadata() -> global::AllAccountsMetadata {
@@ -857,23 +358,23 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_get_product_list() {
         // Start the test adapter
-        let mut test_adapter = setup().await;
-
-        // Send a Get Product List message
-        let (result_tx, result_rx) = oneshot::channel();
-        test_adapter
-            .message_tx
-            .send(Message::GetProductList { result_tx })
-            .await
-            .unwrap();
+        let test_adapter = setup().await;
 
         // Return the product list to the adapter, from the global store
-        match test_adapter.global_store_lookup_rx.recv().await.unwrap() {
-            global::Lookup::LookupAllAccountsMetadata { result_tx } => result_tx
-                .send(Ok(get_test_all_accounts_metadata()))
-                .unwrap(),
-            _ => panic!("Uexpected message received from adapter"),
-        };
+        {
+            let mut global_store_lookup_rx = test_adapter.global_store_lookup_rx;
+            tokio::spawn(async move {
+                match global_store_lookup_rx.recv().await.unwrap() {
+                    global::Lookup::LookupAllAccountsMetadata { result_tx } => result_tx
+                        .send(Ok(get_test_all_accounts_metadata()))
+                        .unwrap(),
+                    _ => panic!("Uexpected message received from adapter"),
+                };
+            });
+        }
+
+        // Send a Get Product List message
+        let mut product_list = test_adapter.adapter.get_product_list().await.unwrap();
 
         // Check that the result is what we expected
         let expected = vec![
@@ -941,9 +442,10 @@ mod tests {
             },
         ];
 
-        let mut result = result_rx.await.unwrap().unwrap();
-        result.sort();
-        assert_eq!(result, expected);
+        product_list.sort();
+        assert_eq!(product_list, expected);
+        let _ = test_adapter.shutdown_tx.send(());
+        test_adapter.jh.abort();
     }
 
     fn pad_price_comps(mut inputs: Vec<PriceComp>) -> [PriceComp; 32] {
@@ -1568,24 +1070,24 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_get_all_products() {
         // Start the test adapter
-        let mut test_adapter = setup().await;
-
-        // Send a Get All Products message
-        let (result_tx, result_rx) = oneshot::channel();
-        test_adapter
-            .message_tx
-            .send(Message::GetAllProducts { result_tx })
-            .await
-            .unwrap();
+        let test_adapter = setup().await;
 
         // Return the account data to the adapter, from the global store
-        match test_adapter.global_store_lookup_rx.recv().await.unwrap() {
-            global::Lookup::LookupAllAccountsData {
-                network: Network::Primary,
-                result_tx,
-            } => result_tx.send(Ok(get_all_accounts_data())).unwrap(),
-            _ => panic!("Uexpected message received from adapter"),
-        };
+        {
+            let mut global_store_lookup_rx = test_adapter.global_store_lookup_rx;
+            tokio::spawn(async move {
+                match global_store_lookup_rx.recv().await.unwrap() {
+                    global::Lookup::LookupAllAccountsData {
+                        network: Network::Primary,
+                        result_tx,
+                    } => result_tx.send(Ok(get_all_accounts_data())).unwrap(),
+                    _ => panic!("Uexpected message received from adapter"),
+                };
+            });
+        }
+
+        // Send a Get All Products message
+        let mut all_products = test_adapter.adapter.get_all_products().await.unwrap();
 
         // Check that the result of the conversion to the Pythd API format is what we expected
         let expected = vec![
@@ -1782,40 +1284,40 @@ mod tests {
             },
         ];
 
-        let mut result = result_rx.await.unwrap().unwrap();
-        result.sort();
-        assert_eq!(result, expected);
+        all_products.sort();
+        assert_eq!(all_products, expected);
+        let _ = test_adapter.shutdown_tx.send(());
+        test_adapter.jh.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_get_product() {
         // Start the test adapter
-        let mut test_adapter = setup().await;
-
-        // Send a Get Product message
-        let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string();
-        let (result_tx, result_rx) = oneshot::channel();
-        test_adapter
-            .message_tx
-            .send(Message::GetProduct {
-                account: account.clone(),
-                result_tx,
-            })
-            .await
-            .unwrap();
+        let test_adapter = setup().await;
 
         // Return the account data to the adapter, from the global store
-        match test_adapter.global_store_lookup_rx.recv().await.unwrap() {
-            global::Lookup::LookupAllAccountsData {
-                network: Network::Primary,
-                result_tx,
-            } => result_tx.send(Ok(get_all_accounts_data())).unwrap(),
-            _ => panic!("Uexpected message received from adapter"),
-        };
+        {
+            let mut global_store_lookup_rx = test_adapter.global_store_lookup_rx;
+            tokio::spawn(async move {
+                match global_store_lookup_rx.recv().await.unwrap() {
+                    global::Lookup::LookupAllAccountsData {
+                        network: Network::Primary,
+                        result_tx,
+                    } => result_tx.send(Ok(get_all_accounts_data())).unwrap(),
+                    _ => panic!("Uexpected message received from adapter"),
+                };
+            });
+        }
+
+        // Send a Get Product message
+        let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t"
+            .parse::<solana_sdk::pubkey::Pubkey>()
+            .unwrap();
+        let product = test_adapter.adapter.get_product(&account).await.unwrap();
 
         // Check that the result of the conversion to the Pythd API format is what we expected
         let expected = ProductAccount {
-            account,
+            account:        account.to_string(),
             price_accounts: vec![
                 api::PriceAccount {
                     account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".to_string(),
@@ -1887,7 +1389,7 @@ mod tests {
                     ],
                 },
             ],
-            attr_dict: BTreeMap::from(
+            attr_dict:      BTreeMap::from(
                 [
                     ("symbol", "Crypto.LTC/USD"),
                     ("asset_type", "Crypto"),
@@ -1900,8 +1402,9 @@ mod tests {
             ),
         };
 
-        let result = result_rx.await.unwrap().unwrap();
-        assert_eq!(result, expected);
+        assert_eq!(product, expected);
+        let _ = test_adapter.shutdown_tx.send(());
+        test_adapter.jh.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1910,17 +1413,14 @@ mod tests {
         let mut test_adapter = setup().await;
 
         // Send an Update Price message
-        let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string();
+        let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t"
+            .parse::<solana_sdk::pubkey::Pubkey>()
+            .unwrap();
         let price = 2365;
         let conf = 98754;
-        test_adapter
-            .message_tx
-            .send(Message::UpdatePrice {
-                account: account.clone(),
-                price,
-                conf,
-                status: "trading".to_string(),
-            })
+        let _ = test_adapter
+            .adapter
+            .update_price(&account, price, conf, "trading".to_string())
             .await
             .unwrap();
 
@@ -1930,21 +1430,16 @@ mod tests {
                 price_identifier,
                 price_info,
             } => {
-                assert_eq!(
-                    price_identifier,
-                    Identifier::new(
-                        account
-                            .parse::<solana_sdk::pubkey::Pubkey>()
-                            .unwrap()
-                            .to_bytes()
-                    )
-                );
+                assert_eq!(price_identifier, Identifier::new(account.to_bytes()));
                 assert_eq!(price_info.price, price);
                 assert_eq!(price_info.conf, conf);
                 assert_eq!(price_info.status, PriceStatus::Trading);
             }
             _ => panic!("Uexpected message received by local store from adapter"),
         };
+
+        let _ = test_adapter.shutdown_tx.send(());
+        test_adapter.jh.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1953,41 +1448,30 @@ mod tests {
         let test_adapter = setup().await;
 
         // Send a Subscribe Price message
-        let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF".to_string();
-        let (notify_price_tx, mut notify_price_rx) = mpsc::channel(1000);
-        let (result_tx, result_rx) = oneshot::channel();
-        test_adapter
-            .message_tx
-            .send(Message::SubscribePrice {
-                account: account.clone(),
-                notify_price_tx,
-                result_tx,
-            })
-            .await
+        let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF"
+            .parse::<solana_sdk::pubkey::Pubkey>()
             .unwrap();
-
-        let subscription_id = result_rx.await.unwrap().unwrap();
+        let (notify_price_tx, mut notify_price_rx) = mpsc::channel(1000);
+        let subscription_id = test_adapter
+            .adapter
+            .subscribe_price(&account, notify_price_tx)
+            .await;
 
         // Send an update from the global store to the adapter
         let price = 52162;
         let conf = 1646;
         let valid_slot = 75684;
         let pub_slot = 32565;
-        test_adapter
-            .message_tx
-            .send(Message::GlobalStoreUpdate {
-                price_identifier: Identifier::new(
-                    account
-                        .parse::<solana_sdk::pubkey::Pubkey>()
-                        .unwrap()
-                        .to_bytes(),
-                ),
+        let _ = test_adapter
+            .adapter
+            .global_store_update(
+                Identifier::new(account.to_bytes()),
                 price,
                 conf,
-                status: PriceStatus::Trading,
+                PriceStatus::Trading,
                 valid_slot,
                 pub_slot,
-            })
+            )
             .await
             .unwrap();
 
@@ -2005,6 +1489,9 @@ mod tests {
                     pub_slot
                 },
             }
-        )
+        );
+
+        let _ = test_adapter.shutdown_tx.send(());
+        test_adapter.jh.abort();
     }
 }
