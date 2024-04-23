@@ -73,12 +73,16 @@ pub mod store;
 use {
     self::{
         config::Config,
-        pythd::api::rpc,
+        pythd::{
+            adapter::notifier,
+            api::rpc,
+        },
         solana::network,
     },
     anyhow::Result,
     futures_util::future::join_all,
     slog::Logger,
+    std::sync::Arc,
     tokio::sync::{
         broadcast,
         mpsc,
@@ -113,8 +117,7 @@ impl Agent {
 
         // Create the channels
         // TODO: make all components listen to shutdown signal
-        let (shutdown_tx, shutdown_rx) =
-            broadcast::channel(self.config.channel_capacities.shutdown);
+        let (shutdown_tx, _) = broadcast::channel(self.config.channel_capacities.shutdown);
         let (primary_oracle_updates_tx, primary_oracle_updates_rx) =
             mpsc::channel(self.config.channel_capacities.primary_oracle_updates);
         let (secondary_oracle_updates_tx, secondary_oracle_updates_rx) =
@@ -123,8 +126,6 @@ impl Agent {
             mpsc::channel(self.config.channel_capacities.global_store_lookup);
         let (local_store_tx, local_store_rx) =
             mpsc::channel(self.config.channel_capacities.local_store);
-        let (pythd_adapter_tx, pythd_adapter_rx) =
-            mpsc::channel(self.config.channel_capacities.pythd_adapter);
         let (primary_keypair_loader_tx, primary_keypair_loader_rx) = mpsc::channel(10);
         let (secondary_keypair_loader_tx, secondary_keypair_loader_rx) = mpsc::channel(10);
 
@@ -152,34 +153,38 @@ impl Agent {
             )?);
         }
 
+        // Create the Pythd Adapter.
+        let adapter = Arc::new(pythd::adapter::Adapter::new(
+            self.config.pythd_adapter.clone(),
+            global_store_lookup_tx.clone(),
+            local_store_tx.clone(),
+            logger.clone(),
+        ));
+
+        // Create the Notifier task for the Pythd RPC.
+        jhs.push(tokio::spawn(notifier(
+            adapter.clone(),
+            shutdown_tx.subscribe(),
+        )));
+
         // Spawn the Global Store
         jhs.push(store::global::spawn_store(
             global_store_lookup_rx,
             primary_oracle_updates_rx,
             secondary_oracle_updates_rx,
-            pythd_adapter_tx.clone(),
+            adapter.clone(),
             logger.clone(),
         ));
 
         // Spawn the Local Store
         jhs.push(store::local::spawn_store(local_store_rx, logger.clone()));
 
-        // Spawn the Pythd Adapter
-        jhs.push(pythd::adapter::spawn_adapter(
-            self.config.pythd_adapter.clone(),
-            pythd_adapter_rx,
-            global_store_lookup_tx.clone(),
-            local_store_tx.clone(),
-            shutdown_tx.subscribe(),
-            logger.clone(),
-        ));
-
         // Spawn the Pythd API Server
         jhs.push(tokio::spawn(rpc::run(
             self.config.pythd_api_server.clone(),
             logger.clone(),
-            pythd_adapter_tx,
-            shutdown_rx,
+            adapter,
+            shutdown_tx.subscribe(),
         )));
 
         // Spawn the metrics server

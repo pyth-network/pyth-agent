@@ -3279,6 +3279,7 @@ dependencies = [
  "chrono-tz",
  "clap 4.5.4",
  "config",
+ "futures",
  "futures-util",
  "humantime",
  "humantime-serde",

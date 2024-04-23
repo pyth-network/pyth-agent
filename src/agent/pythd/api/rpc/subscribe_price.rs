@@ -14,17 +14,17 @@ use {
         Request,
         Value,
     },
-    tokio::sync::{
-        mpsc,
-        oneshot,
-    },
+    tokio::sync::mpsc,
 };
 
-pub async fn subscribe_price(
-    adapter_tx: &mpsc::Sender<adapter::Message>,
+pub async fn subscribe_price<S>(
+    adapter: &S,
     notify_price_tx: &mpsc::Sender<NotifyPrice>,
     request: &Request<Method, Value>,
-) -> Result<serde_json::Value> {
+) -> Result<serde_json::Value>
+where
+    S: adapter::AdapterApi,
+{
     let params: SubscribePriceParams = serde_json::from_value(
         request
             .params
@@ -32,16 +32,10 @@ pub async fn subscribe_price(
             .ok_or_else(|| anyhow!("Missing request parameters"))?,
     )?;
 
-    let (result_tx, result_rx) = oneshot::channel();
-    adapter_tx
-        .send(adapter::Message::SubscribePrice {
-            result_tx,
-            account: params.account,
-            notify_price_tx: notify_price_tx.clone(),
-        })
-        .await?;
+    let account = params.account.parse::<solana_sdk::pubkey::Pubkey>()?;
+    let subscription = adapter
+        .subscribe_price(&account, notify_price_tx.clone())
+        .await;
 
-    Ok(serde_json::to_value(SubscribeResult {
-        subscription: result_rx.await??,
-    })?)
+    Ok(serde_json::to_value(SubscribeResult { subscription })?)
 }
