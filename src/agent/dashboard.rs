@@ -1,20 +1,23 @@
 use {
     super::{
-        solana::oracle::PriceEntry,
-        store::{
-            global::{
-                AllAccountsData,
-                AllAccountsMetadata,
-                Lookup,
-                PriceAccountMetadata,
-            },
-            local::{
-                Message,
-                PriceInfo,
-            },
+        pythd::adapter::global::GlobalStore,
+        solana::{
+            network::Network,
+            oracle::PriceEntry,
+        },
+        store::local::{
+            Message,
+            PriceInfo,
         },
     },
-    crate::agent::metrics::MetricsServer,
+    crate::agent::{
+        metrics::MetricsServer,
+        pythd::adapter::global::{
+            AllAccountsData,
+            AllAccountsMetadata,
+            PriceAccountMetadata,
+        },
+    },
     chrono::DateTime,
     pyth_sdk::{
         Identifier,
@@ -44,8 +47,6 @@ impl MetricsServer {
     pub async fn render_dashboard(&self) -> Result<String, Box<dyn std::error::Error>> {
         // Prepare response channel for requests
         let (local_tx, local_rx) = oneshot::channel();
-        let (global_data_tx, global_data_rx) = oneshot::channel();
-        let (global_metadata_tx, global_metadata_rx) = oneshot::channel();
 
         // Request price data from local and global store
         self.local_store_tx
@@ -54,23 +55,11 @@ impl MetricsServer {
             })
             .await?;
 
-        self.global_store_lookup_tx
-            .send(Lookup::LookupAllAccountsData {
-                network:   super::solana::network::Network::Primary,
-                result_tx: global_data_tx,
-            })
-            .await?;
-
-        self.global_store_lookup_tx
-            .send(Lookup::LookupAllAccountsMetadata {
-                result_tx: global_metadata_tx,
-            })
-            .await?;
+        let global_data = GlobalStore::accounts_data(&*self.adapter, Network::Primary).await?;
+        let global_metadata = GlobalStore::accounts_metadata(&*self.adapter).await?;
 
         // Await the results
         let local_data = local_rx.await?;
-        let global_data = global_data_rx.await??;
-        let global_metadata = global_metadata_rx.await??;
 
         let symbol_view =
             build_dashboard_data(local_data, global_data, global_metadata, &self.logger);

@@ -118,26 +118,29 @@ impl Agent {
         // Create the channels
         // TODO: make all components listen to shutdown signal
         let (shutdown_tx, _) = broadcast::channel(self.config.channel_capacities.shutdown);
-        let (primary_oracle_updates_tx, primary_oracle_updates_rx) =
-            mpsc::channel(self.config.channel_capacities.primary_oracle_updates);
-        let (secondary_oracle_updates_tx, secondary_oracle_updates_rx) =
-            mpsc::channel(self.config.channel_capacities.secondary_oracle_updates);
-        let (global_store_lookup_tx, global_store_lookup_rx) =
-            mpsc::channel(self.config.channel_capacities.global_store_lookup);
         let (local_store_tx, local_store_rx) =
             mpsc::channel(self.config.channel_capacities.local_store);
         let (primary_keypair_loader_tx, primary_keypair_loader_rx) = mpsc::channel(10);
         let (secondary_keypair_loader_tx, secondary_keypair_loader_rx) = mpsc::channel(10);
+
+        // Create the Pythd Adapter.
+        let adapter = Arc::new(
+            pythd::adapter::Adapter::new(
+                self.config.pythd_adapter.clone(),
+                local_store_tx.clone(),
+                logger.clone(),
+            )
+            .await,
+        );
 
         // Spawn the primary network
         jhs.extend(network::spawn_network(
             self.config.primary_network.clone(),
             network::Network::Primary,
             local_store_tx.clone(),
-            global_store_lookup_tx.clone(),
-            primary_oracle_updates_tx,
             primary_keypair_loader_tx,
             logger.new(o!("primary" => true)),
+            adapter.clone(),
         )?);
 
         // Spawn the secondary network, if needed
@@ -146,35 +149,17 @@ impl Agent {
                 config.clone(),
                 network::Network::Secondary,
                 local_store_tx.clone(),
-                global_store_lookup_tx.clone(),
-                secondary_oracle_updates_tx,
                 secondary_keypair_loader_tx,
                 logger.new(o!("primary" => false)),
+                adapter.clone(),
             )?);
         }
-
-        // Create the Pythd Adapter.
-        let adapter = Arc::new(pythd::adapter::Adapter::new(
-            self.config.pythd_adapter.clone(),
-            global_store_lookup_tx.clone(),
-            local_store_tx.clone(),
-            logger.clone(),
-        ));
 
         // Create the Notifier task for the Pythd RPC.
         jhs.push(tokio::spawn(notifier(
             adapter.clone(),
             shutdown_tx.subscribe(),
         )));
-
-        // Spawn the Global Store
-        jhs.push(store::global::spawn_store(
-            global_store_lookup_rx,
-            primary_oracle_updates_rx,
-            secondary_oracle_updates_rx,
-            adapter.clone(),
-            logger.clone(),
-        ));
 
         // Spawn the Local Store
         jhs.push(store::local::spawn_store(local_store_rx, logger.clone()));
@@ -183,7 +168,7 @@ impl Agent {
         jhs.push(tokio::spawn(rpc::run(
             self.config.pythd_api_server.clone(),
             logger.clone(),
-            adapter,
+            adapter.clone(),
             shutdown_tx.subscribe(),
         )));
 
@@ -191,8 +176,8 @@ impl Agent {
         jhs.push(tokio::spawn(metrics::MetricsServer::spawn(
             self.config.metrics_server.bind_address,
             local_store_tx,
-            global_store_lookup_tx,
             logger.clone(),
+            adapter,
         )));
 
         // Spawn the remote keypair loader endpoint for both networks

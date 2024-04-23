@@ -2,11 +2,20 @@
 // on-chain Oracle program accounts from Solana.
 use {
     self::subscriber::Subscriber,
-    super::key_store::KeyStore,
+    super::{
+        key_store::KeyStore,
+        network::Network,
+    },
     crate::agent::{
         legacy_schedule::LegacySchedule,
         market_schedule::MarketSchedule,
-        store::global,
+        pythd::adapter::{
+            global::{
+                GlobalStore,
+                Update,
+            },
+            Adapter,
+        },
     },
     anyhow::{
         anyhow,
@@ -40,6 +49,7 @@ use {
             HashMap,
             HashSet,
         },
+        sync::Arc,
         time::Duration,
     },
     tokio::{
@@ -166,10 +176,11 @@ pub struct Oracle {
     /// Channel on which account updates are received from the Subscriber
     updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
 
-    /// Channel on which updates are sent to the global store
-    global_store_tx: mpsc::Sender<global::Update>,
+    network: Network,
 
     logger: Logger,
+
+    adapter: Arc<Adapter>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -210,15 +221,16 @@ impl Default for Config {
 
 pub fn spawn_oracle(
     config: Config,
+    network: Network,
     rpc_url: &str,
     wss_url: &str,
     rpc_timeout: Duration,
-    global_store_update_tx: mpsc::Sender<global::Update>,
     publisher_permissions_tx: watch::Sender<
         HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     >,
     key_store: KeyStore,
     logger: Logger,
+    adapter: Arc<Adapter>,
 ) -> Vec<JoinHandle<()>> {
     let mut jhs = vec![];
 
@@ -251,7 +263,7 @@ pub fn spawn_oracle(
     jhs.push(tokio::spawn(async move { poller.run().await }));
 
     // Create and spawn the Oracle
-    let mut oracle = Oracle::new(data_rx, updates_rx, global_store_update_tx, logger);
+    let mut oracle = Oracle::new(data_rx, updates_rx, network, logger, adapter);
     jhs.push(tokio::spawn(async move { oracle.run().await }));
 
     jhs
@@ -261,15 +273,17 @@ impl Oracle {
     pub fn new(
         data_rx: mpsc::Receiver<Data>,
         updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
-        global_store_tx: mpsc::Sender<global::Update>,
+        network: Network,
         logger: Logger,
+        adapter: Arc<Adapter>,
     ) -> Self {
         Oracle {
             data: Default::default(),
             data_rx,
             updates_rx,
-            global_store_tx,
+            network,
             logger,
+            adapter,
         }
     }
 
@@ -402,13 +416,16 @@ impl Oracle {
         account_key: &Pubkey,
         account: &ProductEntry,
     ) -> Result<()> {
-        self.global_store_tx
-            .send(global::Update::ProductAccountUpdate {
+        GlobalStore::update(
+            &*self.adapter,
+            self.network,
+            &Update::ProductAccountUpdate {
                 account_key: *account_key,
                 account:     account.clone(),
-            })
-            .await
-            .map_err(|_| anyhow!("failed to notify product account update"))
+            },
+        )
+        .await
+        .map_err(|_| anyhow!("failed to notify product account update"))
     }
 
     async fn notify_price_account_update(
@@ -416,13 +433,16 @@ impl Oracle {
         account_key: &Pubkey,
         account: &PriceEntry,
     ) -> Result<()> {
-        self.global_store_tx
-            .send(global::Update::PriceAccountUpdate {
+        GlobalStore::update(
+            &*self.adapter,
+            self.network,
+            &Update::PriceAccountUpdate {
                 account_key: *account_key,
                 account:     account.clone(),
-            })
-            .await
-            .map_err(|_| anyhow!("failed to notify price account update"))
+            },
+        )
+        .await
+        .map_err(|_| anyhow!("failed to notify price account update"))
     }
 }
 
@@ -494,7 +514,6 @@ impl Poller {
 
     async fn poll_and_send(&mut self) -> Result<()> {
         let fresh_data = self.poll().await?;
-
 
         self.publisher_permissions_tx
             .send_replace(fresh_data.publisher_permissions.clone());
