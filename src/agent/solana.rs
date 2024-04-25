@@ -8,9 +8,9 @@ pub mod network {
 
     use {
         super::{
-            super::{
-                store,
-                store::global,
+            super::store::{
+                self,
+                global,
             },
             exporter,
             key_store::{
@@ -29,8 +29,8 @@ pub mod network {
         std::time::Duration,
         tokio::{
             sync::{
-                mpsc,
                 mpsc::Sender,
+                watch,
             },
             task::JoinHandle,
         },
@@ -86,8 +86,7 @@ pub mod network {
         logger: Logger,
     ) -> Result<Vec<JoinHandle<()>>> {
         // Publisher permissions updates between oracle and exporter
-        let (publisher_permissions_tx, publisher_permissions_rx) =
-            mpsc::channel(config.oracle.updates_channel_capacity);
+        let (publisher_permissions_tx, publisher_permissions_rx) = watch::channel(<_>::default());
 
         // Spawn the Oracle
         let mut jhs = oracle::spawn_oracle(

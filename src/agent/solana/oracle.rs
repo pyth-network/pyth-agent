@@ -43,7 +43,10 @@ use {
         time::Duration,
     },
     tokio::{
-        sync::mpsc,
+        sync::{
+            mpsc,
+            watch,
+        },
         task::JoinHandle,
         time::Interval,
     },
@@ -204,7 +207,7 @@ pub fn spawn_oracle(
     wss_url: &str,
     rpc_timeout: Duration,
     global_store_update_tx: mpsc::Sender<global::Update>,
-    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
     key_store: KeyStore,
     logger: Logger,
 ) -> Vec<JoinHandle<()>> {
@@ -419,7 +422,7 @@ struct Poller {
     data_tx: mpsc::Sender<Data>,
 
     /// Updates about permissioned price accounts from oracle to exporter
-    publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
 
     /// The RPC client to use to poll data from the RPC node
     rpc_client: RpcClient,
@@ -439,7 +442,7 @@ struct Poller {
 impl Poller {
     pub fn new(
         data_tx: mpsc::Sender<Data>,
-        publisher_permissions_tx: mpsc::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+        publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
         rpc_url: &str,
         rpc_timeout: Duration,
         commitment: CommitmentLevel,
@@ -481,9 +484,7 @@ impl Poller {
         let fresh_data = self.poll().await?;
 
         self.publisher_permissions_tx
-            .send(fresh_data.publisher_permissions.clone())
-            .await
-            .context("Updating permissioned price accounts for exporter")?;
+            .send_replace(fresh_data.publisher_permissions.clone());
 
         self.data_tx
             .send(fresh_data)
