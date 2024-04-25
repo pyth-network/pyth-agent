@@ -74,7 +74,7 @@ key_store.mapping_key = "RelevantOracleMappingAddress"
 # exporter.max_batch_size = 12
 
 # Number of compute units requested per update_price instruction within the transaction.
-# exporter.compute_unit_limit = 20000
+# exporter.compute_unit_limit = 60000
 
 # Price per compute unit offered for update_price transactions
 # exporter.compute_unit_price_micro_lamports =

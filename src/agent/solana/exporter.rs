@@ -153,8 +153,10 @@ impl Default for Config {
             max_batch_size:                                  12,
             inflight_transactions_channel_capacity:          10000,
             transaction_monitor:                             Default::default(),
-            // The largest transactions appear to be about ~12000 CUs. We leave ourselves some breathing room.
-            compute_unit_limit:                              40000,
+            // The largest transactions without accumulator spend around 38k compute units
+            // and accumulator cpi costs around 10k compute units. We set the limit to 60k
+            // to have some buffer.
+            compute_unit_limit:                              60000,
             compute_unit_price_micro_lamports:               None,
             dynamic_compute_unit_pricing_enabled:            false,
             // Maximum compute unit price (as a cap on the dynamic price)
