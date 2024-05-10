@@ -214,7 +214,9 @@ pub fn spawn_oracle(
     wss_url: &str,
     rpc_timeout: Duration,
     global_store_update_tx: mpsc::Sender<global::Update>,
-    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
+    publisher_permissions_tx: watch::Sender<
+        HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
+    >,
     key_store: KeyStore,
     logger: Logger,
 ) -> Vec<JoinHandle<()>> {
@@ -429,7 +431,8 @@ struct Poller {
     data_tx: mpsc::Sender<Data>,
 
     /// Updates about permissioned price accounts from oracle to exporter
-    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
+    publisher_permissions_tx:
+        watch::Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
 
     /// The RPC client to use to poll data from the RPC node
     rpc_client: RpcClient,

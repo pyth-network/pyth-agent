@@ -11,9 +11,9 @@ use {
         oracle::PricePublishingMetadata,
     },
     crate::agent::remote_keypair_loader::{
-            KeypairRequest,
-            RemoteKeypairLoader,
-        },
+        KeypairRequest,
+        RemoteKeypairLoader,
+    },
     anyhow::{
         anyhow,
         Context,
@@ -66,7 +66,6 @@ use {
         sync::{
             mpsc::{
                 self,
-                error::TryRecvError,
                 Sender,
             },
             oneshot,
