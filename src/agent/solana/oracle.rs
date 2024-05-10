@@ -116,7 +116,7 @@ impl std::ops::Deref for PriceEntry {
 }
 
 #[derive(Default, Debug, Clone)]
-pub struct PublisherPermission {
+pub struct PricePublishingMetadata {
     pub schedule:         MarketSchedule,
     pub publish_interval: Option<Duration>,
 }
@@ -126,8 +126,8 @@ pub struct Data {
     pub mapping_accounts:      HashMap<Pubkey, MappingAccount>,
     pub product_accounts:      HashMap<Pubkey, ProductEntry>,
     pub price_accounts:        HashMap<Pubkey, PriceEntry>,
-    /// publisher => {their permissioned price accounts => market hours}
-    pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PublisherPermission>>,
+    /// publisher => {their permissioned price accounts => price publishing metadata}
+    pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
 }
 
 impl Data {
@@ -135,7 +135,7 @@ impl Data {
         mapping_accounts: HashMap<Pubkey, MappingAccount>,
         product_accounts: HashMap<Pubkey, ProductEntry>,
         price_accounts: HashMap<Pubkey, PriceEntry>,
-        publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PublisherPermission>>,
+        publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     ) -> Self {
         Data {
             mapping_accounts,
@@ -214,7 +214,7 @@ pub fn spawn_oracle(
     wss_url: &str,
     rpc_timeout: Duration,
     global_store_update_tx: mpsc::Sender<global::Update>,
-    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, PublisherPermission>>>,
+    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
     key_store: KeyStore,
     logger: Logger,
 ) -> Vec<JoinHandle<()>> {
@@ -429,7 +429,7 @@ struct Poller {
     data_tx: mpsc::Sender<Data>,
 
     /// Updates about permissioned price accounts from oracle to exporter
-    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, PublisherPermission>>>,
+    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
 
     /// The RPC client to use to poll data from the RPC node
     rpc_client: RpcClient,
@@ -450,7 +450,7 @@ impl Poller {
     pub fn new(
         data_tx: mpsc::Sender<Data>,
         publisher_permissions_tx: watch::Sender<
-            HashMap<Pubkey, HashMap<Pubkey, PublisherPermission>>,
+            HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
         >,
         rpc_url: &str,
         rpc_timeout: Duration,
@@ -525,7 +525,7 @@ impl Poller {
                 let publisher_permission = if let Some(prod_entry) =
                     product_accounts.get(&price_entry.prod)
                 {
-                    PublisherPermission {
+                    PricePublishingMetadata {
                         schedule:         prod_entry.schedule.clone(),
                         publish_interval: prod_entry.publish_interval.clone(),
                     }

@@ -8,15 +8,12 @@ use {
         },
         key_store,
         network::Network,
-        oracle::PublisherPermission,
+        oracle::PricePublishingMetadata,
     },
-    crate::agent::{
-        market_schedule::MarketSchedule,
-        remote_keypair_loader::{
+    crate::agent::remote_keypair_loader::{
             KeypairRequest,
             RemoteKeypairLoader,
         },
-    },
     anyhow::{
         anyhow,
         Context,
@@ -176,7 +173,7 @@ pub fn spawn_exporter(
     rpc_url: &str,
     rpc_timeout: Duration,
     publisher_permissions_rx: watch::Receiver<
-        HashMap<Pubkey, HashMap<Pubkey, PublisherPermission>>,
+        HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     >,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
@@ -266,10 +263,10 @@ pub struct Exporter {
 
     /// publisher => { permissioned_price => market hours } as read by the oracle module
     publisher_permissions_rx:
-        watch::Receiver<HashMap<Pubkey, HashMap<Pubkey, PublisherPermission>>>,
+        watch::Receiver<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
 
     /// Currently known permissioned prices of this publisher along with their market hours
-    our_prices: HashMap<Pubkey, PublisherPermission>,
+    our_prices: HashMap<Pubkey, PricePublishingMetadata>,
 
     /// Interval to update the dynamic price (if enabled)
     dynamic_compute_unit_price_update_interval: Interval,
@@ -294,7 +291,7 @@ impl Exporter {
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
         publisher_permissions_rx: watch::Receiver<
-            HashMap<Pubkey, HashMap<Pubkey, PublisherPermission>>,
+            HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
         >,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
