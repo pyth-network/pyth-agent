@@ -29,7 +29,7 @@ key_store.accumulator_key = "7Vbmv1jt4vyuqBZcpYPpnVhrqVe5e6ZPb6JxDcffRHUM"
 exporter.max_batch_size = 7
 
 # Duration of the interval at which to publish updates
-exporter.publish_interval_duration = "400ms"
+exporter.publish_interval_duration = "1s"
 
 # Configuration for the optional secondary network this agent will publish data to.
 # In most cases this should be a Solana endpoint.
