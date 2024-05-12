@@ -437,7 +437,7 @@ impl Exporter {
         let publish_keypair = self.get_publish_keypair().await?;
         self.update_our_prices(&publish_keypair.pubkey());
 
-        let now = Utc::now();
+        let now = Utc::now().naive_utc();
 
         debug!(self.logger, "Exporter: filtering prices permissioned to us";
                "our_prices" => format!("{:?}", self.our_prices.keys()),
@@ -450,14 +450,14 @@ impl Exporter {
             .into_iter()
             .filter(|(_identifier, info)| {
                 // Filter out timestamps that are old
-                (now.timestamp() - info.timestamp) < self.config.staleness_threshold.as_secs() as i64
+                now < info.timestamp + self.config.staleness_threshold
             })
             .filter(|(identifier, info)| {
                 // Filter out unchanged price data if the max delay wasn't reached
 
                 if let Some(last_info) = self.last_published_state.get(identifier) {
-                    if info.timestamp.saturating_sub(last_info.timestamp)
-                        > self.config.unchanged_publish_threshold.as_secs() as i64
+                    if info.timestamp
+                        > last_info.timestamp + self.config.unchanged_publish_threshold
                     {
                         true // max delay since last published state reached, we publish anyway
                     } else {
@@ -470,13 +470,14 @@ impl Exporter {
             .filter(|(id, _data)| {
                 let key_from_id = Pubkey::from((*id).clone().to_bytes());
                 if let Some(publisher_permission) = self.our_prices.get(&key_from_id) {
-                    let ret = publisher_permission.schedule.can_publish_at(&now);
+                    let now_utc = Utc::now();
+                    let ret = publisher_permission.schedule.can_publish_at(&now_utc);
 
                     if !ret {
                         debug!(self.logger, "Exporter: Attempted to publish price outside market hours";
                             "price_account" => key_from_id.to_string(),
                             "schedule" => format!("{:?}", publisher_permission.schedule),
-                            "utc_time" => now.format("%c").to_string(),
+                            "utc_time" => now_utc.format("%c").to_string(),
                         );
                     }
 
@@ -512,7 +513,7 @@ impl Exporter {
                 let publisher_permission = publisher_permisssion.unwrap();
 
                 if let Some(publish_interval) = publisher_permission.publish_interval {
-                    if info.timestamp.saturating_sub(last_info.timestamp) < publish_interval.as_secs() as i64 {
+                    if info.timestamp < last_info.timestamp + publish_interval {
                         // Updating the price too soon after the last update, skipping
                         return false;
                     }
@@ -641,9 +642,9 @@ impl Exporter {
         let network_state = *self.network_state_rx.borrow();
         for (identifier, price_info_result) in refreshed_batch {
             let price_info = price_info_result?;
+            let now = Utc::now().naive_utc();
 
-            let stale_price = (Utc::now().timestamp() - price_info.timestamp)
-                > self.config.staleness_threshold.as_secs() as i64;
+            let stale_price = now > price_info.timestamp + self.config.staleness_threshold;
             if stale_price {
                 continue;
             }

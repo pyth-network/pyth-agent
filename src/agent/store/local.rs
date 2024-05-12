@@ -11,7 +11,7 @@ use {
         anyhow,
         Result,
     },
-    pyth_sdk::UnixTimestamp,
+    chrono::NaiveDateTime,
     pyth_sdk_solana::state::PriceStatus,
     slog::Logger,
     solana_sdk::bs58,
@@ -30,7 +30,7 @@ pub struct PriceInfo {
     pub status:    PriceStatus,
     pub price:     i64,
     pub conf:      u64,
-    pub timestamp: UnixTimestamp,
+    pub timestamp: NaiveDateTime,
 }
 
 impl PriceInfo {

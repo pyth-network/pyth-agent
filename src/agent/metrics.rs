@@ -40,9 +40,7 @@ use {
     },
     warp::{
         hyper::StatusCode,
-        reply::{
-            self,
-        },
+        reply,
         Filter,
         Rejection,
         Reply,
@@ -428,7 +426,7 @@ impl PriceLocalMetrics {
             .get_or_create(&PriceLocalLabels {
                 pubkey: price_key.to_string(),
             })
-            .set(price_info.timestamp);
+            .set(price_info.timestamp.and_utc().timestamp());
         update_count
             .get_or_create(&PriceLocalLabels {
                 pubkey: price_key.to_string(),
