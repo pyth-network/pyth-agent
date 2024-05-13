@@ -375,7 +375,7 @@ impl AdapterApi for Adapter {
                     status: Adapter::map_status(&status)?,
                     price,
                     conf,
-                    timestamp: Utc::now().timestamp(),
+                    timestamp: Utc::now().naive_utc(),
                 },
             })
             .await

@@ -8,13 +8,11 @@ use {
         },
         key_store,
         network::Network,
+        oracle::PricePublishingMetadata,
     },
-    crate::agent::{
-        market_schedule::MarketSchedule,
-        remote_keypair_loader::{
-            KeypairRequest,
-            RemoteKeypairLoader,
-        },
+    crate::agent::remote_keypair_loader::{
+        KeypairRequest,
+        RemoteKeypairLoader,
     },
     anyhow::{
         anyhow,
@@ -68,7 +66,6 @@ use {
         sync::{
             mpsc::{
                 self,
-                error::TryRecvError,
                 Sender,
             },
             oneshot,
@@ -174,7 +171,9 @@ pub fn spawn_exporter(
     network: Network,
     rpc_url: &str,
     rpc_timeout: Duration,
-    publisher_permissions_rx: watch::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+    publisher_permissions_rx: watch::Receiver<
+        HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
+    >,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
     global_store_tx: Sender<store::global::Lookup>,
@@ -262,10 +261,11 @@ pub struct Exporter {
     inflight_transactions_tx: Sender<Signature>,
 
     /// publisher => { permissioned_price => market hours } as read by the oracle module
-    publisher_permissions_rx: watch::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+    publisher_permissions_rx:
+        watch::Receiver<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
 
     /// Currently known permissioned prices of this publisher along with their market hours
-    our_prices: HashMap<Pubkey, MarketSchedule>,
+    our_prices: HashMap<Pubkey, PricePublishingMetadata>,
 
     /// Interval to update the dynamic price (if enabled)
     dynamic_compute_unit_price_update_interval: Interval,
@@ -289,7 +289,9 @@ impl Exporter {
         global_store_tx: Sender<store::global::Lookup>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
-        publisher_permissions_rx: watch::Receiver<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+        publisher_permissions_rx: watch::Receiver<
+            HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
+        >,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
     ) -> Self {
@@ -432,22 +434,30 @@ impl Exporter {
     async fn get_permissioned_updates(&mut self) -> Result<Vec<(PriceIdentifier, PriceInfo)>> {
         let local_store_contents = self.fetch_local_store_contents().await?;
 
-        let now = Utc::now().timestamp();
+        let publish_keypair = self.get_publish_keypair().await?;
+        self.update_our_prices(&publish_keypair.pubkey());
+
+        let now = Utc::now().naive_utc();
+
+        debug!(self.logger, "Exporter: filtering prices permissioned to us";
+               "our_prices" => format!("{:?}", self.our_prices.keys()),
+               "publish_pubkey" => publish_keypair.pubkey().to_string(),
+        );
 
         // Filter the contents to only include information we haven't already sent,
         // and to ignore stale information.
-        let fresh_updates = local_store_contents
+        Ok(local_store_contents
             .into_iter()
             .filter(|(_identifier, info)| {
                 // Filter out timestamps that are old
-                (now - info.timestamp) < self.config.staleness_threshold.as_secs() as i64
+                now < info.timestamp + self.config.staleness_threshold
             })
             .filter(|(identifier, info)| {
                 // Filter out unchanged price data if the max delay wasn't reached
 
                 if let Some(last_info) = self.last_published_state.get(identifier) {
-                    if info.timestamp.saturating_sub(last_info.timestamp)
-                        > self.config.unchanged_publish_threshold.as_secs() as i64
+                    if info.timestamp
+                        > last_info.timestamp + self.config.unchanged_publish_threshold
                     {
                         true // max delay since last published state reached, we publish anyway
                     } else {
@@ -457,33 +467,17 @@ impl Exporter {
                     true // No prior data found, letting the price through
                 }
             })
-            .collect::<Vec<_>>();
-
-        let publish_keypair = self.get_publish_keypair().await?;
-
-        self.update_our_prices(&publish_keypair.pubkey());
-
-        debug!(self.logger, "Exporter: filtering prices permissioned to us";
-               "our_prices" => format!("{:?}", self.our_prices.keys()),
-               "publish_pubkey" => publish_keypair.pubkey().to_string(),
-        );
-
-        // Get a fresh system time
-        let now = Utc::now();
-
-        // Filter out price accounts we're not permissioned to update
-        Ok(fresh_updates
-            .into_iter()
             .filter(|(id, _data)| {
                 let key_from_id = Pubkey::from((*id).clone().to_bytes());
-                if let Some(schedule) = self.our_prices.get(&key_from_id) {
-                    let ret = schedule.can_publish_at(&now);
+                if let Some(publisher_permission) = self.our_prices.get(&key_from_id) {
+                    let now_utc = Utc::now();
+                    let ret = publisher_permission.schedule.can_publish_at(&now_utc);
 
                     if !ret {
                         debug!(self.logger, "Exporter: Attempted to publish price outside market hours";
                             "price_account" => key_from_id.to_string(),
-                            "schedule" => format!("{:?}", schedule),
-                            "utc_time" => now.format("%c").to_string(),
+                            "schedule" => format!("{:?}", publisher_permission.schedule),
+                            "utc_time" => now_utc.format("%c").to_string(),
                         );
                     }
 
@@ -500,6 +494,33 @@ impl Exporter {
                     );
                     false
                 }
+            })
+            .filter(|(id, info)| {
+                // Filtering out prices that are being updated too frequently according to publisher_permission.publish_interval
+                let last_info = match self.last_published_state.get(id) {
+                    Some(last_info) => last_info,
+                    None => {
+                        // No prior data found, letting the price through
+                        return true;
+                    }
+                };
+
+                let key_from_id = Pubkey::from((*id).clone().to_bytes());
+                let publisher_metadata = match self.our_prices.get(&key_from_id) {
+                    Some(metadata) => metadata,
+                    None => {
+                        // Should never happen since we have filtered out the price above
+                        return false;
+                    }
+                };
+
+                if let Some(publish_interval) = publisher_metadata.publish_interval {
+                    if info.timestamp < last_info.timestamp + publish_interval {
+                        // Updating the price too soon after the last update, skipping
+                        return false;
+                    }
+                }
+                true
             })
             .collect::<Vec<_>>())
     }
@@ -623,9 +644,9 @@ impl Exporter {
         let network_state = *self.network_state_rx.borrow();
         for (identifier, price_info_result) in refreshed_batch {
             let price_info = price_info_result?;
+            let now = Utc::now().naive_utc();
 
-            let stale_price = (Utc::now().timestamp() - price_info.timestamp)
-                > self.config.staleness_threshold.as_secs() as i64;
+            let stale_price = now > price_info.timestamp + self.config.staleness_threshold;
             if stale_price {
                 continue;
             }

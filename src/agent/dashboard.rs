@@ -102,11 +102,7 @@ impl MetricsServer {
                 };
 
                 let last_local_update_string = if let Some(local_data) = price_data.local_data {
-                    if let Some(datetime) = DateTime::from_timestamp(local_data.timestamp, 0) {
-                        datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-                    } else {
-                        format!("Invalid timestamp {}", local_data.timestamp)
-                    }
+                    local_data.timestamp.format("%Y-%m-%d %H:%M:%S").to_string()
                 } else {
                     "no data".to_string()
                 };

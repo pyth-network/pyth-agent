@@ -81,6 +81,19 @@ SOL_USD = {
     },
     "metadata": {"jump_id": "78876711", "jump_symbol": "SOLUSD", "price_exp": -8, "min_publishers": 1},
 }
+PYTH_USD = {
+    "account": "",
+    "attr_dict": {
+        "symbol": "Crypto.PYTH/USD",
+        "asset_type": "Crypto",
+        "base": "PYTH",
+        "quote_currency": "USD",
+        "generic_symbol": "PYTHUSD",
+        "description": "PYTH/USD",
+        "publish_interval": "2",
+    },
+    "metadata": {"jump_id": "78876712", "jump_symbol": "PYTHUSD", "price_exp": -8, "min_publishers": 1},
+}
 AAPL_USD = {
     "account": "",
     "attr_dict": {
@@ -110,7 +123,7 @@ ETH_USD = {
     },
     "metadata": {"jump_id": "78876710", "jump_symbol": "ETHUSD", "price_exp": -8, "min_publishers": 1},
 }
-ALL_PRODUCTS=[BTC_USD, AAPL_USD, ETH_USD, SOL_USD]
+ALL_PRODUCTS=[BTC_USD, AAPL_USD, ETH_USD, SOL_USD, PYTH_USD]
 
 asyncio.set_event_loop(asyncio.new_event_loop())
 
@@ -293,6 +306,7 @@ class PythTest:
                     "BTCUSD": {"price": ["some_publisher_b", "some_publisher_a"]}, # Reversed order helps ensure permission discovery works correctly for publisher A
                     "ETHUSD": {"price": ["some_publisher_b"]},
                     "SOLUSD": {"price": ["some_publisher_a"]},
+                    "PYTHUSD": {"price": ["some_publisher_a"]},
                     }))
             f.flush()
             yield f.name
@@ -820,3 +834,53 @@ class TestUpdatePrice(PythTest):
         assert final_price_account["price"] == 0
         assert final_price_account["conf"] == 0
         assert final_price_account["status"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_agent_respects_publish_interval(self, client: PythAgentClient):
+        '''
+        Similar to test_agent_respects_market_hours, but using PYTH_USD.
+        This test asserts that consecutive price updates will only get published
+        if it's after the specified publish interval.
+        '''
+
+        # Fetch all products
+        products = {product["attr_dict"]["symbol"]: product for product in await client.get_all_products()}
+
+        # Find the product account ID corresponding to the AAPL/USD symbol
+        product = products[PYTH_USD["attr_dict"]["symbol"]]
+        product_account = product["account"]
+
+        # Get the price account with which to send updates
+        price_account = product["price_accounts"][0]["account"]
+
+        # Send an "update_price" request
+        await client.update_price(price_account, 42, 2, "trading")
+        time.sleep(1)
+
+        # Send another update_price request to "trigger" aggregation
+        # (aggregation would happen if publish interval were to fail, but
+        # we want to catch that happening if there's a problem)
+        await client.update_price(price_account, 81, 1, "trading")
+        time.sleep(2)
+
+        # Confirm that the price account has not been updated
+        final_product_state = await client.get_product(product_account)
+
+        final_price_account = final_product_state["price_accounts"][0]
+        assert final_price_account["price"] == 0
+        assert final_price_account["conf"] == 0
+        assert final_price_account["status"] == "unknown"
+
+
+        # Send another update_price request to "trigger" aggregation
+        # Now it is after the publish interval, so the price should be updated
+        await client.update_price(price_account, 81, 1, "trading")
+        time.sleep(2)
+
+        # Confirm that the price account has been updated
+        final_product_state = await client.get_product(product_account)
+
+        final_price_account = final_product_state["price_accounts"][0]
+        assert final_price_account["price"] == 42
+        assert final_price_account["conf"] == 2
+        assert final_price_account["status"] == "trading"

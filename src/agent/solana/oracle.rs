@@ -116,12 +116,18 @@ impl std::ops::Deref for PriceEntry {
 }
 
 #[derive(Default, Debug, Clone)]
+pub struct PricePublishingMetadata {
+    pub schedule:         MarketSchedule,
+    pub publish_interval: Option<Duration>,
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct Data {
     pub mapping_accounts:      HashMap<Pubkey, MappingAccount>,
     pub product_accounts:      HashMap<Pubkey, ProductEntry>,
     pub price_accounts:        HashMap<Pubkey, PriceEntry>,
-    /// publisher => {their permissioned price accounts => market hours}
-    pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>,
+    /// publisher => {their permissioned price accounts => price publishing metadata}
+    pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
 }
 
 impl Data {
@@ -129,7 +135,7 @@ impl Data {
         mapping_accounts: HashMap<Pubkey, MappingAccount>,
         product_accounts: HashMap<Pubkey, ProductEntry>,
         price_accounts: HashMap<Pubkey, PriceEntry>,
-        publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>,
+        publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     ) -> Self {
         Data {
             mapping_accounts,
@@ -143,9 +149,10 @@ impl Data {
 pub type MappingAccount = pyth_sdk_solana::state::MappingAccount;
 #[derive(Debug, Clone)]
 pub struct ProductEntry {
-    pub account_data:   pyth_sdk_solana::state::ProductAccount,
-    pub schedule:       MarketSchedule,
-    pub price_accounts: Vec<Pubkey>,
+    pub account_data:     pyth_sdk_solana::state::ProductAccount,
+    pub schedule:         MarketSchedule,
+    pub price_accounts:   Vec<Pubkey>,
+    pub publish_interval: Option<Duration>,
 }
 
 // Oracle is responsible for fetching Solana account data stored in the Pyth on-chain Oracle.
@@ -207,7 +214,9 @@ pub fn spawn_oracle(
     wss_url: &str,
     rpc_timeout: Duration,
     global_store_update_tx: mpsc::Sender<global::Update>,
-    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+    publisher_permissions_tx: watch::Sender<
+        HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
+    >,
     key_store: KeyStore,
     logger: Logger,
 ) -> Vec<JoinHandle<()>> {
@@ -422,7 +431,8 @@ struct Poller {
     data_tx: mpsc::Sender<Data>,
 
     /// Updates about permissioned price accounts from oracle to exporter
-    publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+    publisher_permissions_tx:
+        watch::Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
 
     /// The RPC client to use to poll data from the RPC node
     rpc_client: RpcClient,
@@ -442,7 +452,9 @@ struct Poller {
 impl Poller {
     pub fn new(
         data_tx: mpsc::Sender<Data>,
-        publisher_permissions_tx: watch::Sender<HashMap<Pubkey, HashMap<Pubkey, MarketSchedule>>>,
+        publisher_permissions_tx: watch::Sender<
+            HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
+        >,
         rpc_url: &str,
         rpc_timeout: Duration,
         commitment: CommitmentLevel,
@@ -483,6 +495,7 @@ impl Poller {
     async fn poll_and_send(&mut self) -> Result<()> {
         let fresh_data = self.poll().await?;
 
+
         self.publisher_permissions_tx
             .send_replace(fresh_data.publisher_permissions.clone());
 
@@ -512,8 +525,13 @@ impl Poller {
                     .entry(component.publisher)
                     .or_insert(HashMap::new());
 
-                let schedule = if let Some(prod_entry) = product_accounts.get(&price_entry.prod) {
-                    prod_entry.schedule.clone()
+                let publisher_permission = if let Some(prod_entry) =
+                    product_accounts.get(&price_entry.prod)
+                {
+                    PricePublishingMetadata {
+                        schedule:         prod_entry.schedule.clone(),
+                        publish_interval: prod_entry.publish_interval.clone(),
+                    }
                 } else {
                     warn!(&self.logger, "Oracle: INTERNAL: could not find product from price `prod` field, market hours falling back to 24/7.";
                       "price" => price_key.to_string(),
@@ -522,7 +540,7 @@ impl Poller {
                     Default::default()
                 };
 
-                component_pub_entry.insert(*price_key, schedule);
+                component_pub_entry.insert(*price_key, publisher_permission);
             }
         }
 
@@ -650,12 +668,36 @@ impl Poller {
                     None
                 };
 
+                let publish_interval: Option<Duration> = if let Some((
+                    _publish_interval_key,
+                    publish_interval_val,
+                )) =
+                    product.iter().find(|(k, _v)| *k == "publish_interval")
+                {
+                    match publish_interval_val.parse::<f64>() {
+                        Ok(interval) => Some(Duration::from_secs_f64(interval)),
+                        Err(err) => {
+                            warn!(
+                                self.logger,
+                                "Oracle: Product has publish_interval defined but it could not be parsed. Falling back to None.";
+                                "product_key" => product_key.to_string(),
+                                "publish_interval" => publish_interval_val,
+                            );
+                            debug!(self.logger, "parsing error context"; "context" => format!("{:?}", err));
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
                 product_entries.insert(
                     *product_key,
                     ProductEntry {
-                        account_data:   *product,
-                        schedule:       market_schedule.unwrap_or_else(|| legacy_schedule.into()),
+                        account_data: *product,
+                        schedule: market_schedule.unwrap_or_else(|| legacy_schedule.into()),
                         price_accounts: vec![],
+                        publish_interval,
                     },
                 );
             } else {
