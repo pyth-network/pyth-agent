@@ -497,22 +497,24 @@ impl Exporter {
             })
             .filter(|(id, info)| {
                 // Filtering out prices that are being updated too frequently according to publisher_permission.publish_interval
-                let last_info = self.last_published_state.get(id);
-                if last_info.is_none() {
-                    // No prior data found, letting the price through
-                    return true;
-                }
-                let last_info = last_info.unwrap();
+                let last_info = match self.last_published_state.get(id) {
+                    Some(last_info) => last_info,
+                    None => {
+                        // No prior data found, letting the price through
+                        return true;
+                    }
+                };
 
                 let key_from_id = Pubkey::from((*id).clone().to_bytes());
-                let publisher_permisssion = self.our_prices.get(&key_from_id);
-                if publisher_permisssion.is_none() {
-                    // Should never happen since we have filtered out the price above
-                    return false;
-                }
-                let publisher_permission = publisher_permisssion.unwrap();
+                let publisher_metadata = match self.our_prices.get(&key_from_id) {
+                    Some(metadata) => metadata,
+                    None => {
+                        // Should never happen since we have filtered out the price above
+                        return false;
+                    }
+                };
 
-                if let Some(publish_interval) = publisher_permission.publish_interval {
+                if let Some(publish_interval) = publisher_metadata.publish_interval {
                     if info.timestamp < last_info.timestamp + publish_interval {
                         // Updating the price too soon after the last update, skipping
                         return false;
