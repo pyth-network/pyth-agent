@@ -10,9 +10,15 @@ use {
         network::Network,
         oracle::PricePublishingMetadata,
     },
-    crate::agent::remote_keypair_loader::{
-        KeypairRequest,
-        RemoteKeypairLoader,
+    crate::agent::{
+        pythd::adapter::{
+            global::GlobalStore,
+            Adapter,
+        },
+        remote_keypair_loader::{
+            KeypairRequest,
+            RemoteKeypairLoader,
+        },
     },
     anyhow::{
         anyhow,
@@ -176,9 +182,9 @@ pub fn spawn_exporter(
     >,
     key_store: KeyStore,
     local_store_tx: Sender<store::local::Message>,
-    global_store_tx: Sender<store::global::Lookup>,
     keypair_request_tx: mpsc::Sender<KeypairRequest>,
     logger: Logger,
+    adapter: Arc<Adapter>,
 ) -> Result<Vec<JoinHandle<()>>> {
     // Create and spawn the network state querier
     let (network_state_tx, network_state_rx) = watch::channel(Default::default());
@@ -211,12 +217,12 @@ pub fn spawn_exporter(
         rpc_timeout,
         key_store,
         local_store_tx,
-        global_store_tx,
         network_state_rx,
         transactions_tx,
         publisher_permissions_rx,
         keypair_request_tx,
         logger,
+        adapter,
     );
     let exporter_jh = tokio::spawn(async move { exporter.run().await });
 
@@ -246,9 +252,6 @@ pub struct Exporter {
     /// Channel on which to communicate with the local store
     local_store_tx: Sender<store::local::Message>,
 
-    /// Channel on which to communicate with the global store
-    global_store_tx: Sender<store::global::Lookup>,
-
     /// The last state published for each price identifier. Used to
     /// rule out stale data and prevent repetitive publishing of
     /// unchanged prices.
@@ -276,6 +279,8 @@ pub struct Exporter {
     keypair_request_tx: Sender<KeypairRequest>,
 
     logger: Logger,
+
+    adapter: Arc<Adapter>,
 }
 
 impl Exporter {
@@ -286,7 +291,6 @@ impl Exporter {
         rpc_timeout: Duration,
         key_store: KeyStore,
         local_store_tx: Sender<store::local::Message>,
-        global_store_tx: Sender<store::global::Lookup>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
         publisher_permissions_rx: watch::Receiver<
@@ -294,6 +298,7 @@ impl Exporter {
         >,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
+        adapter: Arc<Adapter>,
     ) -> Self {
         let publish_interval = time::interval(config.publish_interval_duration);
         Exporter {
@@ -306,7 +311,6 @@ impl Exporter {
             publish_interval,
             key_store,
             local_store_tx,
-            global_store_tx,
             last_published_state: HashMap::new(),
             network_state_rx,
             inflight_transactions_tx,
@@ -318,6 +322,7 @@ impl Exporter {
             recent_compute_unit_price_micro_lamports: None,
             keypair_request_tx,
             logger,
+            adapter,
         }
     }
 
@@ -720,16 +725,12 @@ impl Exporter {
             // Use exponentially higher price if this publisher hasn't published in a while for the accounts
             // in this batch. This will use the maximum total compute unit fee if the publisher
             // hasn't updated for >= MAXIMUM_SLOT_GAP_FOR_DYNAMIC_COMPUTE_UNIT_PRICE slots.
-            let (result_tx, result_rx) = oneshot::channel();
-            self.global_store_tx
-                .send(store::global::Lookup::LookupPriceAccounts {
-                    network: self.network,
-                    price_ids: price_accounts.clone().into_iter().collect(),
-                    result_tx,
-                })
-                .await?;
-
-            let result = result_rx.await??;
+            let result = GlobalStore::price_accounts(
+                &*self.adapter,
+                self.network,
+                price_accounts.clone().into_iter().collect(),
+            )
+            .await?;
 
             // Calculate the maximum slot difference between the publisher latest slot and
             // current slot amongst all the accounts. Here, the aggregate slot is

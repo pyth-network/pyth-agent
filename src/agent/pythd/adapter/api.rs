@@ -1,5 +1,10 @@
 use {
     super::{
+        global::{
+            AllAccountsData,
+            AllAccountsMetadata,
+            GlobalStore,
+        },
         Adapter,
         NotifyPriceSchedSubscription,
         NotifyPriceSubscription,
@@ -20,14 +25,10 @@ use {
         },
         solana::{
             self,
+            network::Network,
             oracle::PriceEntry,
         },
         store::{
-            global::{
-                self,
-                AllAccountsData,
-                AllAccountsMetadata,
-            },
             local,
             PriceIdentifier,
         },
@@ -46,7 +47,6 @@ use {
     tokio::sync::{
         broadcast,
         mpsc,
-        oneshot,
     },
 };
 
@@ -229,12 +229,8 @@ impl AdapterApi for Adapter {
     }
 
     // Fetches the Solana-specific Oracle data from the global store
-    async fn lookup_all_accounts_metadata(&self) -> Result<global::AllAccountsMetadata> {
-        let (result_tx, result_rx) = oneshot::channel();
-        self.global_store_lookup_tx
-            .send(global::Lookup::LookupAllAccountsMetadata { result_tx })
-            .await?;
-        result_rx.await?
+    async fn lookup_all_accounts_metadata(&self) -> Result<AllAccountsMetadata> {
+        GlobalStore::accounts_metadata(self).await
     }
 
     async fn get_all_products(&self) -> Result<Vec<ProductAccount>> {
@@ -255,14 +251,7 @@ impl AdapterApi for Adapter {
     }
 
     async fn lookup_all_accounts_data(&self) -> Result<AllAccountsData> {
-        let (result_tx, result_rx) = oneshot::channel();
-        self.global_store_lookup_tx
-            .send(global::Lookup::LookupAllAccountsData {
-                network: solana::network::Network::Primary,
-                result_tx,
-            })
-            .await?;
-        result_rx.await?
+        GlobalStore::accounts_data(self, Network::Primary).await
     }
 
     async fn get_product(

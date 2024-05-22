@@ -1,7 +1,7 @@
 use {
-    super::store::{
-        global::Lookup,
-        local::Message,
+    super::{
+        pythd::adapter::Adapter,
+        store::local::Message,
     },
     crate::agent::{
         solana::oracle::PriceEntry,
@@ -74,10 +74,10 @@ lazy_static! {
 /// dashboard and metrics.
 pub struct MetricsServer {
     /// Used to pull the state of all symbols in local store
-    pub local_store_tx:         mpsc::Sender<Message>,
-    pub global_store_lookup_tx: mpsc::Sender<Lookup>,
-    pub start_time:             Instant,
-    pub logger:                 Logger,
+    pub local_store_tx: mpsc::Sender<Message>,
+    pub start_time:     Instant,
+    pub logger:         Logger,
+    pub adapter:        Arc<Adapter>,
 }
 
 impl MetricsServer {
@@ -85,14 +85,14 @@ impl MetricsServer {
     pub async fn spawn(
         addr: impl Into<SocketAddr> + 'static,
         local_store_tx: mpsc::Sender<Message>,
-        global_store_lookup_tx: mpsc::Sender<Lookup>,
         logger: Logger,
+        adapter: Arc<Adapter>,
     ) {
         let server = MetricsServer {
             local_store_tx,
-            global_store_lookup_tx,
             start_time: Instant::now(),
             logger,
+            adapter,
         };
 
         let shared_state = Arc::new(Mutex::new(server));
@@ -109,7 +109,7 @@ impl MetricsServer {
                         .await
                         .unwrap_or_else(|e| {
                             // Add logging here
-			    error!(locked_state.logger,"Dashboard: Rendering failed"; "error" => e.to_string());
+                            error!(locked_state.logger,"Dashboard: Rendering failed"; "error" => e.to_string());
 
                             // Withhold failure details from client
                             "Could not render dashboard! See the logs for details".to_owned()

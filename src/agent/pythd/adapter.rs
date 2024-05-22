@@ -1,7 +1,6 @@
 use {
     super::{
         super::store::{
-            global,
             local,
             PriceIdentifier,
         },
@@ -11,6 +10,7 @@ use {
             SubscriptionID,
         },
     },
+    crate::agent::metrics::PROMETHEUS_REGISTRY,
     serde::{
         Deserialize,
         Serialize,
@@ -27,7 +27,8 @@ use {
     },
 };
 
-mod api;
+pub mod api;
+pub mod global;
 pub use api::{
     notifier,
     AdapterApi,
@@ -67,14 +68,14 @@ pub struct Adapter {
     /// The fixed interval at which Notify Price Sched notifications are sent
     notify_price_sched_interval_duration: Duration,
 
-    /// Channel on which to communicate with the global store
-    global_store_lookup_tx: mpsc::Sender<global::Lookup>,
-
     /// Channel on which to communicate with the local store
     local_store_tx: mpsc::Sender<local::Message>,
 
     /// The logger
     logger: Logger,
+
+    /// Global store for managing the unified state of Pyth-on-Solana networks.
+    global_store: global::Store,
 }
 
 /// Represents a single Notify Price Sched subscription
@@ -94,18 +95,18 @@ struct NotifyPriceSubscription {
 }
 
 impl Adapter {
-    pub fn new(
+    pub async fn new(
         config: Config,
-        global_store_lookup_tx: mpsc::Sender<global::Lookup>,
         local_store_tx: mpsc::Sender<local::Message>,
         logger: Logger,
     ) -> Self {
+        let registry = &mut *PROMETHEUS_REGISTRY.lock().await;
         Adapter {
+            global_store: global::Store::new(logger.clone(), registry),
             subscription_id_seq: 1.into(),
             notify_price_sched_subscriptions: RwLock::new(HashMap::new()),
             notify_price_subscriptions: RwLock::new(HashMap::new()),
             notify_price_sched_interval_duration: config.notify_price_sched_interval_duration,
-            global_store_lookup_tx,
             local_store_tx,
             logger,
         }
@@ -116,6 +117,10 @@ impl Adapter {
 mod tests {
     use {
         super::{
+            global::{
+                self,
+                AllAccountsData,
+            },
             notifier,
             Adapter,
             AdapterApi,
@@ -134,15 +139,8 @@ mod tests {
                     PublisherAccount,
                 },
             },
-            solana::{
-                self,
-                network::Network,
-            },
-            store::{
-                global,
-                global::AllAccountsData,
-                local,
-            },
+            solana,
+            store::local,
         },
         iobuffer::IoBuffer,
         pyth_sdk::Identifier,
@@ -174,28 +172,21 @@ mod tests {
     };
 
     struct TestAdapter {
-        adapter:                Arc<Adapter>,
-        global_store_lookup_rx: mpsc::Receiver<global::Lookup>,
-        local_store_rx:         mpsc::Receiver<local::Message>,
-        shutdown_tx:            broadcast::Sender<()>,
-        jh:                     JoinHandle<()>,
+        adapter:        Arc<Adapter>,
+        local_store_rx: mpsc::Receiver<local::Message>,
+        shutdown_tx:    broadcast::Sender<()>,
+        jh:             JoinHandle<()>,
     }
 
     async fn setup() -> TestAdapter {
         // Create and spawn an adapter
-        let (global_store_lookup_tx, global_store_lookup_rx) = mpsc::channel(1000);
         let (local_store_tx, local_store_rx) = mpsc::channel(1000);
         let notify_price_sched_interval_duration = Duration::from_nanos(10);
         let logger = slog_test::new_test_logger(IoBuffer::new());
         let config = Config {
             notify_price_sched_interval_duration,
         };
-        let adapter = Arc::new(Adapter::new(
-            config,
-            global_store_lookup_tx,
-            local_store_tx,
-            logger,
-        ));
+        let adapter = Arc::new(Adapter::new(config, local_store_tx, logger).await);
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn Price Notifier
@@ -203,7 +194,6 @@ mod tests {
 
         TestAdapter {
             adapter,
-            global_store_lookup_rx,
             local_store_rx,
             shutdown_tx,
             jh,
@@ -359,19 +349,12 @@ mod tests {
     async fn test_get_product_list() {
         // Start the test adapter
         let test_adapter = setup().await;
-
-        // Return the product list to the adapter, from the global store
-        {
-            let mut global_store_lookup_rx = test_adapter.global_store_lookup_rx;
-            tokio::spawn(async move {
-                match global_store_lookup_rx.recv().await.unwrap() {
-                    global::Lookup::LookupAllAccountsMetadata { result_tx } => result_tx
-                        .send(Ok(get_test_all_accounts_metadata()))
-                        .unwrap(),
-                    _ => panic!("Uexpected message received from adapter"),
-                };
-            });
-        }
+        let accounts_metadata = get_test_all_accounts_metadata();
+        test_adapter
+            .adapter
+            .global_store
+            ._account_metadata(accounts_metadata)
+            .await;
 
         // Send a Get Product List message
         let mut product_list = test_adapter.adapter.get_product_list().await.unwrap();
@@ -1073,20 +1056,12 @@ mod tests {
     async fn test_get_all_products() {
         // Start the test adapter
         let test_adapter = setup().await;
-
-        // Return the account data to the adapter, from the global store
-        {
-            let mut global_store_lookup_rx = test_adapter.global_store_lookup_rx;
-            tokio::spawn(async move {
-                match global_store_lookup_rx.recv().await.unwrap() {
-                    global::Lookup::LookupAllAccountsData {
-                        network: Network::Primary,
-                        result_tx,
-                    } => result_tx.send(Ok(get_all_accounts_data())).unwrap(),
-                    _ => panic!("Uexpected message received from adapter"),
-                };
-            });
-        }
+        let accounts_data = get_all_accounts_data();
+        test_adapter
+            .adapter
+            .global_store
+            ._account_data_primary(accounts_data)
+            .await;
 
         // Send a Get All Products message
         let mut all_products = test_adapter.adapter.get_all_products().await.unwrap();
@@ -1296,20 +1271,12 @@ mod tests {
     async fn test_get_product() {
         // Start the test adapter
         let test_adapter = setup().await;
-
-        // Return the account data to the adapter, from the global store
-        {
-            let mut global_store_lookup_rx = test_adapter.global_store_lookup_rx;
-            tokio::spawn(async move {
-                match global_store_lookup_rx.recv().await.unwrap() {
-                    global::Lookup::LookupAllAccountsData {
-                        network: Network::Primary,
-                        result_tx,
-                    } => result_tx.send(Ok(get_all_accounts_data())).unwrap(),
-                    _ => panic!("Uexpected message received from adapter"),
-                };
-            });
-        }
+        let accounts_data = get_all_accounts_data();
+        test_adapter
+            .adapter
+            .global_store
+            ._account_data_primary(accounts_data)
+            .await;
 
         // Send a Get Product message
         let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t"

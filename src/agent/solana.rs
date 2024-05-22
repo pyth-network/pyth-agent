@@ -5,13 +5,8 @@ pub mod oracle;
 /// - The Oracle, which reads data from the network
 /// - The Exporter, which publishes data to the network
 pub mod network {
-
     use {
         super::{
-            super::store::{
-                self,
-                global,
-            },
             exporter,
             key_store::{
                 self,
@@ -19,14 +14,21 @@ pub mod network {
             },
             oracle,
         },
-        crate::agent::remote_keypair_loader::KeypairRequest,
+        crate::agent::{
+            pythd::adapter::Adapter,
+            remote_keypair_loader::KeypairRequest,
+            store,
+        },
         anyhow::Result,
         serde::{
             Deserialize,
             Serialize,
         },
         slog::Logger,
-        std::time::Duration,
+        std::{
+            sync::Arc,
+            time::Duration,
+        },
         tokio::{
             sync::{
                 mpsc::Sender,
@@ -80,10 +82,9 @@ pub mod network {
         config: Config,
         network: Network,
         local_store_tx: Sender<store::local::Message>,
-        global_store_lookup_tx: Sender<global::Lookup>,
-        global_store_update_tx: Sender<global::Update>,
         keypair_request_tx: Sender<KeypairRequest>,
         logger: Logger,
+        adapter: Arc<Adapter>,
     ) -> Result<Vec<JoinHandle<()>>> {
         // Publisher permissions updates between oracle and exporter
         let (publisher_permissions_tx, publisher_permissions_rx) = watch::channel(<_>::default());
@@ -91,13 +92,14 @@ pub mod network {
         // Spawn the Oracle
         let mut jhs = oracle::spawn_oracle(
             config.oracle.clone(),
+            network,
             &config.rpc_url,
             &config.wss_url,
             config.rpc_timeout,
-            global_store_update_tx.clone(),
             publisher_permissions_tx,
             KeyStore::new(config.key_store.clone(), &logger)?,
             logger.clone(),
+            adapter.clone(),
         );
 
         // Spawn the Exporter
@@ -109,10 +111,11 @@ pub mod network {
             publisher_permissions_rx,
             KeyStore::new(config.key_store.clone(), &logger)?,
             local_store_tx,
-            global_store_lookup_tx,
             keypair_request_tx,
             logger,
+            adapter,
         )?;
+
         jhs.extend(exporter_jhs);
 
         Ok(jhs)
