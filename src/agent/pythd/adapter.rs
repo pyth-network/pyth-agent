@@ -1,9 +1,6 @@
 use {
     super::{
-        super::store::{
-            local,
-            PriceIdentifier,
-        },
+        super::store::PriceIdentifier,
         api::{
             NotifyPrice,
             NotifyPriceSched,
@@ -29,6 +26,7 @@ use {
 
 pub mod api;
 pub mod global;
+pub mod local;
 pub use api::{
     notifier,
     AdapterApi,
@@ -68,14 +66,14 @@ pub struct Adapter {
     /// The fixed interval at which Notify Price Sched notifications are sent
     notify_price_sched_interval_duration: Duration,
 
-    /// Channel on which to communicate with the local store
-    local_store_tx: mpsc::Sender<local::Message>,
-
     /// The logger
     logger: Logger,
 
     /// Global store for managing the unified state of Pyth-on-Solana networks.
     global_store: global::Store,
+
+    /// Local store for managing the unpushed state.
+    local_store: local::Store,
 }
 
 /// Represents a single Notify Price Sched subscription
@@ -95,19 +93,15 @@ struct NotifyPriceSubscription {
 }
 
 impl Adapter {
-    pub async fn new(
-        config: Config,
-        local_store_tx: mpsc::Sender<local::Message>,
-        logger: Logger,
-    ) -> Self {
+    pub async fn new(config: Config, logger: Logger) -> Self {
         let registry = &mut *PROMETHEUS_REGISTRY.lock().await;
         Adapter {
             global_store: global::Store::new(logger.clone(), registry),
+            local_store: local::Store::new(logger.clone(), registry),
             subscription_id_seq: 1.into(),
             notify_price_sched_subscriptions: RwLock::new(HashMap::new()),
             notify_price_subscriptions: RwLock::new(HashMap::new()),
             notify_price_sched_interval_duration: config.notify_price_sched_interval_duration,
-            local_store_tx,
             logger,
         }
     }
@@ -128,8 +122,9 @@ mod tests {
         },
         crate::agent::{
             pythd::{
-                api,
+                adapter::local::LocalStore,
                 api::{
+                    self,
                     NotifyPrice,
                     NotifyPriceSched,
                     PriceAccountMetadata,
@@ -140,7 +135,6 @@ mod tests {
                 },
             },
             solana,
-            store::local,
         },
         iobuffer::IoBuffer,
         pyth_sdk::Identifier,
@@ -172,21 +166,19 @@ mod tests {
     };
 
     struct TestAdapter {
-        adapter:        Arc<Adapter>,
-        local_store_rx: mpsc::Receiver<local::Message>,
-        shutdown_tx:    broadcast::Sender<()>,
-        jh:             JoinHandle<()>,
+        adapter:     Arc<Adapter>,
+        shutdown_tx: broadcast::Sender<()>,
+        jh:          JoinHandle<()>,
     }
 
     async fn setup() -> TestAdapter {
         // Create and spawn an adapter
-        let (local_store_tx, local_store_rx) = mpsc::channel(1000);
         let notify_price_sched_interval_duration = Duration::from_nanos(10);
         let logger = slog_test::new_test_logger(IoBuffer::new());
         let config = Config {
             notify_price_sched_interval_duration,
         };
-        let adapter = Arc::new(Adapter::new(config, local_store_tx, logger).await);
+        let adapter = Arc::new(Adapter::new(config, logger).await);
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn Price Notifier
@@ -194,7 +186,6 @@ mod tests {
 
         TestAdapter {
             adapter,
-            local_store_rx,
             shutdown_tx,
             jh,
         }
@@ -1379,7 +1370,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_update_price() {
         // Start the test adapter
-        let mut test_adapter = setup().await;
+        let test_adapter = setup().await;
 
         // Send an Update Price message
         let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t"
@@ -1394,18 +1385,14 @@ mod tests {
             .unwrap();
 
         // Check that the local store indeed received the correct update
-        match test_adapter.local_store_rx.recv().await.unwrap() {
-            local::Message::Update {
-                price_identifier,
-                price_info,
-            } => {
-                assert_eq!(price_identifier, Identifier::new(account.to_bytes()));
-                assert_eq!(price_info.price, price);
-                assert_eq!(price_info.conf, conf);
-                assert_eq!(price_info.status, PriceStatus::Trading);
-            }
-            _ => panic!("Uexpected message received by local store from adapter"),
-        };
+        let price_infos = LocalStore::get_all_price_infos(&*test_adapter.adapter).await;
+        let price_info = price_infos
+            .get(&Identifier::new(account.to_bytes()))
+            .unwrap();
+
+        assert_eq!(price_info.price, price);
+        assert_eq!(price_info.conf, conf);
+        assert_eq!(price_info.status, PriceStatus::Trading);
 
         let _ = test_adapter.shutdown_tx.send(());
         test_adapter.jh.abort();

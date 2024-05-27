@@ -81,7 +81,6 @@ pub mod network {
     pub fn spawn_network(
         config: Config,
         network: Network,
-        local_store_tx: Sender<store::local::Message>,
         keypair_request_tx: Sender<KeypairRequest>,
         logger: Logger,
         adapter: Arc<Adapter>,
@@ -110,7 +109,6 @@ pub mod network {
             config.rpc_timeout,
             publisher_permissions_rx,
             KeyStore::new(config.key_store.clone(), &logger)?,
-            local_store_tx,
             keypair_request_tx,
             logger,
             adapter,

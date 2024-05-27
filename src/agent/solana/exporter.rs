@@ -3,7 +3,6 @@ use {
     super::{
         super::store::{
             self,
-            local::PriceInfo,
             PriceIdentifier,
         },
         key_store,
@@ -13,6 +12,10 @@ use {
     crate::agent::{
         pythd::adapter::{
             global::GlobalStore,
+            local::{
+                LocalStore,
+                PriceInfo,
+            },
             Adapter,
         },
         remote_keypair_loader::{
@@ -181,7 +184,6 @@ pub fn spawn_exporter(
         HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     >,
     key_store: KeyStore,
-    local_store_tx: Sender<store::local::Message>,
     keypair_request_tx: mpsc::Sender<KeypairRequest>,
     logger: Logger,
     adapter: Arc<Adapter>,
@@ -216,7 +218,6 @@ pub fn spawn_exporter(
         rpc_url,
         rpc_timeout,
         key_store,
-        local_store_tx,
         network_state_rx,
         transactions_tx,
         publisher_permissions_rx,
@@ -248,9 +249,6 @@ pub struct Exporter {
 
     /// The Key Store
     key_store: KeyStore,
-
-    /// Channel on which to communicate with the local store
-    local_store_tx: Sender<store::local::Message>,
 
     /// The last state published for each price identifier. Used to
     /// rule out stale data and prevent repetitive publishing of
@@ -290,7 +288,6 @@ impl Exporter {
         rpc_url: &str,
         rpc_timeout: Duration,
         key_store: KeyStore,
-        local_store_tx: Sender<store::local::Message>,
         network_state_rx: watch::Receiver<NetworkState>,
         inflight_transactions_tx: Sender<Signature>,
         publisher_permissions_rx: watch::Receiver<
@@ -310,7 +307,6 @@ impl Exporter {
             network,
             publish_interval,
             key_store,
-            local_store_tx,
             last_published_state: HashMap::new(),
             network_state_rx,
             inflight_transactions_tx,
@@ -615,14 +611,7 @@ impl Exporter {
     }
 
     async fn fetch_local_store_contents(&self) -> Result<HashMap<PriceIdentifier, PriceInfo>> {
-        let (result_tx, result_rx) = oneshot::channel();
-        self.local_store_tx
-            .send(store::local::Message::LookupAllPriceInfo { result_tx })
-            .await
-            .map_err(|_| anyhow!("failed to send lookup price info message to local store"))?;
-        result_rx
-            .await
-            .map_err(|_| anyhow!("failed to fetch from local store"))
+        Ok(LocalStore::get_all_price_infos(&*self.adapter).await)
     }
 
     async fn publish_batch(&self, batch: &[(Identifier, PriceInfo)]) -> Result<()> {

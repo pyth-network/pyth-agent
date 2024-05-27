@@ -118,26 +118,18 @@ impl Agent {
         // Create the channels
         // TODO: make all components listen to shutdown signal
         let (shutdown_tx, _) = broadcast::channel(self.config.channel_capacities.shutdown);
-        let (local_store_tx, local_store_rx) =
-            mpsc::channel(self.config.channel_capacities.local_store);
         let (primary_keypair_loader_tx, primary_keypair_loader_rx) = mpsc::channel(10);
         let (secondary_keypair_loader_tx, secondary_keypair_loader_rx) = mpsc::channel(10);
 
         // Create the Pythd Adapter.
         let adapter = Arc::new(
-            pythd::adapter::Adapter::new(
-                self.config.pythd_adapter.clone(),
-                local_store_tx.clone(),
-                logger.clone(),
-            )
-            .await,
+            pythd::adapter::Adapter::new(self.config.pythd_adapter.clone(), logger.clone()).await,
         );
 
         // Spawn the primary network
         jhs.extend(network::spawn_network(
             self.config.primary_network.clone(),
             network::Network::Primary,
-            local_store_tx.clone(),
             primary_keypair_loader_tx,
             logger.new(o!("primary" => true)),
             adapter.clone(),
@@ -148,7 +140,6 @@ impl Agent {
             jhs.extend(network::spawn_network(
                 config.clone(),
                 network::Network::Secondary,
-                local_store_tx.clone(),
                 secondary_keypair_loader_tx,
                 logger.new(o!("primary" => false)),
                 adapter.clone(),
@@ -161,9 +152,6 @@ impl Agent {
             shutdown_tx.subscribe(),
         )));
 
-        // Spawn the Local Store
-        jhs.push(store::local::spawn_store(local_store_rx, logger.clone()));
-
         // Spawn the Pythd API Server
         jhs.push(tokio::spawn(rpc::run(
             self.config.pythd_api_server.clone(),
@@ -175,7 +163,6 @@ impl Agent {
         // Spawn the metrics server
         jhs.push(tokio::spawn(metrics::MetricsServer::spawn(
             self.config.metrics_server.bind_address,
-            local_store_tx,
             logger.clone(),
             adapter,
         )));
