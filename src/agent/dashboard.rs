@@ -1,13 +1,15 @@
 use {
     super::{
-        pythd::adapter::global::GlobalStore,
+        pythd::adapter::{
+            global::GlobalStore,
+            local::{
+                LocalStore,
+                PriceInfo,
+            },
+        },
         solana::{
             network::Network,
             oracle::PriceEntry,
-        },
-        store::local::{
-            Message,
-            PriceInfo,
         },
     },
     crate::agent::{
@@ -34,7 +36,6 @@ use {
         },
         time::Duration,
     },
-    tokio::sync::oneshot,
     typed_html::{
         dom::DOMTree,
         html,
@@ -45,21 +46,10 @@ use {
 impl MetricsServer {
     /// Create an HTML view of store data
     pub async fn render_dashboard(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // Prepare response channel for requests
-        let (local_tx, local_rx) = oneshot::channel();
-
         // Request price data from local and global store
-        self.local_store_tx
-            .send(Message::LookupAllPriceInfo {
-                result_tx: local_tx,
-            })
-            .await?;
-
+        let local_data = LocalStore::get_all_price_infos(&*self.adapter).await;
         let global_data = GlobalStore::accounts_data(&*self.adapter, Network::Primary).await?;
         let global_metadata = GlobalStore::accounts_metadata(&*self.adapter).await?;
-
-        // Await the results
-        let local_data = local_rx.await?;
 
         let symbol_view =
             build_dashboard_data(local_data, global_data, global_metadata, &self.logger);

@@ -5,6 +5,10 @@ use {
             AllAccountsMetadata,
             GlobalStore,
         },
+        local::{
+            self,
+            LocalStore,
+        },
         Adapter,
         NotifyPriceSchedSubscription,
         NotifyPriceSubscription,
@@ -28,10 +32,7 @@ use {
             network::Network,
             oracle::PriceEntry,
         },
-        store::{
-            local,
-            PriceIdentifier,
-        },
+        store::PriceIdentifier,
     },
     anyhow::{
         anyhow,
@@ -357,18 +358,18 @@ impl AdapterApi for Adapter {
         conf: Conf,
         status: String,
     ) -> Result<()> {
-        self.local_store_tx
-            .send(local::Message::Update {
-                price_identifier: pyth_sdk::Identifier::new(account.to_bytes()),
-                price_info:       local::PriceInfo {
-                    status: Adapter::map_status(&status)?,
-                    price,
-                    conf,
-                    timestamp: Utc::now().naive_utc(),
-                },
-            })
-            .await
-            .map_err(|_| anyhow!("failed to send update to local store"))
+        LocalStore::update(
+            self,
+            pyth_sdk::Identifier::new(account.to_bytes()),
+            local::PriceInfo {
+                status: Adapter::map_status(&status)?,
+                price,
+                conf,
+                timestamp: Utc::now().naive_utc(),
+            },
+        )
+        .await
+        .map_err(|_| anyhow!("failed to send update to local store"))
     }
 
     // TODO: implement FromStr method on PriceStatus

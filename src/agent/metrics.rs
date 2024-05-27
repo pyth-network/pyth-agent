@@ -1,14 +1,11 @@
 use {
-    super::{
-        pythd::adapter::Adapter,
-        store::local::Message,
+    super::pythd::adapter::{
+        local::PriceInfo,
+        Adapter,
     },
     crate::agent::{
         solana::oracle::PriceEntry,
-        store::{
-            local::PriceInfo,
-            PriceIdentifier,
-        },
+        store::PriceIdentifier,
     },
     lazy_static::lazy_static,
     prometheus_client::{
@@ -34,10 +31,7 @@ use {
         },
         time::Instant,
     },
-    tokio::sync::{
-        mpsc,
-        Mutex,
-    },
+    tokio::sync::Mutex,
     warp::{
         hyper::StatusCode,
         reply,
@@ -73,23 +67,19 @@ lazy_static! {
 /// Internal metrics server state, holds state needed for serving
 /// dashboard and metrics.
 pub struct MetricsServer {
-    /// Used to pull the state of all symbols in local store
-    pub local_store_tx: mpsc::Sender<Message>,
-    pub start_time:     Instant,
-    pub logger:         Logger,
-    pub adapter:        Arc<Adapter>,
+    pub start_time: Instant,
+    pub logger:     Logger,
+    pub adapter:    Arc<Adapter>,
 }
 
 impl MetricsServer {
     /// Instantiate a metrics API with a dashboard
     pub async fn spawn(
         addr: impl Into<SocketAddr> + 'static,
-        local_store_tx: mpsc::Sender<Message>,
         logger: Logger,
         adapter: Arc<Adapter>,
     ) {
         let server = MetricsServer {
-            local_store_tx,
             start_time: Instant::now(),
             logger,
             adapter,
