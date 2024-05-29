@@ -3,9 +3,9 @@
 // it to the networks.
 use {
     super::{
-        Adapter,
-        AdapterApi,
         PriceIdentifier,
+        State,
+        StateApi,
     },
     crate::agent::metrics::PriceLocalMetrics,
     anyhow::{
@@ -68,8 +68,8 @@ pub trait LocalStore {
 }
 
 // Allow downcasting Adapter into GlobalStore for functions that depend on the `GlobalStore` service.
-impl<'a> From<&'a Adapter> for &'a Store {
-    fn from(adapter: &'a Adapter) -> &'a Store {
+impl<'a> From<&'a State> for &'a Store {
+    fn from(adapter: &'a State) -> &'a Store {
         &adapter.local_store
     }
 }
@@ -78,7 +78,7 @@ impl<'a> From<&'a Adapter> for &'a Store {
 impl<T> LocalStore for T
 where
     for<'a> &'a T: Into<&'a Store>,
-    T: AdapterApi,
+    T: StateApi,
     T: Sync,
 {
     async fn update(&self, price_identifier: PriceIdentifier, price_info: PriceInfo) -> Result<()> {

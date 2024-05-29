@@ -9,12 +9,12 @@ use {
     crate::agent::{
         legacy_schedule::LegacySchedule,
         market_schedule::MarketSchedule,
-        pythd::adapter::{
+        state::{
             global::{
                 GlobalStore,
                 Update,
             },
-            Adapter,
+            State,
         },
     },
     anyhow::{
@@ -180,7 +180,7 @@ pub struct Oracle {
 
     logger: Logger,
 
-    adapter: Arc<Adapter>,
+    adapter: Arc<State>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -230,7 +230,7 @@ pub fn spawn_oracle(
     >,
     key_store: KeyStore,
     logger: Logger,
-    adapter: Arc<Adapter>,
+    adapter: Arc<State>,
 ) -> Vec<JoinHandle<()>> {
     let mut jhs = vec![];
 
@@ -275,7 +275,7 @@ impl Oracle {
         updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
         network: Network,
         logger: Logger,
-        adapter: Arc<Adapter>,
+        adapter: Arc<State>,
     ) -> Self {
         Oracle {
             data: Default::default(),

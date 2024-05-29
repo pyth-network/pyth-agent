@@ -2,13 +2,12 @@
 // on-chain aggregation contracts, across both the primary and secondary networks.
 // This enables this data to be easily queried by other components.
 use {
-    super::Adapter,
+    super::State,
     crate::agent::{
         metrics::{
             PriceGlobalMetrics,
             ProductGlobalMetrics,
         },
-        pythd::adapter::AdapterApi,
         solana::{
             network::Network,
             oracle::{
@@ -17,6 +16,7 @@ use {
                 ProductEntry,
             },
         },
+        state::StateApi,
     },
     anyhow::{
         anyhow,
@@ -165,8 +165,8 @@ pub trait GlobalStore {
 }
 
 // Allow downcasting Adapter into GlobalStore for functions that depend on the `GlobalStore` service.
-impl<'a> From<&'a Adapter> for &'a Store {
-    fn from(adapter: &'a Adapter) -> &'a Store {
+impl<'a> From<&'a State> for &'a Store {
+    fn from(adapter: &'a State) -> &'a Store {
         &adapter.global_store
     }
 }
@@ -175,7 +175,7 @@ impl<'a> From<&'a Adapter> for &'a Store {
 impl<T> GlobalStore for T
 where
     for<'a> &'a T: Into<&'a Store>,
-    T: AdapterApi,
+    T: StateApi,
     T: Sync,
 {
     async fn update(&self, network: Network, update: &Update) -> Result<()> {
@@ -223,7 +223,7 @@ where
 
 async fn update_data<S>(state: &S, network: Network, update: &Update) -> Result<()>
 where
-    S: AdapterApi,
+    S: StateApi,
     for<'a> &'a S: Into<&'a Store>,
 {
     let store: &Store = state.into();
@@ -284,7 +284,7 @@ where
             // As the account data might differ between the two networks
             // we only notify the adapter of the primary network updates.
             if let Network::Primary = network {
-                AdapterApi::global_store_update(
+                StateApi::global_store_update(
                     state,
                     Identifier::new(account_key.to_bytes()),
                     account.agg.price,
@@ -304,7 +304,7 @@ where
 
 async fn update_metadata<S>(state: &S, update: &Update) -> Result<()>
 where
-    S: AdapterApi,
+    S: StateApi,
     for<'a> &'a S: Into<&'a Store>,
 {
     let store: &Store = state.into();

@@ -1,20 +1,20 @@
 use {
     super::{
-        pythd::adapter::{
+        solana::{
+            network::Network,
+            oracle::PriceEntry,
+        },
+        state::{
             global::GlobalStore,
             local::{
                 LocalStore,
                 PriceInfo,
             },
         },
-        solana::{
-            network::Network,
-            oracle::PriceEntry,
-        },
     },
     crate::agent::{
         metrics::MetricsServer,
-        pythd::adapter::global::{
+        state::global::{
             AllAccountsData,
             AllAccountsMetadata,
             PriceAccountMetadata,

@@ -9,9 +9,9 @@ use {
             self,
             LocalStore,
         },
-        Adapter,
         NotifyPriceSchedSubscription,
         NotifyPriceSubscription,
+        State,
     },
     crate::agent::{
         pythd::api::{
@@ -130,7 +130,7 @@ fn solana_price_account_to_pythd_api_price_account(
 }
 
 #[async_trait::async_trait]
-pub trait AdapterApi {
+pub trait StateApi {
     async fn get_product_list(&self) -> Result<Vec<ProductAccountMetadata>>;
     async fn lookup_all_accounts_metadata(&self) -> Result<AllAccountsMetadata>;
     async fn get_all_products(&self) -> Result<Vec<ProductAccount>>;
@@ -172,7 +172,7 @@ pub trait AdapterApi {
     ) -> Result<()>;
 }
 
-pub async fn notifier(adapter: Arc<Adapter>, mut shutdown_rx: broadcast::Receiver<()>) {
+pub async fn notifier(adapter: Arc<State>, mut shutdown_rx: broadcast::Receiver<()>) {
     let mut interval = tokio::time::interval(adapter.notify_price_sched_interval_duration);
     loop {
         adapter.drop_closed_subscriptions().await;
@@ -192,7 +192,7 @@ pub async fn notifier(adapter: Arc<Adapter>, mut shutdown_rx: broadcast::Receive
 }
 
 #[async_trait::async_trait]
-impl AdapterApi for Adapter {
+impl StateApi for State {
     async fn get_product_list(&self) -> Result<Vec<ProductAccountMetadata>> {
         let all_accounts_metadata = self.lookup_all_accounts_metadata().await?;
 
@@ -362,7 +362,7 @@ impl AdapterApi for Adapter {
             self,
             pyth_sdk::Identifier::new(account.to_bytes()),
             local::PriceInfo {
-                status: Adapter::map_status(&status)?,
+                status: State::map_status(&status)?,
                 price,
                 conf,
                 timestamp: Utc::now().naive_utc(),

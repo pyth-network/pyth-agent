@@ -15,9 +15,8 @@ pub mod network {
             oracle,
         },
         crate::agent::{
-            pythd::adapter::Adapter,
             remote_keypair_loader::KeypairRequest,
-            store,
+            state::State,
         },
         anyhow::Result,
         serde::{
@@ -83,7 +82,7 @@ pub mod network {
         network: Network,
         keypair_request_tx: Sender<KeypairRequest>,
         logger: Logger,
-        adapter: Arc<Adapter>,
+        adapter: Arc<State>,
     ) -> Result<Vec<JoinHandle<()>>> {
         // Publisher permissions updates between oracle and exporter
         let (publisher_permissions_tx, publisher_permissions_rx) = watch::channel(<_>::default());

@@ -3,7 +3,7 @@ use {
         GetProductParams,
         Method,
     },
-    crate::agent::pythd::adapter,
+    crate::agent::state,
     anyhow::{
         anyhow,
         Result,
@@ -19,7 +19,7 @@ pub async fn get_product<S>(
     request: &Request<Method, Value>,
 ) -> Result<serde_json::Value>
 where
-    S: adapter::AdapterApi,
+    S: state::StateApi,
 {
     let params: GetProductParams = {
         let value = request.params.clone();

@@ -1,26 +1,23 @@
 use {
     self::transaction_monitor::TransactionMonitor,
     super::{
-        super::store::{
-            self,
-            PriceIdentifier,
-        },
+        super::store::PriceIdentifier,
         key_store,
         network::Network,
         oracle::PricePublishingMetadata,
     },
     crate::agent::{
-        pythd::adapter::{
+        remote_keypair_loader::{
+            KeypairRequest,
+            RemoteKeypairLoader,
+        },
+        state::{
             global::GlobalStore,
             local::{
                 LocalStore,
                 PriceInfo,
             },
-            Adapter,
-        },
-        remote_keypair_loader::{
-            KeypairRequest,
-            RemoteKeypairLoader,
+            State,
         },
     },
     anyhow::{
@@ -77,7 +74,6 @@ use {
                 self,
                 Sender,
             },
-            oneshot,
             watch,
         },
         task::JoinHandle,
@@ -186,7 +182,7 @@ pub fn spawn_exporter(
     key_store: KeyStore,
     keypair_request_tx: mpsc::Sender<KeypairRequest>,
     logger: Logger,
-    adapter: Arc<Adapter>,
+    adapter: Arc<State>,
 ) -> Result<Vec<JoinHandle<()>>> {
     // Create and spawn the network state querier
     let (network_state_tx, network_state_rx) = watch::channel(Default::default());
@@ -278,7 +274,7 @@ pub struct Exporter {
 
     logger: Logger,
 
-    adapter: Arc<Adapter>,
+    adapter: Arc<State>,
 }
 
 impl Exporter {
@@ -295,7 +291,7 @@ impl Exporter {
         >,
         keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
-        adapter: Arc<Adapter>,
+        adapter: Arc<State>,
     ) -> Self {
         let publish_interval = time::interval(config.publish_interval_duration);
         Exporter {
