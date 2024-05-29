@@ -108,7 +108,7 @@ key_store.mapping_key = "RelevantOracleMappingAddress"
 
 # [metrics_server]
 #
-# Where to serve the quick-access dashboard and metrics. Metrics live under "/metrics"
+# Where to serve metrics. Metrics live under "/metrics"
 # NOTE: non-loopback addresses must be used carefully, making sure the
 # connection is not exposed for unauthorized access.
 # bind_address = "127.0.0.1:8888"

@@ -65,7 +65,7 @@ lazy_static! {
 }
 
 /// Internal metrics server state, holds state needed for serving
-/// dashboard and metrics.
+/// metrics.
 pub struct MetricsServer {
     pub start_time: Instant,
     pub logger:     Logger,
@@ -73,7 +73,7 @@ pub struct MetricsServer {
 }
 
 impl MetricsServer {
-    /// Instantiate a metrics API with a dashboard
+    /// Instantiate a metrics API.
     pub async fn spawn(addr: impl Into<SocketAddr> + 'static, logger: Logger, adapter: Arc<State>) {
         let server = MetricsServer {
             start_time: Instant::now(),
@@ -82,56 +82,30 @@ impl MetricsServer {
         };
 
         let shared_state = Arc::new(Mutex::new(server));
-
-        let shared_state4dashboard = shared_state.clone();
-        let dashboard_route = warp::path("dashboard")
-            .or(warp::path::end())
-            .and_then(move |_| {
-                let shared_state = shared_state4dashboard.clone();
-                async move {
-                    let locked_state = shared_state.lock().await;
-                    let response = locked_state
-                        .render_dashboard() // Defined in a separate impl block near dashboard-specific code
-                        .await
-                        .unwrap_or_else(|e| {
-                            // Add logging here
-                            error!(locked_state.logger,"Dashboard: Rendering failed"; "error" => e.to_string());
-
-                            // Withhold failure details from client
-                            "Could not render dashboard! See the logs for details".to_owned()
-                        });
-                    Result::<Box<dyn Reply>, Rejection>::Ok(Box::new(reply::with_status(
-                        reply::html(response),
-                        StatusCode::OK,
-                    )))
-                }
-            });
-
         let shared_state4metrics = shared_state.clone();
         let metrics_route = warp::path("metrics")
             .and(warp::path::end())
             .and_then(move || {
                 let shared_state = shared_state4metrics.clone();
                 async move {
-		    let locked_state = shared_state.lock().await;
+                    let locked_state = shared_state.lock().await;
                     let mut buf = String::new();
-                    let response = encode(&mut buf, &&PROMETHEUS_REGISTRY.lock().await).map_err(|e| -> Box<dyn std::error::Error> {e.into()
-		    }).and_then(|_| -> Result<_, Box<dyn std::error::Error>> {
+                    let response = encode(&mut buf, &&PROMETHEUS_REGISTRY.lock().await)
+                        .map_err(|e| -> Box<dyn std::error::Error> {
+                            e.into()
+                        })
+                        .and_then(|_| -> Result<_, Box<dyn std::error::Error>> {
+                            Ok(Box::new(reply::with_status(buf, StatusCode::OK)))
+                        }).unwrap_or_else(|e| {
+                            error!(locked_state.logger, "Metrics: Could not gather metrics from registry"; "error" => e.to_string());
+                            Box::new(reply::with_status("Could not gather metrics. See logs for details".to_string(), StatusCode::INTERNAL_SERVER_ERROR))
+                        });
 
-			Ok(Box::new(reply::with_status(buf, StatusCode::OK)))
-		    }).unwrap_or_else(|e| {
-			error!(locked_state.logger, "Metrics: Could not gather metrics from registry"; "error" => e.to_string());
-
-			Box::new(reply::with_status("Could not gather metrics. See logs for details".to_string(), StatusCode::INTERNAL_SERVER_ERROR))
-		    });
-
-		    Result::<Box<dyn Reply>, Rejection>::Ok(response)
+                    Result::<Box<dyn Reply>, Rejection>::Ok(response)
                 }
             });
 
-        warp::serve(dashboard_route.or(metrics_route))
-            .bind(addr)
-            .await;
+        warp::serve(metrics_route).bind(addr).await;
     }
 }
 

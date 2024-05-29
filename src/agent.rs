@@ -62,7 +62,6 @@ Note that there is an Oracle and Exporter for each network, but only one Local S
 
 ################################################################################################################################## */
 
-pub mod dashboard;
 pub mod legacy_schedule;
 pub mod market_schedule;
 pub mod metrics;
