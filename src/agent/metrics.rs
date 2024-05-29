@@ -1,7 +1,7 @@
 use {
-    super::adapter::{
+    super::state::{
         local::PriceInfo,
-        Adapter,
+        State,
     },
     crate::agent::{
         solana::oracle::PriceEntry,
@@ -69,16 +69,12 @@ lazy_static! {
 pub struct MetricsServer {
     pub start_time: Instant,
     pub logger:     Logger,
-    pub adapter:    Arc<Adapter>,
+    pub adapter:    Arc<State>,
 }
 
 impl MetricsServer {
     /// Instantiate a metrics API with a dashboard
-    pub async fn spawn(
-        addr: impl Into<SocketAddr> + 'static,
-        logger: Logger,
-        adapter: Arc<Adapter>,
-    ) {
+    pub async fn spawn(addr: impl Into<SocketAddr> + 'static, logger: Logger, adapter: Arc<State>) {
         let server = MetricsServer {
             start_time: Instant::now(),
             logger,

@@ -13,7 +13,7 @@ use {
         Pubkey,
         SubscriptionID,
     },
-    crate::agent::adapter,
+    crate::agent::state,
     anyhow::{
         anyhow,
         Result,
@@ -120,7 +120,7 @@ async fn handle_connection<S>(
     notify_price_sched_tx_buffer: usize,
     logger: Logger,
 ) where
-    S: adapter::AdapterApi,
+    S: state::StateApi,
     S: Send,
     S: Sync,
     S: 'static,
@@ -168,7 +168,7 @@ async fn handle_next<S>(
     notify_price_sched_rx: &mut mpsc::Receiver<NotifyPriceSched>,
 ) -> Result<()>
 where
-    S: adapter::AdapterApi,
+    S: state::StateApi,
 {
     tokio::select! {
         msg = ws_rx.next() => {
@@ -210,7 +210,7 @@ async fn handle<S>(
     msg: Message,
 ) -> Result<()>
 where
-    S: adapter::AdapterApi,
+    S: state::StateApi,
 {
     // Ignore control and binary messages
     if !msg.is_text() {
@@ -296,7 +296,7 @@ async fn dispatch_and_catch_error<S>(
     request: &Request<Method, Value>,
 ) -> Response<serde_json::Value>
 where
-    S: adapter::AdapterApi,
+    S: state::StateApi,
 {
     debug!(
         logger,
@@ -436,7 +436,7 @@ pub async fn run<S>(
     adapter: Arc<S>,
     shutdown_rx: broadcast::Receiver<()>,
 ) where
-    S: adapter::AdapterApi,
+    S: state::StateApi,
     S: Send,
     S: Sync,
     S: 'static,
@@ -454,7 +454,7 @@ async fn serve<S>(
     mut shutdown_rx: broadcast::Receiver<()>,
 ) -> Result<()>
 where
-    S: adapter::AdapterApi,
+    S: state::StateApi,
     S: Send,
     S: Sync,
     S: 'static,

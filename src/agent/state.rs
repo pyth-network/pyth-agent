@@ -29,7 +29,7 @@ pub mod global;
 pub mod local;
 pub use api::{
     notifier,
-    AdapterApi,
+    StateApi,
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -52,7 +52,7 @@ impl Default for Config {
 /// Adapter is the adapter between the pythd websocket API, and the stores.
 /// It is responsible for implementing the business logic for responding to
 /// the pythd websocket API calls.
-pub struct Adapter {
+pub struct State {
     /// Subscription ID sequencer.
     subscription_id_seq: AtomicI64,
 
@@ -92,10 +92,10 @@ struct NotifyPriceSubscription {
     notify_price_tx: mpsc::Sender<NotifyPrice>,
 }
 
-impl Adapter {
+impl State {
     pub async fn new(config: Config, logger: Logger) -> Self {
         let registry = &mut *PROMETHEUS_REGISTRY.lock().await;
-        Adapter {
+        State {
             global_store: global::Store::new(logger.clone(), registry),
             local_store: local::Store::new(logger.clone(), registry),
             subscription_id_seq: 1.into(),
@@ -116,12 +116,11 @@ mod tests {
                 AllAccountsData,
             },
             notifier,
-            Adapter,
-            AdapterApi,
             Config,
+            State,
+            StateApi,
         },
         crate::agent::{
-            adapter::local::LocalStore,
             pythd::api::{
                 self,
                 NotifyPrice,
@@ -133,6 +132,7 @@ mod tests {
                 PublisherAccount,
             },
             solana,
+            state::local::LocalStore,
         },
         iobuffer::IoBuffer,
         pyth_sdk::Identifier,
@@ -164,7 +164,7 @@ mod tests {
     };
 
     struct TestAdapter {
-        adapter:     Arc<Adapter>,
+        adapter:     Arc<State>,
         shutdown_tx: broadcast::Sender<()>,
         jh:          JoinHandle<()>,
     }
@@ -176,7 +176,7 @@ mod tests {
         let config = Config {
             notify_price_sched_interval_duration,
         };
-        let adapter = Arc::new(Adapter::new(config, logger).await);
+        let adapter = Arc::new(State::new(config, logger).await);
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn Price Notifier

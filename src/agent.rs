@@ -62,7 +62,6 @@ Note that there is an Oracle and Exporter for each network, but only one Local S
 
 ################################################################################################################################## */
 
-pub mod adapter;
 pub mod dashboard;
 pub mod legacy_schedule;
 pub mod market_schedule;
@@ -70,13 +69,14 @@ pub mod metrics;
 pub mod pythd;
 pub mod remote_keypair_loader;
 pub mod solana;
+pub mod state;
 pub mod store;
 use {
     self::{
-        adapter::notifier,
         config::Config,
         pythd::api::rpc,
         solana::network,
+        state::notifier,
     },
     anyhow::Result,
     futures_util::future::join_all,
@@ -121,9 +121,8 @@ impl Agent {
         let (secondary_keypair_loader_tx, secondary_keypair_loader_rx) = mpsc::channel(10);
 
         // Create the Pythd Adapter.
-        let adapter = Arc::new(
-            adapter::Adapter::new(self.config.pythd_adapter.clone(), logger.clone()).await,
-        );
+        let adapter =
+            Arc::new(state::State::new(self.config.pythd_adapter.clone(), logger.clone()).await);
 
         // Spawn the primary network
         jhs.extend(network::spawn_network(
@@ -192,11 +191,11 @@ impl Agent {
 pub mod config {
     use {
         super::{
-            adapter,
             metrics,
             pythd,
             remote_keypair_loader,
             solana::network,
+            state,
         },
         anyhow::Result,
         config as config_rs,
@@ -216,7 +215,7 @@ pub mod config {
         pub primary_network:       network::Config,
         pub secondary_network:     Option<network::Config>,
         #[serde(default)]
-        pub pythd_adapter:         adapter::Config,
+        pub pythd_adapter:         state::Config,
         #[serde(default)]
         pub pythd_api_server:      pythd::api::rpc::Config,
         #[serde(default)]

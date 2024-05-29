@@ -5,7 +5,7 @@ use {
         SubscribePriceSchedParams,
         SubscribeResult,
     },
-    crate::agent::adapter,
+    crate::agent::state,
     anyhow::{
         anyhow,
         Result,
@@ -23,7 +23,7 @@ pub async fn subscribe_price_sched<S>(
     request: &Request<Method, Value>,
 ) -> Result<serde_json::Value>
 where
-    S: adapter::AdapterApi,
+    S: state::StateApi,
 {
     let params: SubscribePriceSchedParams = serde_json::from_value(
         request

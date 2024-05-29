@@ -1,24 +1,24 @@
 use {
     super::{
-        adapter::{
+        solana::{
+            network::Network,
+            oracle::PriceEntry,
+        },
+        state::{
             global::GlobalStore,
             local::{
                 LocalStore,
                 PriceInfo,
             },
         },
-        solana::{
-            network::Network,
-            oracle::PriceEntry,
-        },
     },
     crate::agent::{
-        adapter::global::{
+        metrics::MetricsServer,
+        state::global::{
             AllAccountsData,
             AllAccountsMetadata,
             PriceAccountMetadata,
         },
-        metrics::MetricsServer,
     },
     chrono::DateTime,
     pyth_sdk::{
