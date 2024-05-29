@@ -5,18 +5,32 @@ use {
     super::Adapter,
     crate::agent::{
         adapter::AdapterApi,
-        metrics::{PriceGlobalMetrics, ProductGlobalMetrics},
+        metrics::{
+            PriceGlobalMetrics,
+            ProductGlobalMetrics,
+        },
         solana::{
             network::Network,
-            oracle::{self, PriceEntry, ProductEntry},
+            oracle::{
+                self,
+                PriceEntry,
+                ProductEntry,
+            },
         },
     },
-    anyhow::{anyhow, Result},
+    anyhow::{
+        anyhow,
+        Result,
+    },
     prometheus_client::registry::Registry,
     pyth_sdk::Identifier,
     slog::Logger,
     solana_sdk::pubkey::Pubkey,
-    std::collections::{BTreeMap, HashMap, HashSet},
+    std::collections::{
+        BTreeMap,
+        HashMap,
+        HashSet,
+    },
     tokio::sync::RwLock,
 };
 
@@ -25,7 +39,7 @@ use {
 #[derive(Debug, Clone, Default)]
 pub struct AllAccountsData {
     pub product_accounts: HashMap<Pubkey, oracle::ProductEntry>,
-    pub price_accounts: HashMap<Pubkey, oracle::PriceEntry>,
+    pub price_accounts:   HashMap<Pubkey, oracle::PriceEntry>,
 }
 
 /// AllAccountsMetadata contains the metadata for all the price and product accounts.
@@ -34,14 +48,14 @@ pub struct AllAccountsData {
 #[derive(Debug, Clone, Default)]
 pub struct AllAccountsMetadata {
     pub product_accounts_metadata: HashMap<Pubkey, ProductAccountMetadata>,
-    pub price_accounts_metadata: HashMap<Pubkey, PriceAccountMetadata>,
+    pub price_accounts_metadata:   HashMap<Pubkey, PriceAccountMetadata>,
 }
 
 /// ProductAccountMetadata contains the metadata for a product account.
 #[derive(Debug, Clone, Default)]
 pub struct ProductAccountMetadata {
     /// Attribute dictionary
-    pub attr_dict: BTreeMap<String, String>,
+    pub attr_dict:      BTreeMap<String, String>,
     /// Price accounts associated with this product
     pub price_accounts: Vec<Pubkey>,
 }
@@ -49,7 +63,7 @@ pub struct ProductAccountMetadata {
 impl From<oracle::ProductEntry> for ProductAccountMetadata {
     fn from(product_account: oracle::ProductEntry) -> Self {
         ProductAccountMetadata {
-            attr_dict: product_account
+            attr_dict:      product_account
                 .account_data
                 .iter()
                 .map(|(key, val)| (key.to_owned(), val.to_owned()))
@@ -78,11 +92,11 @@ impl From<oracle::PriceEntry> for PriceAccountMetadata {
 pub enum Update {
     ProductAccountUpdate {
         account_key: Pubkey,
-        account: ProductEntry,
+        account:     ProductEntry,
     },
     PriceAccountUpdate {
         account_key: Pubkey,
-        account: PriceEntry,
+        account:     PriceEntry,
     },
 }
 

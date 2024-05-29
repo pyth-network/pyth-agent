@@ -5,7 +5,7 @@ use {
         SubscribePriceParams,
         SubscribeResult,
     },
-    crate::agent::pythd::adapter,
+    crate::agent::adapter,
     anyhow::{
         anyhow,
         Result,

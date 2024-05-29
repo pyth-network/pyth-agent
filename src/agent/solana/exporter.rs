@@ -1,16 +1,13 @@
 use {
     self::transaction_monitor::TransactionMonitor,
     super::{
-        super::store::{
-            self,
-            PriceIdentifier,
-        },
+        super::store::PriceIdentifier,
         key_store,
         network::Network,
         oracle::PricePublishingMetadata,
     },
     crate::agent::{
-        pythd::adapter::{
+        adapter::{
             global::GlobalStore,
             local::{
                 LocalStore,
@@ -77,7 +74,6 @@ use {
                 self,
                 Sender,
             },
-            oneshot,
             watch,
         },
         task::JoinHandle,

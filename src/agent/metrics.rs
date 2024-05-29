@@ -1,5 +1,5 @@
 use {
-    super::pythd::adapter::{
+    super::adapter::{
         local::PriceInfo,
         Adapter,
     },

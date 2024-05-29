@@ -7,15 +7,15 @@ use {
         network::Network,
     },
     crate::agent::{
-        legacy_schedule::LegacySchedule,
-        market_schedule::MarketSchedule,
-        pythd::adapter::{
+        adapter::{
             global::{
                 GlobalStore,
                 Update,
             },
             Adapter,
         },
+        legacy_schedule::LegacySchedule,
+        market_schedule::MarketSchedule,
     },
     anyhow::{
         anyhow,

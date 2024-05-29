@@ -6,7 +6,6 @@
 
 use {
     super::{
-        super::adapter,
         Conf,
         NotifyPrice,
         NotifyPriceSched,
@@ -14,6 +13,7 @@ use {
         Pubkey,
         SubscriptionID,
     },
+    crate::agent::adapter,
     anyhow::{
         anyhow,
         Result,

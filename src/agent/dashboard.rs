@@ -1,6 +1,6 @@
 use {
     super::{
-        pythd::adapter::{
+        adapter::{
             global::GlobalStore,
             local::{
                 LocalStore,
@@ -13,12 +13,12 @@ use {
         },
     },
     crate::agent::{
-        metrics::MetricsServer,
-        pythd::adapter::global::{
+        adapter::global::{
             AllAccountsData,
             AllAccountsMetadata,
             PriceAccountMetadata,
         },
+        metrics::MetricsServer,
     },
     chrono::DateTime,
     pyth_sdk::{

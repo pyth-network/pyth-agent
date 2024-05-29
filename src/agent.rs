@@ -62,6 +62,7 @@ Note that there is an Oracle and Exporter for each network, but only one Local S
 
 ################################################################################################################################## */
 
+pub mod adapter;
 pub mod dashboard;
 pub mod legacy_schedule;
 pub mod market_schedule;
@@ -72,11 +73,9 @@ pub mod solana;
 pub mod store;
 use {
     self::{
+        adapter::notifier,
         config::Config,
-        pythd::{
-            adapter::notifier,
-            api::rpc,
-        },
+        pythd::api::rpc,
         solana::network,
     },
     anyhow::Result,
@@ -123,7 +122,7 @@ impl Agent {
 
         // Create the Pythd Adapter.
         let adapter = Arc::new(
-            pythd::adapter::Adapter::new(self.config.pythd_adapter.clone(), logger.clone()).await,
+            adapter::Adapter::new(self.config.pythd_adapter.clone(), logger.clone()).await,
         );
 
         // Spawn the primary network
@@ -193,6 +192,7 @@ impl Agent {
 pub mod config {
     use {
         super::{
+            adapter,
             metrics,
             pythd,
             remote_keypair_loader,
@@ -216,7 +216,7 @@ pub mod config {
         pub primary_network:       network::Config,
         pub secondary_network:     Option<network::Config>,
         #[serde(default)]
-        pub pythd_adapter:         pythd::adapter::Config,
+        pub pythd_adapter:         adapter::Config,
         #[serde(default)]
         pub pythd_api_server:      pythd::api::rpc::Config,
         #[serde(default)]

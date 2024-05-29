@@ -15,9 +15,8 @@ pub mod network {
             oracle,
         },
         crate::agent::{
-            pythd::adapter::Adapter,
+            adapter::Adapter,
             remote_keypair_loader::KeypairRequest,
-            store,
         },
         anyhow::Result,
         serde::{

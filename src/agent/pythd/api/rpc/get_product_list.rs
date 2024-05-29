@@ -1,5 +1,5 @@
 use {
-    crate::agent::pythd::adapter,
+    crate::agent::adapter,
     anyhow::Result,
 };
 
