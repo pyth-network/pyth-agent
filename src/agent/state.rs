@@ -11,7 +11,6 @@ use {
         Deserialize,
         Serialize,
     },
-    slog::Logger,
     std::time::Duration,
     tokio::sync::mpsc,
 };
@@ -74,11 +73,11 @@ struct NotifyPriceSubscription {
 }
 
 impl State {
-    pub async fn new(config: Config, logger: Logger) -> Self {
+    pub async fn new(config: Config) -> Self {
         let registry = &mut *PROMETHEUS_REGISTRY.lock().await;
         State {
-            global_store: global::Store::new(logger.clone(), registry),
-            local_store:  local::Store::new(logger.clone(), registry),
+            global_store: global::Store::new(registry),
+            local_store:  local::Store::new(registry),
             keypairs:     keypairs::KeypairState::default(),
             prices:       api::PricesState::new(config),
         }
@@ -119,7 +118,6 @@ mod tests {
                 local::LocalStore,
             },
         },
-        iobuffer::IoBuffer,
         pyth_sdk::Identifier,
         pyth_sdk_solana::state::{
             PriceComp,
@@ -129,7 +127,6 @@ mod tests {
             Rational,
             SolanaPriceAccount,
         },
-        slog_extlog::slog_test,
         std::{
             collections::{
                 BTreeMap,
@@ -156,15 +153,14 @@ mod tests {
 
     async fn setup() -> TestState {
         let notify_price_sched_interval_duration = Duration::from_nanos(10);
-        let logger = slog_test::new_test_logger(IoBuffer::new());
         let config = Config {
             notify_price_sched_interval_duration,
         };
-        let state = Arc::new(State::new(config, logger.clone()).await);
+        let state = Arc::new(State::new(config).await);
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn Price Notifier
-        let jh = tokio::spawn(notifier(logger, state.clone()));
+        let jh = tokio::spawn(notifier(state.clone()));
 
         TestState {
             state,

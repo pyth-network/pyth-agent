@@ -71,7 +71,6 @@ use {
     anyhow::Result,
     futures_util::future::join_all,
     lazy_static::lazy_static,
-    slog::Logger,
     std::sync::Arc,
     tokio::sync::watch,
 };
@@ -105,31 +104,33 @@ impl Agent {
         Agent { config }
     }
 
-    pub async fn start(&self, logger: Logger) {
-        info!(logger, "Starting {}", env!("CARGO_PKG_NAME");
-              "config" => format!("{:?}", &self.config),
-              "version" => env!("CARGO_PKG_VERSION"),
-              "cwd" => std::env::current_dir().map(|p| format!("{}", p.display())).unwrap_or("<could not get current directory>".to_owned())
+    pub async fn start(&self) {
+        tracing::info!(
+            config = format!("{:?}", &self.config),
+            version = env!("CARGO_PKG_VERSION"),
+            cwd = std::env::current_dir()
+                .map(|p| format!("{}", p.display()))
+                .unwrap_or("<could not get current directory>".to_owned()),
+            "Starting {}",
+            env!("CARGO_PKG_NAME"),
         );
 
-        if let Err(err) = self.spawn(logger.clone()).await {
-            error!(logger, "{}", err);
-            debug!(logger, "error context"; "context" => format!("{:?}", err));
+        if let Err(err) = self.spawn().await {
+            tracing::error!(err = ?err, "Agent spawn failed.");
         };
     }
 
-    async fn spawn(&self, logger: Logger) -> Result<()> {
+    async fn spawn(&self) -> Result<()> {
         // job handles
         let mut jhs = vec![];
 
         // Create the Application State.
-        let state = Arc::new(state::State::new(self.config.state.clone(), logger.clone()).await);
+        let state = Arc::new(state::State::new(self.config.state.clone()).await);
 
         // Spawn the primary network
         jhs.extend(network::spawn_network(
             self.config.primary_network.clone(),
             network::Network::Primary,
-            logger.new(o!("primary" => true)),
             state.clone(),
         )?);
 
@@ -138,26 +139,22 @@ impl Agent {
             jhs.extend(network::spawn_network(
                 config.clone(),
                 network::Network::Secondary,
-                logger.new(o!("primary" => false)),
                 state.clone(),
             )?);
         }
 
         // Create the Notifier task for the Pythd RPC.
-        jhs.push(tokio::spawn(notifier(logger.clone(), state.clone())));
+        jhs.push(tokio::spawn(notifier(state.clone())));
 
         // Spawn the Pythd API Server
         jhs.push(tokio::spawn(rpc::run(
             self.config.pythd_api_server.clone(),
-            logger.clone(),
             state.clone(),
         )));
 
         // Spawn the metrics server
-        jhs.push(tokio::spawn(metrics::MetricsServer::spawn(
+        jhs.push(tokio::spawn(metrics::spawn(
             self.config.metrics_server.bind_address,
-            logger.clone(),
-            state.clone(),
         )));
 
         // Spawn the remote keypair loader endpoint for both networks
@@ -169,7 +166,6 @@ impl Agent {
                     .as_ref()
                     .map(|c| c.rpc_url.clone()),
                 self.config.remote_keypair_loader.clone(),
-                logger,
                 state,
             )
             .await,

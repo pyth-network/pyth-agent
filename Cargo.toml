@@ -33,15 +33,11 @@ solana-account-decoder = "1.18.8"
 solana-client = "1.18.8"
 solana-sdk = "1.18.8"
 bincode = "1.3.3"
-slog = { version = "2.7.0", features = ["max_level_trace", "release_max_level_trace"] }
-slog-term = "2.9.1"
 rand = "0.8.5"
-slog-async = "2.8.0"
 config = "0.14.0"
 thiserror = "1.0.58"
 clap = { version = "4.5.4", features = ["derive"] }
 humantime-serde = "1.1.1"
-slog-envlogger = "2.2.0"
 serde-this-or-that = "0.4.2"
 # The public typed-html 0.2.2 release is causing a recursion limit
 # error that cannot be fixed from outside the crate.
@@ -52,9 +48,10 @@ humantime = "2.1.0"
 prometheus-client = "0.22.2"
 lazy_static = "1.4.0"
 toml_edit = "0.22.9"
-slog-bunyan = "2.5.0"
 winnow = "0.6.5"
 proptest = "1.4.0"
+tracing = { version = "0.1.40", features = ["log"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 [dev-dependencies]
 tokio-util = { version = "0.7.10", features = ["full"] }
@@ -62,7 +59,6 @@ soketto = "0.8.0"
 portpicker = "0.1.1"
 rand = "0.8.5"
 tokio-retry = "0.3.0"
-slog-extlog = "8.1.0"
 iobuffer = "0.2.0"
 
 [profile.release]

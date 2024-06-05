@@ -44,7 +44,6 @@ use {
         as_i64,
         as_u64,
     },
-    slog::Logger,
     std::{
         fmt::Debug,
         net::SocketAddr,
@@ -115,7 +114,6 @@ async fn handle_connection<S>(
     state: Arc<S>,
     notify_price_tx_buffer: usize,
     notify_price_sched_tx_buffer: usize,
-    logger: Logger,
 ) where
     S: state::Prices,
     S: Send,
@@ -130,7 +128,6 @@ async fn handle_connection<S>(
 
     loop {
         if let Err(err) = handle_next(
-            &logger,
             &*state,
             &mut ws_tx,
             &mut ws_rx,
@@ -144,18 +141,16 @@ async fn handle_connection<S>(
             if let Some(ConnectionError::WebsocketConnectionClosed) =
                 err.downcast_ref::<ConnectionError>()
             {
-                info!(logger, "websocket connection closed");
+                tracing::info!("Websocket connection closed.");
                 return;
             }
 
-            error!(logger, "{}", err);
-            debug!(logger, "error context"; "context" => format!("{:?}", err));
+            tracing::error!(err = ?err, "RPC failed to handle WebSocket message.");
         }
     }
 }
 
 async fn handle_next<S>(
-    logger: &Logger,
     state: &S,
     ws_tx: &mut SplitSink<WebSocket, Message>,
     ws_rx: &mut SplitStream<WebSocket>,
@@ -173,7 +168,6 @@ where
                 Some(body) => match body {
                     Ok(msg) => {
                         handle(
-                            logger,
                             ws_tx,
                             state,
                             notify_price_tx,
@@ -199,7 +193,6 @@ where
 }
 
 async fn handle<S>(
-    logger: &Logger,
     ws_tx: &mut SplitSink<WebSocket, Message>,
     state: &S,
     notify_price_tx: &mpsc::Sender<NotifyPrice>,
@@ -211,7 +204,7 @@ where
 {
     // Ignore control and binary messages
     if !msg.is_text() {
-        debug!(logger, "JSON RPC API: skipped non-text message");
+        tracing::debug!("JSON RPC API: skipped non-text message");
         return Ok(());
     }
 
@@ -223,7 +216,6 @@ where
             // Perform requests in sequence and gather responses
             for request in requests {
                 let response = dispatch_and_catch_error(
-                    logger,
                     state,
                     notify_price_tx,
                     notify_price_sched_tx,
@@ -286,7 +278,6 @@ async fn parse(msg: Message) -> Result<(Vec<Request<Method, Value>>, bool)> {
 }
 
 async fn dispatch_and_catch_error<S>(
-    logger: &Logger,
     state: &S,
     notify_price_tx: &mpsc::Sender<NotifyPrice>,
     notify_price_sched_tx: &mpsc::Sender<NotifyPriceSched>,
@@ -295,10 +286,9 @@ async fn dispatch_and_catch_error<S>(
 where
     S: state::Prices,
 {
-    debug!(
-        logger,
-        "JSON RPC API: handling request";
-        "method" => format!("{:?}", request.method),
+    tracing::debug!(
+        method = ?request.method,
+        "JSON RPC API: handling request",
     );
 
     let result = match request.method {
@@ -321,11 +311,10 @@ where
             Response::success(request.id.clone().to_id().unwrap_or(Id::from(0)), payload)
         }
         Err(e) => {
-            warn!(
-                logger,
-                "Error handling JSON RPC request";
-                "request" => format!("{:?}", request),
-                "error" => format!("{}", e.to_string()),
+            tracing::warn!(
+                request = ?request,
+                error = e.to_string(),
+                "Error handling JSON RPC request",
             );
 
             Response::error(
@@ -399,11 +388,6 @@ async fn send_text(ws_tx: &mut SplitSink<WebSocket, Message>, msg: &str) -> Resu
         .map_err(|e| e.into())
 }
 
-#[derive(Clone)]
-struct WithLogger {
-    logger: Logger,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -427,20 +411,19 @@ impl Default for Config {
     }
 }
 
-pub async fn run<S>(config: Config, logger: Logger, state: Arc<S>)
+pub async fn run<S>(config: Config, state: Arc<S>)
 where
     S: state::Prices,
     S: Send,
     S: Sync,
     S: 'static,
 {
-    if let Err(err) = serve(config, &logger, state).await {
-        error!(logger, "{}", err);
-        debug!(logger, "error context"; "context" => format!("{:?}", err));
+    if let Err(err) = serve(config, state).await {
+        tracing::error!(err = ?err, "RPC server failed.");
     }
 }
 
-async fn serve<S>(config: Config, logger: &Logger, state: Arc<S>) -> Result<()>
+async fn serve<S>(config: Config, state: Arc<S>) -> Result<()>
 where
     S: state::Prices,
     S: Send,
@@ -448,32 +431,25 @@ where
     S: 'static,
 {
     let config = config.clone();
-    let with_logger = WithLogger {
-        logger: logger.clone(),
-    };
 
     let index = {
         let config = config.clone();
         warp::path::end()
             .and(warp::ws())
             .and(warp::any().map(move || state.clone()))
-            .and(warp::any().map(move || with_logger.clone()))
             .and(warp::any().map(move || config.clone()))
-            .map(
-                |ws: Ws, state: Arc<S>, with_logger: WithLogger, config: Config| {
-                    ws.on_upgrade(move |conn| async move {
-                        info!(with_logger.logger, "websocket user connected");
-                        handle_connection(
-                            conn,
-                            state,
-                            config.notify_price_tx_buffer,
-                            config.notify_price_sched_tx_buffer,
-                            with_logger.logger,
-                        )
-                        .await
-                    })
-                },
-            )
+            .map(|ws: Ws, state: Arc<S>, config: Config| {
+                ws.on_upgrade(move |conn| async move {
+                    tracing::info!("Websocket user connected.");
+                    handle_connection(
+                        conn,
+                        state,
+                        config.notify_price_tx_buffer,
+                        config.notify_price_sched_tx_buffer,
+                    )
+                    .await
+                })
+            })
     };
 
     let (_, serve) = warp::serve(index).bind_with_graceful_shutdown(
@@ -483,7 +459,10 @@ where
         },
     );
 
-    info!(logger, "starting api server"; "listen address" => config.listen_address.clone());
+    tracing::info!(
+        listen_address = config.listen_address.clone(),
+        "Starting api server.",
+    );
 
     tokio::task::spawn(serve).await.map_err(|e| e.into())
 }

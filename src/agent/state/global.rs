@@ -22,7 +22,6 @@ use {
         Result,
     },
     prometheus_client::registry::Registry,
-    slog::Logger,
     solana_sdk::pubkey::Pubkey,
     std::collections::{
         BTreeMap,
@@ -116,20 +115,16 @@ pub struct Store {
 
     /// Prometheus metrics for prices
     price_metrics: PriceGlobalMetrics,
-
-    /// Shared logger configuration.
-    logger: Logger,
 }
 
 impl Store {
-    pub fn new(logger: Logger, registry: &mut Registry) -> Self {
+    pub fn new(registry: &mut Registry) -> Self {
         Store {
-            account_data_primary: Default::default(),
+            account_data_primary:   Default::default(),
             account_data_secondary: Default::default(),
-            account_metadata: Default::default(),
-            product_metrics: ProductGlobalMetrics::new(registry),
-            price_metrics: PriceGlobalMetrics::new(registry),
-            logger,
+            account_metadata:       Default::default(),
+            product_metrics:        ProductGlobalMetrics::new(registry),
+            price_metrics:          PriceGlobalMetrics::new(registry),
         }
     }
 }
@@ -257,10 +252,11 @@ where
                     // This message is not an error. It is common
                     // for primary and secondary network to have
                     // slight difference in their timestamps.
-                    debug!(store.logger, "Global store: ignoring stale update of an existing newer price";
-                        "price_key" => account_key.to_string(),
-                        "existing_timestamp" => existing_price.timestamp,
-                        "new_timestamp" => account.timestamp,
+                    tracing::debug!(
+                        price_key = account_key.to_string(),
+                        existing_timestamp = existing_price.timestamp,
+                        new_timestamp = account.timestamp,
+                        "Global store: ignoring stale update of an existing newer price"
                     );
                     return Ok(());
                 }

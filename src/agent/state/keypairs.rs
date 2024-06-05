@@ -10,7 +10,6 @@ use {
         Result,
     },
     serde::Deserialize,
-    slog::Logger,
     solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
         commitment_config::CommitmentConfig,
@@ -117,7 +116,6 @@ pub async fn spawn<S>(
     primary_rpc_url: String,
     secondary_rpc_url: Option<String>,
     config: Config,
-    logger: Logger,
     state: Arc<S>,
 ) -> Vec<JoinHandle<()>>
 where
@@ -128,12 +126,14 @@ where
     let ip = config.bind_address.ip();
 
     if !ip.is_loopback() {
-        warn!(logger, "Remote key loader: bind address is not localhost. Make sure the access on the selected address is secure."; "bind_address" => config.bind_address,);
+        tracing::warn!(
+            bind_address = ?config.bind_address,
+            "Remote key loader: bind address is not localhost. Make sure the access on the selected address is secure.",
+        );
     }
 
     let primary_upload_route = {
         let state = state.clone();
-        let logger = logger.clone();
         let rpc_url = primary_rpc_url.clone();
         let min_balance = config.primary_min_keypair_balance_sol;
         warp::path!("primary" / "load_keypair")
@@ -143,7 +143,6 @@ where
             .and(warp::path::end())
             .and_then(move |kp: Vec<u8>| {
                 let state = state.clone();
-                let logger = logger.clone();
                 let rpc_url = rpc_url.clone();
                 async move {
                     let response = handle_new_keypair(
@@ -153,7 +152,6 @@ where
                         min_balance,
                         rpc_url,
                         "primary",
-                        logger,
                     )
                     .await;
                     Result::<WithStatus<_>, Rejection>::Ok(response)
@@ -168,7 +166,6 @@ where
         .and(warp::path::end())
         .and_then(move |kp: Vec<u8>| {
             let state = state.clone();
-            let logger = logger.clone();
             let rpc_url = secondary_rpc_url.clone();
             async move {
                 if let Some(rpc_url) = rpc_url {
@@ -180,7 +177,6 @@ where
                         min_balance,
                         rpc_url,
                         "secondary",
-                        logger,
                     )
                     .await;
                     Result::<WithStatus<_>, Rejection>::Ok(response)
@@ -219,7 +215,6 @@ async fn handle_new_keypair<'a, 'b: 'a, S>(
     min_keypair_balance_sol: u64,
     rpc_url: String,
     network_name: &'b str,
-    logger: Logger,
 ) -> WithStatus<&'static str>
 where
     S: Keypairs,
@@ -231,17 +226,19 @@ where
                 Keypairs::update_keypair(&*state, network, kp).await;
             }
             Err(e) => {
-                warn!(logger, "Remote keypair loader: Keypair failed validation";
-                    "network" => network_name,
-                    "error" => e.to_string(),
+                tracing::warn!(
+                    network = network_name,
+                    error = e.to_string(),
+                    "Remote keypair loader: Keypair failed validation",
                 );
                 upload_ok = false;
             }
         },
         Err(e) => {
-            warn!(logger, "Remote keypair loader: Keypair failed validation";
-                "network" => network_name,
-                "error" => e.to_string(),
+            tracing::warn!(
+                network = network_name,
+                error = e.to_string(),
+                "Remote keypair loader: Keypair failed validation",
             );
             upload_ok = false;
         }

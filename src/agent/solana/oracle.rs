@@ -32,7 +32,6 @@ use {
         Deserialize,
         Serialize,
     },
-    slog::Logger,
     solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
         account::Account,
@@ -176,8 +175,6 @@ pub struct Oracle {
 
     network: Network,
 
-    logger: Logger,
-
     state: Arc<State>,
 }
 
@@ -227,7 +224,6 @@ pub fn spawn_oracle(
         HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     >,
     key_store: KeyStore,
-    logger: Logger,
     state: Arc<State>,
 ) -> Vec<JoinHandle<()>> {
     let mut jhs = vec![];
@@ -240,7 +236,6 @@ pub fn spawn_oracle(
             config.commitment,
             key_store.program_key,
             updates_tx,
-            logger.clone(),
         );
         jhs.push(tokio::spawn(async move { subscriber.run().await }));
     }
@@ -256,12 +251,11 @@ pub fn spawn_oracle(
         config.poll_interval_duration,
         config.max_lookup_batch_size,
         key_store.mapping_key,
-        logger.clone(),
     );
     jhs.push(tokio::spawn(async move { poller.run().await }));
 
     // Create and spawn the Oracle
-    let mut oracle = Oracle::new(data_rx, updates_rx, network, logger, state);
+    let mut oracle = Oracle::new(data_rx, updates_rx, network, state);
     jhs.push(tokio::spawn(async move { oracle.run().await }));
 
     jhs
@@ -272,7 +266,6 @@ impl Oracle {
         data_rx: mpsc::Receiver<Data>,
         updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
         network: Network,
-        logger: Logger,
         state: Arc<State>,
     ) -> Self {
         Oracle {
@@ -280,7 +273,6 @@ impl Oracle {
             data_rx,
             updates_rx,
             network,
-            logger,
             state,
         }
     }
@@ -288,8 +280,7 @@ impl Oracle {
     pub async fn run(&mut self) {
         loop {
             if let Err(err) = self.handle_next().await {
-                error!(self.logger, "{}", err);
-                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                tracing::error!(err = ?err, "Oracle failed to handle next update.");
             }
         }
     }
@@ -314,33 +305,45 @@ impl Oracle {
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
-        info!(self.logger, "fetched mapping accounts"; "new" => format!("{:?}", data
+        tracing::info!(
+            new = ?data
                 .mapping_accounts
                 .keys()
                 .cloned()
-                .collect::<HashSet<_>>().difference(&previous_mapping_accounts)), "total" => data.mapping_accounts.len());
+                .collect::<HashSet<_>>().difference(&previous_mapping_accounts),
+            total = data.mapping_accounts.len(),
+            "Fetched mapping accounts."
+        );
         let previous_product_accounts = self
             .data
             .product_accounts
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
-        info!(self.logger, "fetched product accounts"; "new" => format!("{:?}", data
+        tracing::info!(
+            new = ?data
                 .product_accounts
                 .keys()
                 .cloned()
-                .collect::<HashSet<_>>().difference(&previous_product_accounts)), "total" => data.product_accounts.len());
+                .collect::<HashSet<_>>().difference(&previous_product_accounts),
+            total = data.product_accounts.len(),
+            "Fetched product accounts.",
+        );
         let previous_price_accounts = self
             .data
             .price_accounts
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
-        info!(self.logger, "fetched price accounts"; "new" => format!("{:?}", data
+        tracing::info!(
+            new = ?data
                 .price_accounts
                 .keys()
                 .cloned()
-                .collect::<HashSet<_>>().difference(&previous_price_accounts)), "total" => data.price_accounts.len());
+                .collect::<HashSet<_>>().difference(&previous_price_accounts),
+            total = data.price_accounts.len(),
+            "Fetched price accounts.",
+        );
 
         let previous_publishers = self
             .data
@@ -348,11 +351,10 @@ impl Oracle {
             .keys()
             .collect::<HashSet<_>>();
         let new_publishers = data.publisher_permissions.keys().collect::<HashSet<_>>();
-        info!(
-            self.logger,
-            "updated publisher permissions";
-            "new_publishers" => format!("{:?}", new_publishers.difference(&previous_publishers).collect::<HashSet<_>>()),
-            "total_publishers" => new_publishers.len(),
+        tracing::info!(
+            new_publishers = ?new_publishers.difference(&previous_publishers).collect::<HashSet<_>>(),
+            total_publishers = new_publishers.len(),
+            "Updated publisher permissions.",
         );
 
         // Update the data with the new data structs
@@ -364,7 +366,7 @@ impl Oracle {
         account_key: &Pubkey,
         account: &Account,
     ) -> Result<()> {
-        debug!(self.logger, "handling account update");
+        tracing::debug!("Handling account update.");
 
         // We are only interested in price account updates, all other types of updates
         // will be fetched using polling.
@@ -383,7 +385,13 @@ impl Oracle {
         let price_entry = PriceEntry::load_from_account(&account.data)
             .with_context(|| format!("load price account {}", account_key))?;
 
-        debug!(self.logger, "observed on-chain price account update"; "pubkey" => account_key.to_string(), "price" => price_entry.agg.price, "conf" => price_entry.agg.conf, "status" => format!("{:?}", price_entry.agg.status));
+        tracing::debug!(
+            pubkey = account_key.to_string(),
+            price = price_entry.agg.price,
+            conf = price_entry.agg.conf,
+            status = ?price_entry.agg.status,
+            "Observed on-chain price account update.",
+        );
 
         self.data
             .price_accounts
@@ -462,9 +470,6 @@ struct Poller {
     max_lookup_batch_size: usize,
 
     mapping_key: Pubkey,
-
-    /// Logger
-    logger: Logger,
 }
 
 impl Poller {
@@ -479,7 +484,6 @@ impl Poller {
         poll_interval_duration: Duration,
         max_lookup_batch_size: usize,
         mapping_key: Pubkey,
-        logger: Logger,
     ) -> Self {
         let rpc_client = RpcClient::new_with_timeout_and_commitment(
             rpc_url.to_string(),
@@ -495,17 +499,15 @@ impl Poller {
             poll_interval,
             max_lookup_batch_size,
             mapping_key,
-            logger,
         }
     }
 
     pub async fn run(&mut self) {
         loop {
             self.poll_interval.tick().await;
-            info!(self.logger, "fetching all pyth account data");
+            tracing::info!("Fetching all pyth account data.");
             if let Err(err) = self.poll_and_send().await {
-                error!(self.logger, "{}", err);
-                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                tracing::error!(err = ?err, "Oracle Poll/Send Failed.");
             }
         }
     }
@@ -550,9 +552,10 @@ impl Poller {
                         publish_interval: prod_entry.publish_interval.clone(),
                     }
                 } else {
-                    warn!(&self.logger, "Oracle: INTERNAL: could not find product from price `prod` field, market hours falling back to 24/7.";
-                      "price" => price_key.to_string(),
-                      "missing_product" => price_entry.prod.to_string(),
+                    tracing::warn!(
+                        price = price_key.to_string(),
+                        missing_product = price_entry.prod.to_string(),
+                        "Oracle: INTERNAL: could not find product from price `prod` field, market hours falling back to 24/7.",
                     );
                     Default::default()
                 };
@@ -649,13 +652,12 @@ impl Poller {
                     product.iter().find(|(k, _v)| *k == "weekly_schedule")
                 {
                     wsched_val.parse().unwrap_or_else(|err| {
-                        warn!(
-                            self.logger,
-                            "Oracle: Product has weekly_schedule defined but it could not be parsed. Falling back to 24/7 publishing.";
-                            "product_key" => product_key.to_string(),
-                            "weekly_schedule" => wsched_val,
+                        tracing::warn!(
+                            product_key = product_key.to_string(),
+                            weekly_schedule = wsched_val,
+                            "Oracle: Product has weekly_schedule defined but it could not be parsed. Falling back to 24/7 publishing.",
                         );
-                        debug!(self.logger, "parsing error context"; "context" => format!("{:?}", err));
+                        tracing::debug!(err = ?err, "Parsing error context.");
                         Default::default()
                     })
                 } else {
@@ -671,13 +673,12 @@ impl Poller {
                     match msched_val.parse::<MarketSchedule>() {
                         Ok(schedule) => Some(schedule),
                         Err(err) => {
-                            warn!(
-                                self.logger,
-                                "Oracle: Product has schedule defined but it could not be parsed. Falling back to legacy schedule.";
-                                "product_key" => product_key.to_string(),
-                                "schedule" => msched_val,
+                            tracing::warn!(
+                                product_key = product_key.to_string(),
+                                schedule = msched_val,
+                                "Oracle: Product has schedule defined but it could not be parsed. Falling back to legacy schedule.",
                             );
-                            debug!(self.logger, "parsing error context"; "context" => format!("{:?}", err));
+                            tracing::debug!(err = ?err, "Parsing error context.");
                             None
                         }
                     }
@@ -694,13 +695,12 @@ impl Poller {
                     match publish_interval_val.parse::<f64>() {
                         Ok(interval) => Some(Duration::from_secs_f64(interval)),
                         Err(err) => {
-                            warn!(
-                                self.logger,
-                                "Oracle: Product has publish_interval defined but it could not be parsed. Falling back to None.";
-                                "product_key" => product_key.to_string(),
-                                "publish_interval" => publish_interval_val,
+                            tracing::warn!(
+                                product_key = product_key.to_string(),
+                                publish_interval = publish_interval_val,
+                                "Oracle: Product has publish_interval defined but it could not be parsed. Falling back to None.",
                             );
-                            debug!(self.logger, "parsing error context"; "context" => format!("{:?}", err));
+                            tracing::debug!(err = ?err, "parsing error context");
                             None
                         }
                     }
@@ -718,8 +718,10 @@ impl Poller {
                     },
                 );
             } else {
-                warn!(self.logger, "Oracle: Could not find product on chain, skipping";
-		      "product_key" => product_key.to_string(),);
+                tracing::warn!(
+                    product_key = product_key.to_string(),
+                    "Oracle: Could not find product on chain, skipping",
+                );
             }
         }
 
@@ -755,9 +757,10 @@ impl Poller {
                         prod.price_accounts.push(*price_key);
                         price_entries.insert(*price_key, price);
                     } else {
-                        warn!(self.logger, "Could not find product entry for price, listed in its prod field, skipping";
-                         "missing_product" => price.prod.to_string(),
-                         "price_key" => price_key.to_string(),
+                        tracing::warn!(
+                            missing_product = price.prod.to_string(),
+                            price_key = price_key.to_string(),
+                            "Could not find product entry for price, listed in its prod field, skipping",
                         );
 
                         continue;
@@ -767,7 +770,10 @@ impl Poller {
                         next_todo.push(next_price);
                     }
                 } else {
-                    warn!(self.logger, "Could not look up price account on chain, skipping"; "price_key" => price_key.to_string(),);
+                    tracing::warn!(
+                        price_key = price_key.to_string(),
+                        "Could not look up price account on chain, skipping",
+                    );
                     continue;
                 }
             }
@@ -784,7 +790,6 @@ mod subscriber {
             anyhow,
             Result,
         },
-        slog::Logger,
         solana_account_decoder::UiAccountEncoding,
         solana_client::{
             nonblocking::pubsub_client::PubsubClient,
@@ -823,8 +828,6 @@ mod subscriber {
 
         /// Channel on which updates are sent
         updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
-
-        logger: Logger,
     }
 
     impl Subscriber {
@@ -833,14 +836,12 @@ mod subscriber {
             commitment: CommitmentLevel,
             program_key: Pubkey,
             updates_tx: mpsc::Sender<(Pubkey, solana_sdk::account::Account)>,
-            logger: Logger,
         ) -> Self {
             Subscriber {
                 wss_url,
                 commitment,
                 program_key,
                 updates_tx,
-                logger,
             }
         }
 
@@ -848,13 +849,9 @@ mod subscriber {
             loop {
                 let current_time = Instant::now();
                 if let Err(ref err) = self.start().await {
-                    error!(self.logger, "{}", err);
-                    debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                    tracing::error!(err = ?err, "Oracle exited unexpectedly.");
                     if current_time.elapsed() < Duration::from_secs(30) {
-                        warn!(
-                            self.logger,
-                            "Subscriber restarting too quickly. Sleeping for 1 second."
-                        );
+                        tracing::warn!("Subscriber restarting too quickly. Sleeping for 1 second.");
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
@@ -880,7 +877,10 @@ mod subscriber {
                 .program_subscribe(&self.program_key, Some(config))
                 .await?;
 
-            debug!(self.logger, "subscribed to program account updates"; "program_key" => self.program_key.to_string());
+            tracing::debug!(
+                program_key = self.program_key.to_string(),
+                "subscribed to program account updates",
+            );
 
             loop {
                 match tokio_stream::StreamExt::next(&mut notif).await {
@@ -888,7 +888,10 @@ mod subscriber {
                         let account: Account = match update.value.account.decode() {
                             Some(account) => account,
                             None => {
-                                error!(self.logger, "Failed to decode account from update."; "update" => format!("{:?}", update));
+                                tracing::error!(
+                                    update = ?update,
+                                    "Failed to decode account from update.",
+                                );
                                 continue;
                             }
                         };
@@ -899,7 +902,7 @@ mod subscriber {
                             .map_err(|_| anyhow!("failed to send update to oracle"))?;
                     }
                     None => {
-                        debug!(self.logger, "subscriber closed connection");
+                        tracing::debug!("subscriber closed connection");
                         return Ok(());
                     }
                 }

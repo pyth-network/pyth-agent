@@ -44,7 +44,6 @@ use {
         PriceComp,
         PriceStatus,
     },
-    slog::Logger,
     std::{
         collections::HashMap,
         sync::{
@@ -447,7 +446,7 @@ where
     }
 }
 
-pub async fn notifier<S>(logger: Logger, state: Arc<S>)
+pub async fn notifier<S>(state: Arc<S>)
 where
     for<'a> &'a S: Into<&'a PricesState>,
     S: Prices,
@@ -459,13 +458,12 @@ where
         Prices::drop_closed_subscriptions(&*state).await;
         tokio::select! {
             _ = exit.changed() => {
-                info!(logger, "shutdown signal received");
+                tracing::info!("Shutdown signal received.");
                 return;
             }
             _ = interval.tick() => {
                 if let Err(err) = state.send_notify_price_sched().await {
-                    error!(logger, "{}", err);
-                    debug!(logger, "error context"; "context" => format!("{:?}", err));
+                    tracing::error!(err = ?err, "Notifier: failed to send notify price sched.");
                 }
             }
         }

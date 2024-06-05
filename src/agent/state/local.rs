@@ -11,7 +11,6 @@ use {
     chrono::NaiveDateTime,
     prometheus_client::registry::Registry,
     pyth_sdk_solana::state::PriceStatus,
-    slog::Logger,
     solana_sdk::bs58,
     std::collections::HashMap,
     tokio::sync::RwLock,
@@ -44,15 +43,13 @@ impl PriceInfo {
 pub struct Store {
     prices:  RwLock<HashMap<pyth_sdk::Identifier, PriceInfo>>,
     metrics: PriceLocalMetrics,
-    logger:  Logger,
 }
 
 impl Store {
-    pub fn new(logger: Logger, registry: &mut Registry) -> Self {
+    pub fn new(registry: &mut Registry) -> Self {
         Store {
-            prices: RwLock::new(HashMap::new()),
+            prices:  RwLock::new(HashMap::new()),
             metrics: PriceLocalMetrics::new(registry),
-            logger,
         }
     }
 }
@@ -85,7 +82,10 @@ where
         price_identifier: pyth_sdk::Identifier,
         price_info: PriceInfo,
     ) -> Result<()> {
-        debug!(self.into().logger, "local store received price update"; "identifier" => bs58::encode(price_identifier.to_bytes()).into_string());
+        tracing::debug!(
+            identifier = bs58::encode(price_identifier.to_bytes()).into_string(),
+            "Local store received price update."
+        );
 
         // Drop the update if it is older than the current one stored for the price
         if let Some(current_price_info) = self.into().prices.read().await.get(&price_identifier) {
