@@ -146,7 +146,7 @@ impl Agent {
         }
 
         // Create the Notifier task for the Pythd RPC.
-        jhs.push(tokio::spawn(notifier(adapter.clone())));
+        jhs.push(tokio::spawn(notifier(logger.clone(), adapter.clone())));
 
         // Spawn the Pythd API Server
         jhs.push(tokio::spawn(rpc::run(

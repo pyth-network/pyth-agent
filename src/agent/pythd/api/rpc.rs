@@ -117,7 +117,7 @@ async fn handle_connection<S>(
     notify_price_sched_tx_buffer: usize,
     logger: Logger,
 ) where
-    S: state::StateApi,
+    S: state::Prices,
     S: Send,
     S: Sync,
     S: 'static,
@@ -165,7 +165,7 @@ async fn handle_next<S>(
     notify_price_sched_rx: &mut mpsc::Receiver<NotifyPriceSched>,
 ) -> Result<()>
 where
-    S: state::StateApi,
+    S: state::Prices,
 {
     tokio::select! {
         msg = ws_rx.next() => {
@@ -207,7 +207,7 @@ async fn handle<S>(
     msg: Message,
 ) -> Result<()>
 where
-    S: state::StateApi,
+    S: state::Prices,
 {
     // Ignore control and binary messages
     if !msg.is_text() {
@@ -293,7 +293,7 @@ async fn dispatch_and_catch_error<S>(
     request: &Request<Method, Value>,
 ) -> Response<serde_json::Value>
 where
-    S: state::StateApi,
+    S: state::Prices,
 {
     debug!(
         logger,
@@ -429,7 +429,7 @@ impl Default for Config {
 
 pub async fn run<S>(config: Config, logger: Logger, adapter: Arc<S>)
 where
-    S: state::StateApi,
+    S: state::Prices,
     S: Send,
     S: Sync,
     S: 'static,
@@ -442,7 +442,7 @@ where
 
 async fn serve<S>(config: Config, logger: &Logger, adapter: Arc<S>) -> Result<()>
 where
-    S: state::StateApi,
+    S: state::Prices,
     S: Send,
     S: Sync,
     S: 'static,

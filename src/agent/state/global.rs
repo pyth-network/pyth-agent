@@ -16,14 +16,12 @@ use {
                 ProductEntry,
             },
         },
-        state::StateApi,
     },
     anyhow::{
         anyhow,
         Result,
     },
     prometheus_client::registry::Registry,
-    pyth_sdk::Identifier,
     slog::Logger,
     solana_sdk::pubkey::Pubkey,
     std::collections::{
@@ -175,7 +173,6 @@ impl<'a> From<&'a State> for &'a Store {
 impl<T> GlobalStore for T
 where
     for<'a> &'a T: Into<&'a Store>,
-    T: StateApi,
     T: Sync,
 {
     async fn update(&self, network: Network, update: &Update) -> Result<()> {
@@ -223,7 +220,6 @@ where
 
 async fn update_data<S>(state: &S, network: Network, update: &Update) -> Result<()>
 where
-    S: StateApi,
     for<'a> &'a S: Into<&'a Store>,
 {
     let store: &Store = state.into();
@@ -279,23 +275,6 @@ where
                 .await
                 .price_accounts
                 .insert(*account_key, *account);
-
-            // Notify the Pythd API adapter that this account has changed.
-            // As the account data might differ between the two networks
-            // we only notify the adapter of the primary network updates.
-            if let Network::Primary = network {
-                StateApi::global_store_update(
-                    state,
-                    Identifier::new(account_key.to_bytes()),
-                    account.agg.price,
-                    account.agg.conf,
-                    account.agg.status,
-                    account.valid_slot,
-                    account.agg.pub_slot,
-                )
-                .await
-                .map_err(|_| anyhow!("failed to notify pythd adapter of account update"))?;
-            }
         }
     }
 
@@ -304,7 +283,6 @@ where
 
 async fn update_metadata<S>(state: &S, update: &Update) -> Result<()>
 where
-    S: StateApi,
     for<'a> &'a S: Into<&'a Store>,
 {
     let store: &Store = state.into();

@@ -19,7 +19,7 @@ pub async fn update_price<S>(
     request: &Request<Method, Value>,
 ) -> Result<serde_json::Value>
 where
-    S: state::StateApi,
+    S: state::Prices,
 {
     let params: UpdatePriceParams = serde_json::from_value(
         request
@@ -29,7 +29,7 @@ where
     )?;
 
     adapter
-        .update_price(
+        .update_local_price(
             &params.account.parse::<solana_sdk::pubkey::Pubkey>()?,
             params.price,
             params.conf,

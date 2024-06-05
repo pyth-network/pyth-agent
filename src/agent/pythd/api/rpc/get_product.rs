@@ -19,7 +19,7 @@ pub async fn get_product<S>(
     request: &Request<Method, Value>,
 ) -> Result<serde_json::Value>
 where
-    S: state::StateApi,
+    S: state::Prices,
 {
     let params: GetProductParams = {
         let value = request.params.clone();

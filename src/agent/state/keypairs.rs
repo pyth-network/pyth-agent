@@ -5,17 +5,34 @@
 use {
     super::State,
     crate::agent::solana::network::Network,
-    anyhow::{Context, Result},
+    anyhow::{
+        Context,
+        Result,
+    },
     serde::Deserialize,
     slog::Logger,
     solana_client::nonblocking::rpc_client::RpcClient,
-    solana_sdk::{commitment_config::CommitmentConfig, signature::Keypair, signer::Signer},
-    std::{net::SocketAddr, sync::Arc},
-    tokio::{sync::RwLock, task::JoinHandle},
+    solana_sdk::{
+        commitment_config::CommitmentConfig,
+        signature::Keypair,
+        signer::Signer,
+    },
+    std::{
+        net::SocketAddr,
+        sync::Arc,
+    },
+    tokio::{
+        sync::RwLock,
+        task::JoinHandle,
+    },
     warp::{
         hyper::StatusCode,
-        reply::{self, WithStatus},
-        Filter, Rejection,
+        reply::{
+            self,
+            WithStatus,
+        },
+        Filter,
+        Rejection,
     },
 };
 
@@ -32,24 +49,24 @@ pub fn default_bind_address() -> SocketAddr {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    primary_min_keypair_balance_sol: u64,
+    primary_min_keypair_balance_sol:   u64,
     secondary_min_keypair_balance_sol: u64,
-    bind_address: SocketAddr,
+    bind_address:                      SocketAddr,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            primary_min_keypair_balance_sol: default_min_keypair_balance_sol(),
+            primary_min_keypair_balance_sol:   default_min_keypair_balance_sol(),
             secondary_min_keypair_balance_sol: default_min_keypair_balance_sol(),
-            bind_address: default_bind_address(),
+            bind_address:                      default_bind_address(),
         }
     }
 }
 
 #[derive(Default)]
 pub struct KeypairState {
-    primary_current_keypair: RwLock<Option<Keypair>>,
+    primary_current_keypair:   RwLock<Option<Keypair>>,
     secondary_current_keypair: RwLock<Option<Keypair>>,
 }
 

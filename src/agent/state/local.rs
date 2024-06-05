@@ -5,7 +5,6 @@ use {
     super::{
         PriceIdentifier,
         State,
-        StateApi,
     },
     crate::agent::metrics::PriceLocalMetrics,
     anyhow::{
@@ -78,7 +77,6 @@ impl<'a> From<&'a State> for &'a Store {
 impl<T> LocalStore for T
 where
     for<'a> &'a T: Into<&'a Store>,
-    T: StateApi,
     T: Sync,
 {
     async fn update(&self, price_identifier: PriceIdentifier, price_info: PriceInfo) -> Result<()> {

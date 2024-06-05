@@ -10,10 +10,8 @@ use {
         legacy_schedule::LegacySchedule,
         market_schedule::MarketSchedule,
         state::{
-            global::{
-                GlobalStore,
-                Update,
-            },
+            global::Update,
+            Prices,
             State,
         },
     },
@@ -416,7 +414,7 @@ impl Oracle {
         account_key: &Pubkey,
         account: &ProductEntry,
     ) -> Result<()> {
-        GlobalStore::update(
+        Prices::update_global_price(
             &*self.adapter,
             self.network,
             &Update::ProductAccountUpdate {
@@ -433,7 +431,7 @@ impl Oracle {
         account_key: &Pubkey,
         account: &PriceEntry,
     ) -> Result<()> {
-        GlobalStore::update(
+        Prices::update_global_price(
             &*self.adapter,
             self.network,
             &Update::PriceAccountUpdate {

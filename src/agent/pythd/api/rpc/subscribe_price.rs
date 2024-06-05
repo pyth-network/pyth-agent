@@ -23,7 +23,7 @@ pub async fn subscribe_price<S>(
     request: &Request<Method, Value>,
 ) -> Result<serde_json::Value>
 where
-    S: state::StateApi,
+    S: state::Prices,
 {
     let params: SubscribePriceParams = serde_json::from_value(
         request
