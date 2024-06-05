@@ -1,23 +1,10 @@
 use {
-    super::state::{
-        local::PriceInfo,
-        State,
-    },
-    crate::agent::{
-        solana::oracle::PriceEntry,
-        store::PriceIdentifier,
-    },
+    super::state::{local::PriceInfo, State},
+    crate::agent::{solana::oracle::PriceEntry, store::PriceIdentifier},
     lazy_static::lazy_static,
     prometheus_client::{
-        encoding::{
-            text::encode,
-            EncodeLabelSet,
-        },
-        metrics::{
-            counter::Counter,
-            family::Family,
-            gauge::Gauge,
-        },
+        encoding::{text::encode, EncodeLabelSet},
+        metrics::{counter::Counter, family::Family, gauge::Gauge},
         registry::Registry,
     },
     serde::Deserialize,
@@ -25,20 +12,11 @@ use {
     solana_sdk::pubkey::Pubkey,
     std::{
         net::SocketAddr,
-        sync::{
-            atomic::AtomicU64,
-            Arc,
-        },
+        sync::{atomic::AtomicU64, Arc},
         time::Instant,
     },
     tokio::sync::Mutex,
-    warp::{
-        hyper::StatusCode,
-        reply,
-        Filter,
-        Rejection,
-        Reply,
-    },
+    warp::{hyper::StatusCode, reply, Filter, Rejection, Reply},
 };
 
 pub fn default_bind_address() -> SocketAddr {
@@ -68,8 +46,8 @@ lazy_static! {
 /// metrics.
 pub struct MetricsServer {
     pub start_time: Instant,
-    pub logger:     Logger,
-    pub adapter:    Arc<State>,
+    pub logger: Logger,
+    pub adapter: Arc<State>,
 }
 
 impl MetricsServer {
@@ -105,7 +83,11 @@ impl MetricsServer {
                 }
             });
 
-        warp::serve(metrics_route).bind(addr).await;
+        let (_, serve) = warp::serve(metrics_route).bind_with_graceful_shutdown(addr, async {
+            let _ = crate::agent::EXIT.subscribe().changed().await;
+        });
+
+        serve.await
     }
 }
 
@@ -169,12 +151,12 @@ pub struct PriceGlobalMetrics {
 
     /// f64 is used to get u64 support. Official docs:
     /// https://docs.rs/prometheus-client/latest/prometheus_client/metrics/gauge/struct.Gauge.html#using-atomicu64-as-storage-and-f64-on-the-interface
-    conf:      Family<PriceGlobalLabels, Gauge<f64, AtomicU64>>,
+    conf: Family<PriceGlobalLabels, Gauge<f64, AtomicU64>>,
     timestamp: Family<PriceGlobalLabels, Gauge>,
 
     /// Note: the exponent is not applied to this metric
-    prev_price:     Family<PriceGlobalLabels, Gauge>,
-    prev_conf:      Family<PriceGlobalLabels, Gauge<f64, AtomicU64>>,
+    prev_price: Family<PriceGlobalLabels, Gauge>,
+    prev_conf: Family<PriceGlobalLabels, Gauge<f64, AtomicU64>>,
     prev_timestamp: Family<PriceGlobalLabels, Gauge>,
 
     /// How many times this Price was updated in the global store
@@ -317,10 +299,10 @@ pub struct PriceLocalLabels {
 /// Metrics exposed to Prometheus by the local store for each price
 #[derive(Default)]
 pub struct PriceLocalMetrics {
-    price:     Family<PriceLocalLabels, Gauge>,
+    price: Family<PriceLocalLabels, Gauge>,
     /// f64 is used to get u64 support. Official docs:
     /// https://docs.rs/prometheus-client/latest/prometheus_client/metrics/gauge/struct.Gauge.html#using-atomicu64-as-storage-and-f64-on-the-interface
-    conf:      Family<PriceLocalLabels, Gauge<f64, AtomicU64>>,
+    conf: Family<PriceLocalLabels, Gauge<f64, AtomicU64>>,
     timestamp: Family<PriceLocalLabels, Gauge>,
 
     /// How many times this price was updated in the local store

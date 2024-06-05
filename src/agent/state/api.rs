@@ -45,10 +45,7 @@ use {
         PriceStatus,
     },
     std::sync::Arc,
-    tokio::sync::{
-        broadcast,
-        mpsc,
-    },
+    tokio::sync::mpsc,
 };
 
 // TODO: implement Display on PriceStatus and then just call PriceStatus::to_string
@@ -172,12 +169,13 @@ pub trait StateApi {
     ) -> Result<()>;
 }
 
-pub async fn notifier(adapter: Arc<State>, mut shutdown_rx: broadcast::Receiver<()>) {
+pub async fn notifier(adapter: Arc<State>) {
     let mut interval = tokio::time::interval(adapter.notify_price_sched_interval_duration);
+    let mut exit = crate::agent::EXIT.subscribe();
     loop {
         adapter.drop_closed_subscriptions().await;
         tokio::select! {
-            _ = shutdown_rx.recv() => {
+            _ = exit.changed() => {
                 info!(adapter.logger, "shutdown signal received");
                 return;
             }

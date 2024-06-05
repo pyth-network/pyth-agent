@@ -185,7 +185,7 @@ mod tests {
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn Price Notifier
-        let jh = tokio::spawn(notifier(adapter.clone(), shutdown_tx.subscribe()));
+        let jh = tokio::spawn(notifier(adapter.clone()));
 
         TestAdapter {
             adapter,

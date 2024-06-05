@@ -61,14 +61,6 @@ Metrics Server:
 Note that there is an Oracle and Exporter for each network, but only one Local Store and Global Store.
 
 ################################################################################################################################## */
-
-pub mod legacy_schedule;
-pub mod market_schedule;
-pub mod metrics;
-pub mod pythd;
-pub mod solana;
-pub mod state;
-pub mod store;
 use {
     self::{
         config::Config,
@@ -78,10 +70,32 @@ use {
     },
     anyhow::Result,
     futures_util::future::join_all,
+    lazy_static::lazy_static,
     slog::Logger,
     std::sync::Arc,
-    tokio::sync::broadcast,
+    tokio::sync::watch,
 };
+
+pub mod legacy_schedule;
+pub mod market_schedule;
+pub mod metrics;
+pub mod pythd;
+pub mod solana;
+pub mod state;
+pub mod store;
+
+lazy_static! {
+    /// A static exit flag to indicate to running threads that we're shutting down. This is used to
+    /// gracefully shut down the application.
+    ///
+    /// We make this global based on the fact the:
+    /// - The `Sender` side does not rely on any async runtime.
+    /// - Exit logic doesn't really require carefully threading this value through the app.
+    /// - The `Receiver` side of a watch channel performs the detection based on if the change
+    ///   happened after the subscribe, so it means all listeners should always be notified
+    ///   correctly.
+    pub static ref EXIT: watch::Sender<bool> = watch::channel(false).0;
+}
 
 pub struct Agent {
     config: Config,
@@ -109,10 +123,6 @@ impl Agent {
         // job handles
         let mut jhs = vec![];
 
-        // Create the channels
-        // TODO: make all components listen to shutdown signal
-        let (shutdown_tx, _) = broadcast::channel(self.config.channel_capacities.shutdown);
-
         // Create the Pythd Adapter.
         let adapter =
             Arc::new(state::State::new(self.config.pythd_adapter.clone(), logger.clone()).await);
@@ -136,17 +146,13 @@ impl Agent {
         }
 
         // Create the Notifier task for the Pythd RPC.
-        jhs.push(tokio::spawn(notifier(
-            adapter.clone(),
-            shutdown_tx.subscribe(),
-        )));
+        jhs.push(tokio::spawn(notifier(adapter.clone())));
 
         // Spawn the Pythd API Server
         jhs.push(tokio::spawn(rpc::run(
             self.config.pythd_api_server.clone(),
             logger.clone(),
             adapter.clone(),
-            shutdown_tx.subscribe(),
         )));
 
         // Spawn the metrics server

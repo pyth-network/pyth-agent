@@ -50,10 +50,7 @@ use {
         net::SocketAddr,
         sync::Arc,
     },
-    tokio::sync::{
-        broadcast,
-        mpsc,
-    },
+    tokio::sync::mpsc,
     warp::{
         ws::{
             Message,
@@ -430,29 +427,20 @@ impl Default for Config {
     }
 }
 
-pub async fn run<S>(
-    config: Config,
-    logger: Logger,
-    adapter: Arc<S>,
-    shutdown_rx: broadcast::Receiver<()>,
-) where
+pub async fn run<S>(config: Config, logger: Logger, adapter: Arc<S>)
+where
     S: state::StateApi,
     S: Send,
     S: Sync,
     S: 'static,
 {
-    if let Err(err) = serve(config, &logger, adapter, shutdown_rx).await {
+    if let Err(err) = serve(config, &logger, adapter).await {
         error!(logger, "{}", err);
         debug!(logger, "error context"; "context" => format!("{:?}", err));
     }
 }
 
-async fn serve<S>(
-    config: Config,
-    logger: &Logger,
-    adapter: Arc<S>,
-    mut shutdown_rx: broadcast::Receiver<()>,
-) -> Result<()>
+async fn serve<S>(config: Config, logger: &Logger, adapter: Arc<S>) -> Result<()>
 where
     S: state::StateApi,
     S: Send,
@@ -490,8 +478,8 @@ where
 
     let (_, serve) = warp::serve(index).bind_with_graceful_shutdown(
         config.listen_address.as_str().parse::<SocketAddr>()?,
-        async move {
-            let _ = shutdown_rx.recv().await;
+        async {
+            let _ = crate::agent::EXIT.subscribe().changed().await;
         },
     );
 
