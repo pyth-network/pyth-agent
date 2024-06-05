@@ -176,7 +176,7 @@ pub fn spawn_exporter(
     >,
     key_store: KeyStore,
     logger: Logger,
-    adapter: Arc<State>,
+    state: Arc<State>,
 ) -> Result<Vec<JoinHandle<()>>> {
     // Create and spawn the network state querier
     let (network_state_tx, network_state_rx) = watch::channel(Default::default());
@@ -212,7 +212,7 @@ pub fn spawn_exporter(
         transactions_tx,
         publisher_permissions_rx,
         logger,
-        adapter,
+        state,
     );
     let exporter_jh = tokio::spawn(async move { exporter.run().await });
 
@@ -265,7 +265,7 @@ pub struct Exporter {
 
     logger: Logger,
 
-    adapter: Arc<State>,
+    state: Arc<State>,
 }
 
 impl Exporter {
@@ -281,7 +281,7 @@ impl Exporter {
             HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
         >,
         logger: Logger,
-        adapter: Arc<State>,
+        state: Arc<State>,
     ) -> Self {
         let publish_interval = time::interval(config.publish_interval_duration);
         Exporter {
@@ -303,7 +303,7 @@ impl Exporter {
             ),
             recent_compute_unit_price_micro_lamports: None,
             logger,
-            adapter,
+            state,
         }
     }
 
@@ -411,7 +411,7 @@ impl Exporter {
                 self.logger,
                 "Exporter: Publish keypair is None, requesting remote loaded key"
             );
-            let kp = Keypairs::request_keypair(&*self.adapter, self.network).await?;
+            let kp = Keypairs::request_keypair(&*self.state, self.network).await?;
             debug!(self.logger, "Exporter: Keypair received");
             Ok(kp)
         }
@@ -596,7 +596,7 @@ impl Exporter {
     }
 
     async fn fetch_local_store_contents(&self) -> Result<HashMap<PriceIdentifier, PriceInfo>> {
-        Ok(LocalStore::get_all_price_infos(&*self.adapter).await)
+        Ok(LocalStore::get_all_price_infos(&*self.state).await)
     }
 
     async fn publish_batch(&self, batch: &[(Identifier, PriceInfo)]) -> Result<()> {
@@ -700,7 +700,7 @@ impl Exporter {
             // in this batch. This will use the maximum total compute unit fee if the publisher
             // hasn't updated for >= MAXIMUM_SLOT_GAP_FOR_DYNAMIC_COMPUTE_UNIT_PRICE slots.
             let result = GlobalStore::price_accounts(
-                &*self.adapter,
+                &*self.state,
                 self.network,
                 price_accounts.clone().into_iter().collect(),
             )

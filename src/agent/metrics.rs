@@ -69,16 +69,16 @@ lazy_static! {
 pub struct MetricsServer {
     pub start_time: Instant,
     pub logger:     Logger,
-    pub adapter:    Arc<State>,
+    pub state:      Arc<State>,
 }
 
 impl MetricsServer {
     /// Instantiate a metrics API.
-    pub async fn spawn(addr: impl Into<SocketAddr> + 'static, logger: Logger, adapter: Arc<State>) {
+    pub async fn spawn(addr: impl Into<SocketAddr> + 'static, logger: Logger, state: Arc<State>) {
         let server = MetricsServer {
             start_time: Instant::now(),
             logger,
-            adapter,
+            state,
         };
 
         let shared_state = Arc::new(Mutex::new(server));

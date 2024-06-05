@@ -178,7 +178,7 @@ pub struct Oracle {
 
     logger: Logger,
 
-    adapter: Arc<State>,
+    state: Arc<State>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -228,7 +228,7 @@ pub fn spawn_oracle(
     >,
     key_store: KeyStore,
     logger: Logger,
-    adapter: Arc<State>,
+    state: Arc<State>,
 ) -> Vec<JoinHandle<()>> {
     let mut jhs = vec![];
 
@@ -261,7 +261,7 @@ pub fn spawn_oracle(
     jhs.push(tokio::spawn(async move { poller.run().await }));
 
     // Create and spawn the Oracle
-    let mut oracle = Oracle::new(data_rx, updates_rx, network, logger, adapter);
+    let mut oracle = Oracle::new(data_rx, updates_rx, network, logger, state);
     jhs.push(tokio::spawn(async move { oracle.run().await }));
 
     jhs
@@ -273,7 +273,7 @@ impl Oracle {
         updates_rx: mpsc::Receiver<(Pubkey, solana_sdk::account::Account)>,
         network: Network,
         logger: Logger,
-        adapter: Arc<State>,
+        state: Arc<State>,
     ) -> Self {
         Oracle {
             data: Default::default(),
@@ -281,7 +281,7 @@ impl Oracle {
             updates_rx,
             network,
             logger,
-            adapter,
+            state,
         }
     }
 
@@ -415,7 +415,7 @@ impl Oracle {
         account: &ProductEntry,
     ) -> Result<()> {
         Prices::update_global_price(
-            &*self.adapter,
+            &*self.state,
             self.network,
             &Update::ProductAccountUpdate {
                 account_key: *account_key,
@@ -432,7 +432,7 @@ impl Oracle {
         account: &PriceEntry,
     ) -> Result<()> {
         Prices::update_global_price(
-            &*self.adapter,
+            &*self.state,
             self.network,
             &Update::PriceAccountUpdate {
                 account_key: *account_key,

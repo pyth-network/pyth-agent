@@ -75,7 +75,7 @@ pub mod network {
         config: Config,
         network: Network,
         logger: Logger,
-        adapter: Arc<State>,
+        state: Arc<State>,
     ) -> Result<Vec<JoinHandle<()>>> {
         // Publisher permissions updates between oracle and exporter
         let (publisher_permissions_tx, publisher_permissions_rx) = watch::channel(<_>::default());
@@ -90,7 +90,7 @@ pub mod network {
             publisher_permissions_tx,
             KeyStore::new(config.key_store.clone(), &logger)?,
             logger.clone(),
-            adapter.clone(),
+            state.clone(),
         );
 
         // Spawn the Exporter
@@ -102,7 +102,7 @@ pub mod network {
             publisher_permissions_rx,
             KeyStore::new(config.key_store.clone(), &logger)?,
             logger,
-            adapter,
+            state,
         )?;
 
         jhs.extend(exporter_jhs);

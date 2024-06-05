@@ -112,7 +112,7 @@ enum ConnectionError {
 
 async fn handle_connection<S>(
     ws_conn: WebSocket,
-    adapter: Arc<S>,
+    state: Arc<S>,
     notify_price_tx_buffer: usize,
     notify_price_sched_tx_buffer: usize,
     logger: Logger,
@@ -131,7 +131,7 @@ async fn handle_connection<S>(
     loop {
         if let Err(err) = handle_next(
             &logger,
-            &*adapter,
+            &*state,
             &mut ws_tx,
             &mut ws_rx,
             &mut notify_price_tx,
@@ -156,7 +156,7 @@ async fn handle_connection<S>(
 
 async fn handle_next<S>(
     logger: &Logger,
-    adapter: &S,
+    state: &S,
     ws_tx: &mut SplitSink<WebSocket, Message>,
     ws_rx: &mut SplitStream<WebSocket>,
     notify_price_tx: &mut mpsc::Sender<NotifyPrice>,
@@ -175,7 +175,7 @@ where
                         handle(
                             logger,
                             ws_tx,
-                            adapter,
+                            state,
                             notify_price_tx,
                             notify_price_sched_tx,
                             msg,
@@ -201,7 +201,7 @@ where
 async fn handle<S>(
     logger: &Logger,
     ws_tx: &mut SplitSink<WebSocket, Message>,
-    adapter: &S,
+    state: &S,
     notify_price_tx: &mpsc::Sender<NotifyPrice>,
     notify_price_sched_tx: &mpsc::Sender<NotifyPriceSched>,
     msg: Message,
@@ -224,7 +224,7 @@ where
             for request in requests {
                 let response = dispatch_and_catch_error(
                     logger,
-                    adapter,
+                    state,
                     notify_price_tx,
                     notify_price_sched_tx,
                     &request,
@@ -287,7 +287,7 @@ async fn parse(msg: Message) -> Result<(Vec<Request<Method, Value>>, bool)> {
 
 async fn dispatch_and_catch_error<S>(
     logger: &Logger,
-    adapter: &S,
+    state: &S,
     notify_price_tx: &mpsc::Sender<NotifyPrice>,
     notify_price_sched_tx: &mpsc::Sender<NotifyPriceSched>,
     request: &Request<Method, Value>,
@@ -302,13 +302,13 @@ where
     );
 
     let result = match request.method {
-        Method::GetProductList => get_product_list(adapter).await,
-        Method::GetProduct => get_product(adapter, request).await,
-        Method::GetAllProducts => get_all_products(adapter).await,
-        Method::UpdatePrice => update_price(adapter, request).await,
-        Method::SubscribePrice => subscribe_price(adapter, notify_price_tx, request).await,
+        Method::GetProductList => get_product_list(state).await,
+        Method::GetProduct => get_product(state, request).await,
+        Method::GetAllProducts => get_all_products(state).await,
+        Method::UpdatePrice => update_price(state, request).await,
+        Method::SubscribePrice => subscribe_price(state, notify_price_tx, request).await,
         Method::SubscribePriceSched => {
-            subscribe_price_sched(adapter, notify_price_sched_tx, request).await
+            subscribe_price_sched(state, notify_price_sched_tx, request).await
         }
         Method::NotifyPrice | Method::NotifyPriceSched => {
             Err(anyhow!("unsupported method: {:?}", request.method))
@@ -410,10 +410,10 @@ pub struct Config {
     /// The address which the websocket API server will listen on.
     pub listen_address:               String,
     /// Size of the buffer of each Server's channel on which `notify_price` events are
-    /// received from the Adapter.
+    /// received from the Price state.
     pub notify_price_tx_buffer:       usize,
     /// Size of the buffer of each Server's channel on which `notify_price_sched` events are
-    /// received from the Adapter.
+    /// received from the Price state.
     pub notify_price_sched_tx_buffer: usize,
 }
 
@@ -427,20 +427,20 @@ impl Default for Config {
     }
 }
 
-pub async fn run<S>(config: Config, logger: Logger, adapter: Arc<S>)
+pub async fn run<S>(config: Config, logger: Logger, state: Arc<S>)
 where
     S: state::Prices,
     S: Send,
     S: Sync,
     S: 'static,
 {
-    if let Err(err) = serve(config, &logger, adapter).await {
+    if let Err(err) = serve(config, &logger, state).await {
         error!(logger, "{}", err);
         debug!(logger, "error context"; "context" => format!("{:?}", err));
     }
 }
 
-async fn serve<S>(config: Config, logger: &Logger, adapter: Arc<S>) -> Result<()>
+async fn serve<S>(config: Config, logger: &Logger, state: Arc<S>) -> Result<()>
 where
     S: state::Prices,
     S: Send,
@@ -456,16 +456,16 @@ where
         let config = config.clone();
         warp::path::end()
             .and(warp::ws())
-            .and(warp::any().map(move || adapter.clone()))
+            .and(warp::any().map(move || state.clone()))
             .and(warp::any().map(move || with_logger.clone()))
             .and(warp::any().map(move || config.clone()))
             .map(
-                |ws: Ws, adapter: Arc<S>, with_logger: WithLogger, config: Config| {
+                |ws: Ws, state: Arc<S>, with_logger: WithLogger, config: Config| {
                     ws.on_upgrade(move |conn| async move {
                         info!(with_logger.logger, "websocket user connected");
                         handle_connection(
                             conn,
-                            adapter,
+                            state,
                             config.notify_price_tx_buffer,
                             config.notify_price_sched_tx_buffer,
                             with_logger.logger,

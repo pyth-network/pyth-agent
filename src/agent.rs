@@ -123,16 +123,15 @@ impl Agent {
         // job handles
         let mut jhs = vec![];
 
-        // Create the Pythd Adapter.
-        let adapter =
-            Arc::new(state::State::new(self.config.pythd_adapter.clone(), logger.clone()).await);
+        // Create the Application State.
+        let state = Arc::new(state::State::new(self.config.state.clone(), logger.clone()).await);
 
         // Spawn the primary network
         jhs.extend(network::spawn_network(
             self.config.primary_network.clone(),
             network::Network::Primary,
             logger.new(o!("primary" => true)),
-            adapter.clone(),
+            state.clone(),
         )?);
 
         // Spawn the secondary network, if needed
@@ -141,25 +140,25 @@ impl Agent {
                 config.clone(),
                 network::Network::Secondary,
                 logger.new(o!("primary" => false)),
-                adapter.clone(),
+                state.clone(),
             )?);
         }
 
         // Create the Notifier task for the Pythd RPC.
-        jhs.push(tokio::spawn(notifier(logger.clone(), adapter.clone())));
+        jhs.push(tokio::spawn(notifier(logger.clone(), state.clone())));
 
         // Spawn the Pythd API Server
         jhs.push(tokio::spawn(rpc::run(
             self.config.pythd_api_server.clone(),
             logger.clone(),
-            adapter.clone(),
+            state.clone(),
         )));
 
         // Spawn the metrics server
         jhs.push(tokio::spawn(metrics::MetricsServer::spawn(
             self.config.metrics_server.bind_address,
             logger.clone(),
-            adapter.clone(),
+            state.clone(),
         )));
 
         // Spawn the remote keypair loader endpoint for both networks
@@ -172,7 +171,7 @@ impl Agent {
                     .map(|c| c.rpc_url.clone()),
                 self.config.remote_keypair_loader.clone(),
                 logger,
-                adapter,
+                state,
             )
             .await,
         );
@@ -210,7 +209,8 @@ pub mod config {
         pub primary_network:       network::Config,
         pub secondary_network:     Option<network::Config>,
         #[serde(default)]
-        pub pythd_adapter:         state::Config,
+        #[serde(rename = "pythd_adapter")]
+        pub state:                 state::Config,
         #[serde(default)]
         pub pythd_api_server:      pythd::api::rpc::Config,
         #[serde(default)]

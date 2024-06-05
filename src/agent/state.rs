@@ -43,9 +43,7 @@ impl Default for Config {
     }
 }
 
-/// Adapter is the adapter between the pythd websocket API, and the stores.
-/// It is responsible for implementing the business logic for responding to
-/// the pythd websocket API calls.
+/// State contains all relevant shared application state.
 pub struct State {
     /// Global store for managing the unified state of Pyth-on-Solana networks.
     global_store: global::Store,
@@ -151,27 +149,26 @@ mod tests {
         },
     };
 
-    struct TestAdapter {
-        adapter:     Arc<State>,
+    struct TestState {
+        state:       Arc<State>,
         shutdown_tx: broadcast::Sender<()>,
         jh:          JoinHandle<()>,
     }
 
-    async fn setup() -> TestAdapter {
-        // Create and spawn an adapter
+    async fn setup() -> TestState {
         let notify_price_sched_interval_duration = Duration::from_nanos(10);
         let logger = slog_test::new_test_logger(IoBuffer::new());
         let config = Config {
             notify_price_sched_interval_duration,
         };
-        let adapter = Arc::new(State::new(config, logger.clone()).await);
+        let state = Arc::new(State::new(config, logger.clone()).await);
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn Price Notifier
-        let jh = tokio::spawn(notifier(logger, adapter.clone()));
+        let jh = tokio::spawn(notifier(logger, state.clone()));
 
-        TestAdapter {
-            adapter,
+        TestState {
+            state,
             shutdown_tx,
             jh,
         }
@@ -179,15 +176,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_subscribe_price_sched() {
-        let test_adapter = setup().await;
+        let state = setup().await;
 
         // Send a Subscribe Price Sched message
         let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF"
             .parse::<solana_sdk::pubkey::Pubkey>()
             .unwrap();
         let (notify_price_sched_tx, mut notify_price_sched_rx) = mpsc::channel(1000);
-        let subscription_id = test_adapter
-            .adapter
+        let subscription_id = state
+            .state
             .subscribe_price_sched(&account, notify_price_sched_tx)
             .await;
 
@@ -201,8 +198,8 @@ mod tests {
             )
         }
 
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     fn get_test_all_accounts_metadata() -> global::AllAccountsMetadata {
@@ -324,17 +321,16 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_get_product_list() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
         let accounts_metadata = get_test_all_accounts_metadata();
-        test_adapter
-            .adapter
+        state
+            .state
             .global_store
             ._account_metadata(accounts_metadata)
             .await;
 
         // Send a Get Product List message
-        let mut product_list = test_adapter.adapter.get_product_list().await.unwrap();
+        let mut product_list = state.state.get_product_list().await.unwrap();
 
         // Check that the result is what we expected
         let expected = vec![
@@ -404,8 +400,8 @@ mod tests {
 
         product_list.sort();
         assert_eq!(product_list, expected);
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     fn pad_price_comps(mut inputs: Vec<PriceComp>) -> [PriceComp; 32] {
@@ -1031,17 +1027,16 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_get_all_products() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
         let accounts_data = get_all_accounts_data();
-        test_adapter
-            .adapter
+        state
+            .state
             .global_store
             ._account_data_primary(accounts_data)
             .await;
 
         // Send a Get All Products message
-        let mut all_products = test_adapter.adapter.get_all_products().await.unwrap();
+        let mut all_products = state.state.get_all_products().await.unwrap();
 
         // Check that the result of the conversion to the Pythd API format is what we expected
         let expected = vec![
@@ -1240,17 +1235,16 @@ mod tests {
 
         all_products.sort();
         assert_eq!(all_products, expected);
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_get_product() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
         let accounts_data = get_all_accounts_data();
-        test_adapter
-            .adapter
+        state
+            .state
             .global_store
             ._account_data_primary(accounts_data)
             .await;
@@ -1259,7 +1253,7 @@ mod tests {
         let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t"
             .parse::<solana_sdk::pubkey::Pubkey>()
             .unwrap();
-        let product = test_adapter.adapter.get_product(&account).await.unwrap();
+        let product = state.state.get_product(&account).await.unwrap();
 
         // Check that the result of the conversion to the Pythd API format is what we expected
         let expected = ProductAccount {
@@ -1349,14 +1343,13 @@ mod tests {
         };
 
         assert_eq!(product, expected);
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_update_price() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
 
         // Send an Update Price message
         let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t"
@@ -1364,14 +1357,14 @@ mod tests {
             .unwrap();
         let price = 2365;
         let conf = 98754;
-        let _ = test_adapter
-            .adapter
+        let _ = state
+            .state
             .update_local_price(&account, price, conf, "trading".to_string())
             .await
             .unwrap();
 
         // Check that the local store indeed received the correct update
-        let price_infos = LocalStore::get_all_price_infos(&*test_adapter.adapter).await;
+        let price_infos = LocalStore::get_all_price_infos(&*state.state).await;
         let price_info = price_infos
             .get(&Identifier::new(account.to_bytes()))
             .unwrap();
@@ -1380,26 +1373,22 @@ mod tests {
         assert_eq!(price_info.conf, conf);
         assert_eq!(price_info.status, PriceStatus::Trading);
 
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_subscribe_notify_price() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
 
         // Send a Subscribe Price message
         let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF"
             .parse::<solana_sdk::pubkey::Pubkey>()
             .unwrap();
         let (notify_price_tx, mut notify_price_rx) = mpsc::channel(1000);
-        let subscription_id = test_adapter
-            .adapter
-            .subscribe_price(&account, notify_price_tx)
-            .await;
+        let subscription_id = state.state.subscribe_price(&account, notify_price_tx).await;
 
-        // Send an update from the global store to the adapter
+        // Send an update via the global store.
         let test_price: PriceEntry = SolanaPriceAccount {
             magic:          0xa1b2c3d4,
             ver:            7,
@@ -1450,8 +1439,8 @@ mod tests {
         }
         .into();
 
-        let _ = test_adapter
-            .adapter
+        let _ = state
+            .state
             .update_global_price(
                 Network::Primary,
                 &Update::PriceAccountUpdate {
@@ -1462,7 +1451,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Check that the adapter sends a notify price message with the corresponding subscription id
+        // Check that the application sends a notify price message with the corresponding subscription id
         // to the expected channel.
         assert_eq!(
             notify_price_rx.recv().await.unwrap(),
@@ -1478,7 +1467,7 @@ mod tests {
             }
         );
 
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 }

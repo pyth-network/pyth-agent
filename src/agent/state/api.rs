@@ -193,10 +193,10 @@ pub trait Prices {
     fn map_status(status: &str) -> Result<PriceStatus>;
 }
 
-// Allow downcasting Adapter into Keypairs for functions that depend on the `Keypairs` service.
+// Allow downcasting State into Keypairs for functions that depend on the `Keypairs` service.
 impl<'a> From<&'a State> for &'a PricesState {
-    fn from(adapter: &'a State) -> &'a PricesState {
-        &adapter.prices
+    fn from(state: &'a State) -> &'a PricesState {
+        &state.prices
     }
 }
 
@@ -333,7 +333,7 @@ where
         {
             // Send the notify price sched update without awaiting. This results in raising errors
             // if the channel is full which normally should not happen. This is because we do not
-            // want to block the adapter if the channel is full.
+            // want to block the API if the channel is full.
             subscription
                 .notify_price_sched_tx
                 .try_send(NotifyPriceSched {

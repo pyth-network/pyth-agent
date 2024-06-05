@@ -76,10 +76,10 @@ pub trait Keypairs {
     async fn update_keypair(&self, network: Network, new_keypair: Keypair);
 }
 
-// Allow downcasting Adapter into Keypairs for functions that depend on the `Keypairs` service.
+// Allow downcasting State into Keypairs for functions that depend on the `Keypairs` service.
 impl<'a> From<&'a State> for &'a KeypairState {
-    fn from(adapter: &'a State) -> &'a KeypairState {
-        &adapter.keypairs
+    fn from(state: &'a State) -> &'a KeypairState {
+        &state.keypairs
     }
 }
 

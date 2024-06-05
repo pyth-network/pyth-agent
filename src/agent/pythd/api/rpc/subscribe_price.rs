@@ -18,7 +18,7 @@ use {
 };
 
 pub async fn subscribe_price<S>(
-    adapter: &S,
+    state: &S,
     notify_price_tx: &mpsc::Sender<NotifyPrice>,
     request: &Request<Method, Value>,
 ) -> Result<serde_json::Value>
@@ -33,7 +33,7 @@ where
     )?;
 
     let account = params.account.parse::<solana_sdk::pubkey::Pubkey>()?;
-    let subscription = adapter
+    let subscription = state
         .subscribe_price(&account, notify_price_tx.clone())
         .await;
 

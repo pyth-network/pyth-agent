@@ -66,10 +66,10 @@ pub trait LocalStore {
     async fn get_all_price_infos(&self) -> HashMap<PriceIdentifier, PriceInfo>;
 }
 
-// Allow downcasting Adapter into GlobalStore for functions that depend on the `GlobalStore` service.
+// Allow downcasting State into GlobalStore for functions that depend on the `GlobalStore` service.
 impl<'a> From<&'a State> for &'a Store {
-    fn from(adapter: &'a State) -> &'a Store {
-        &adapter.local_store
+    fn from(state: &'a State) -> &'a Store {
+        &state.local_store
     }
 }
 

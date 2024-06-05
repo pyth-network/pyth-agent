@@ -162,10 +162,10 @@ pub trait GlobalStore {
     ) -> Result<HashMap<Pubkey, PriceEntry>>;
 }
 
-// Allow downcasting Adapter into GlobalStore for functions that depend on the `GlobalStore` service.
+// Allow downcasting State into GlobalStore for functions that depend on the `GlobalStore` service.
 impl<'a> From<&'a State> for &'a Store {
-    fn from(adapter: &'a State) -> &'a Store {
-        &adapter.global_store
+    fn from(state: &'a State) -> &'a Store {
+        &state.global_store
     }
 }
 
