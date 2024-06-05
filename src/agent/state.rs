@@ -1,13 +1,13 @@
 use {
-    super::{
-        pythd::api::{
+    crate::agent::{
+        metrics::PROMETHEUS_REGISTRY,
+        pyth::{
             NotifyPrice,
             NotifyPriceSched,
             SubscriptionID,
         },
         store::PriceIdentifier,
     },
-    crate::agent::metrics::PROMETHEUS_REGISTRY,
     serde::{
         Deserialize,
         Serialize,
@@ -100,7 +100,7 @@ mod tests {
             State,
         },
         crate::agent::{
-            pythd::api::{
+            pyth::{
                 self,
                 NotifyPrice,
                 NotifyPriceSched,
@@ -1040,7 +1040,7 @@ mod tests {
 
         // Check that the result of the conversion to the Pythd API format is what we expected
         let expected = vec![
-            api::ProductAccount {
+            pyth::ProductAccount {
                 account:        "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc".to_string(),
                 attr_dict:      BTreeMap::from(
                     [
@@ -1054,7 +1054,7 @@ mod tests {
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
                 price_accounts: vec![
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1086,7 +1086,7 @@ mod tests {
                             },
                         ],
                     },
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "fTNjSfj5uW9e4CAMHzUcm65ftRNBxCN1gG5GS1mYfid"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1118,7 +1118,7 @@ mod tests {
                             },
                         ],
                     },
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1143,7 +1143,7 @@ mod tests {
                     },
                 ],
             },
-            api::ProductAccount {
+            pyth::ProductAccount {
                 account:        "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string(),
                 attr_dict:      BTreeMap::from(
                     [
@@ -1157,7 +1157,7 @@ mod tests {
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
                 price_accounts: vec![
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1174,7 +1174,7 @@ mod tests {
                         prev_conf:          398674,
                         publisher_accounts: vec![],
                     },
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1197,7 +1197,7 @@ mod tests {
                             slot:    14765,
                         }],
                     },
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1259,7 +1259,7 @@ mod tests {
         let expected = ProductAccount {
             account:        account.to_string(),
             price_accounts: vec![
-                api::PriceAccount {
+                pyth::PriceAccount {
                     account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".to_string(),
                     price_type:         "price".to_string(),
                     price_exponent:     -8,
@@ -1275,7 +1275,7 @@ mod tests {
                     prev_conf:          398674,
                     publisher_accounts: vec![],
                 },
-                api::PriceAccount {
+                pyth::PriceAccount {
                     account:            "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr".to_string(),
                     price_type:         "price".to_string(),
                     price_exponent:     -10,
@@ -1297,7 +1297,7 @@ mod tests {
                         slot:    14765,
                     }],
                 },
-                api::PriceAccount {
+                pyth::PriceAccount {
                     account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6".to_string(),
                     price_type:         "price".to_string(),
                     price_exponent:     -6,

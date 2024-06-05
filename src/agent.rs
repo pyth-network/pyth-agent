@@ -64,7 +64,7 @@ Note that there is an Oracle and Exporter for each network, but only one Local S
 use {
     self::{
         config::Config,
-        pythd::api::rpc,
+        pyth::rpc,
         solana::network,
         state::notifier,
     },
@@ -79,7 +79,7 @@ use {
 pub mod legacy_schedule;
 pub mod market_schedule;
 pub mod metrics;
-pub mod pythd;
+pub mod pyth;
 pub mod solana;
 pub mod state;
 pub mod store;
@@ -187,7 +187,7 @@ pub mod config {
     use {
         super::{
             metrics,
-            pythd,
+            pyth,
             solana::network,
             state,
         },
@@ -212,7 +212,7 @@ pub mod config {
         #[serde(rename = "pythd_adapter")]
         pub state:                 state::Config,
         #[serde(default)]
-        pub pythd_api_server:      pythd::api::rpc::Config,
+        pub pythd_api_server:      pyth::rpc::Config,
         #[serde(default)]
         pub metrics_server:        metrics::Config,
         #[serde(default)]

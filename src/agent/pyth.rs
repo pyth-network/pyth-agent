@@ -6,6 +6,8 @@ use {
     std::collections::BTreeMap,
 };
 
+pub mod rpc;
+
 pub type Pubkey = String;
 pub type Attrs = BTreeMap<String, String>;
 
@@ -83,5 +85,3 @@ pub struct PriceUpdate {
     pub valid_slot: Slot,
     pub pub_slot:   Slot,
 }
-
-pub mod rpc;
