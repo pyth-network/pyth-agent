@@ -66,7 +66,6 @@ pub mod legacy_schedule;
 pub mod market_schedule;
 pub mod metrics;
 pub mod pythd;
-pub mod remote_keypair_loader;
 pub mod solana;
 pub mod state;
 pub mod store;
@@ -81,10 +80,7 @@ use {
     futures_util::future::join_all,
     slog::Logger,
     std::sync::Arc,
-    tokio::sync::{
-        broadcast,
-        mpsc,
-    },
+    tokio::sync::broadcast,
 };
 
 pub struct Agent {
@@ -116,8 +112,6 @@ impl Agent {
         // Create the channels
         // TODO: make all components listen to shutdown signal
         let (shutdown_tx, _) = broadcast::channel(self.config.channel_capacities.shutdown);
-        let (primary_keypair_loader_tx, primary_keypair_loader_rx) = mpsc::channel(10);
-        let (secondary_keypair_loader_tx, secondary_keypair_loader_rx) = mpsc::channel(10);
 
         // Create the Pythd Adapter.
         let adapter =
@@ -127,7 +121,6 @@ impl Agent {
         jhs.extend(network::spawn_network(
             self.config.primary_network.clone(),
             network::Network::Primary,
-            primary_keypair_loader_tx,
             logger.new(o!("primary" => true)),
             adapter.clone(),
         )?);
@@ -137,7 +130,6 @@ impl Agent {
             jhs.extend(network::spawn_network(
                 config.clone(),
                 network::Network::Secondary,
-                secondary_keypair_loader_tx,
                 logger.new(o!("primary" => false)),
                 adapter.clone(),
             )?);
@@ -161,14 +153,12 @@ impl Agent {
         jhs.push(tokio::spawn(metrics::MetricsServer::spawn(
             self.config.metrics_server.bind_address,
             logger.clone(),
-            adapter,
+            adapter.clone(),
         )));
 
         // Spawn the remote keypair loader endpoint for both networks
         jhs.append(
-            &mut remote_keypair_loader::RemoteKeypairLoader::spawn(
-                primary_keypair_loader_rx,
-                secondary_keypair_loader_rx,
+            &mut state::keypairs::spawn(
                 self.config.primary_network.rpc_url.clone(),
                 self.config
                     .secondary_network
@@ -176,6 +166,7 @@ impl Agent {
                     .map(|c| c.rpc_url.clone()),
                 self.config.remote_keypair_loader.clone(),
                 logger,
+                adapter,
             )
             .await,
         );
@@ -192,7 +183,6 @@ pub mod config {
         super::{
             metrics,
             pythd,
-            remote_keypair_loader,
             solana::network,
             state,
         },
@@ -220,7 +210,7 @@ pub mod config {
         #[serde(default)]
         pub metrics_server:        metrics::Config,
         #[serde(default)]
-        pub remote_keypair_loader: remote_keypair_loader::Config,
+        pub remote_keypair_loader: state::keypairs::Config,
     }
 
     impl Config {

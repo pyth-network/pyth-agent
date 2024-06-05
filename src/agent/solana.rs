@@ -14,10 +14,7 @@ pub mod network {
             },
             oracle,
         },
-        crate::agent::{
-            remote_keypair_loader::KeypairRequest,
-            state::State,
-        },
+        crate::agent::state::State,
         anyhow::Result,
         serde::{
             Deserialize,
@@ -29,10 +26,7 @@ pub mod network {
             time::Duration,
         },
         tokio::{
-            sync::{
-                mpsc::Sender,
-                watch,
-            },
+            sync::watch,
             task::JoinHandle,
         },
     };
@@ -80,7 +74,6 @@ pub mod network {
     pub fn spawn_network(
         config: Config,
         network: Network,
-        keypair_request_tx: Sender<KeypairRequest>,
         logger: Logger,
         adapter: Arc<State>,
     ) -> Result<Vec<JoinHandle<()>>> {
@@ -108,7 +101,6 @@ pub mod network {
             config.rpc_timeout,
             publisher_permissions_rx,
             KeyStore::new(config.key_store.clone(), &logger)?,
-            keypair_request_tx,
             logger,
             adapter,
         )?;

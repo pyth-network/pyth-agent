@@ -6,19 +6,14 @@ use {
         network::Network,
         oracle::PricePublishingMetadata,
     },
-    crate::agent::{
-        remote_keypair_loader::{
-            KeypairRequest,
-            RemoteKeypairLoader,
+    crate::agent::state::{
+        global::GlobalStore,
+        keypairs::Keypairs,
+        local::{
+            LocalStore,
+            PriceInfo,
         },
-        state::{
-            global::GlobalStore,
-            local::{
-                LocalStore,
-                PriceInfo,
-            },
-            State,
-        },
+        State,
     },
     anyhow::{
         anyhow,
@@ -180,7 +175,6 @@ pub fn spawn_exporter(
         HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     >,
     key_store: KeyStore,
-    keypair_request_tx: mpsc::Sender<KeypairRequest>,
     logger: Logger,
     adapter: Arc<State>,
 ) -> Result<Vec<JoinHandle<()>>> {
@@ -217,7 +211,6 @@ pub fn spawn_exporter(
         network_state_rx,
         transactions_tx,
         publisher_permissions_rx,
-        keypair_request_tx,
         logger,
         adapter,
     );
@@ -270,8 +263,6 @@ pub struct Exporter {
     /// Recent compute unit price in micro lamports (set if dynamic compute unit pricing is enabled)
     recent_compute_unit_price_micro_lamports: Option<u64>,
 
-    keypair_request_tx: Sender<KeypairRequest>,
-
     logger: Logger,
 
     adapter: Arc<State>,
@@ -289,7 +280,6 @@ impl Exporter {
         publisher_permissions_rx: watch::Receiver<
             HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
         >,
-        keypair_request_tx: mpsc::Sender<KeypairRequest>,
         logger: Logger,
         adapter: Arc<State>,
     ) -> Self {
@@ -312,7 +302,6 @@ impl Exporter {
                 time::Duration::from_secs(1),
             ),
             recent_compute_unit_price_micro_lamports: None,
-            keypair_request_tx,
             logger,
             adapter,
         }
@@ -422,7 +411,7 @@ impl Exporter {
                 self.logger,
                 "Exporter: Publish keypair is None, requesting remote loaded key"
             );
-            let kp = RemoteKeypairLoader::request_keypair(&self.keypair_request_tx).await?;
+            let kp = Keypairs::request_keypair(&*self.adapter, self.network).await?;
             debug!(self.logger, "Exporter: Keypair received");
             Ok(kp)
         }

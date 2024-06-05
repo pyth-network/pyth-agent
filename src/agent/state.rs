@@ -26,6 +26,7 @@ use {
 
 pub mod api;
 pub mod global;
+pub mod keypairs;
 pub mod local;
 pub use api::{
     notifier,
@@ -74,6 +75,9 @@ pub struct State {
 
     /// Local store for managing the unpushed state.
     local_store: local::Store,
+
+    /// State for managing state of runtime keypairs,
+    keypairs: keypairs::KeypairState,
 }
 
 /// Represents a single Notify Price Sched subscription
@@ -98,6 +102,7 @@ impl State {
         State {
             global_store: global::Store::new(logger.clone(), registry),
             local_store: local::Store::new(logger.clone(), registry),
+            keypairs: keypairs::KeypairState::default(),
             subscription_id_seq: 1.into(),
             notify_price_sched_subscriptions: RwLock::new(HashMap::new()),
             notify_price_subscriptions: RwLock::new(HashMap::new()),
