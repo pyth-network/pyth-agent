@@ -6,7 +6,6 @@ use {
             NotifyPriceSched,
             SubscriptionID,
         },
-        store::PriceIdentifier,
     },
     serde::{
         Deserialize,

@@ -82,7 +82,6 @@ pub mod metrics;
 pub mod pyth;
 pub mod solana;
 pub mod state;
-pub mod store;
 
 lazy_static! {
     /// A static exit flag to indicate to running threads that we're shutting down. This is used to

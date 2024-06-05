@@ -2,10 +2,7 @@
 // is contributing to the network. The Exporters will then take this data and publish
 // it to the networks.
 use {
-    super::{
-        PriceIdentifier,
-        State,
-    },
+    super::State,
     crate::agent::metrics::PriceLocalMetrics,
     anyhow::{
         anyhow,
@@ -45,7 +42,7 @@ impl PriceInfo {
 }
 
 pub struct Store {
-    prices:  RwLock<HashMap<PriceIdentifier, PriceInfo>>,
+    prices:  RwLock<HashMap<pyth_sdk::Identifier, PriceInfo>>,
     metrics: PriceLocalMetrics,
     logger:  Logger,
 }
@@ -62,8 +59,12 @@ impl Store {
 
 #[async_trait::async_trait]
 pub trait LocalStore {
-    async fn update(&self, price_identifier: PriceIdentifier, price_info: PriceInfo) -> Result<()>;
-    async fn get_all_price_infos(&self) -> HashMap<PriceIdentifier, PriceInfo>;
+    async fn update(
+        &self,
+        price_identifier: pyth_sdk::Identifier,
+        price_info: PriceInfo,
+    ) -> Result<()>;
+    async fn get_all_price_infos(&self) -> HashMap<pyth_sdk::Identifier, PriceInfo>;
 }
 
 // Allow downcasting State into GlobalStore for functions that depend on the `GlobalStore` service.
@@ -79,7 +80,11 @@ where
     for<'a> &'a T: Into<&'a Store>,
     T: Sync,
 {
-    async fn update(&self, price_identifier: PriceIdentifier, price_info: PriceInfo) -> Result<()> {
+    async fn update(
+        &self,
+        price_identifier: pyth_sdk::Identifier,
+        price_info: PriceInfo,
+    ) -> Result<()> {
         debug!(self.into().logger, "local store received price update"; "identifier" => bs58::encode(price_identifier.to_bytes()).into_string());
 
         // Drop the update if it is older than the current one stored for the price
@@ -102,7 +107,7 @@ where
         Ok(())
     }
 
-    async fn get_all_price_infos(&self) -> HashMap<PriceIdentifier, PriceInfo> {
+    async fn get_all_price_infos(&self) -> HashMap<pyth_sdk::Identifier, PriceInfo> {
         self.into().prices.read().await.clone()
     }
 }

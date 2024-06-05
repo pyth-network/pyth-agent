@@ -19,7 +19,6 @@ use {
                 network::Network,
                 oracle::PriceEntry,
             },
-            store::PriceIdentifier,
         },
         global::{
             AllAccountsData,
@@ -138,8 +137,8 @@ fn solana_price_account_to_pythd_api_price_account(
     }
 }
 
-type PriceSubscriptions = HashMap<PriceIdentifier, Vec<NotifyPriceSubscription>>;
-type PriceSchedSubscribtions = HashMap<PriceIdentifier, Vec<NotifyPriceSchedSubscription>>;
+type PriceSubscriptions = HashMap<pyth_sdk::Identifier, Vec<NotifyPriceSubscription>>;
+type PriceSchedSubscribtions = HashMap<pyth_sdk::Identifier, Vec<NotifyPriceSchedSubscription>>;
 
 #[derive(Default)]
 pub struct PricesState {

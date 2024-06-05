@@ -3,10 +3,7 @@ use {
         local::PriceInfo,
         State,
     },
-    crate::agent::{
-        solana::oracle::PriceEntry,
-        store::PriceIdentifier,
-    },
+    crate::agent::solana::oracle::PriceEntry,
     lazy_static::lazy_static,
     prometheus_client::{
         encoding::{
@@ -366,7 +363,7 @@ impl PriceLocalMetrics {
         metrics
     }
 
-    pub fn update(&self, price_id: &PriceIdentifier, price_info: &PriceInfo) {
+    pub fn update(&self, price_id: &pyth_sdk::Identifier, price_info: &PriceInfo) {
         #[deny(unused_variables)]
         let Self {
             price,

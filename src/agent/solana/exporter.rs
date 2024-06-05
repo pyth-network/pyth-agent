@@ -1,7 +1,6 @@
 use {
     self::transaction_monitor::TransactionMonitor,
     super::{
-        super::store::PriceIdentifier,
         key_store,
         network::Network,
         oracle::PricePublishingMetadata,
@@ -242,7 +241,7 @@ pub struct Exporter {
     /// The last state published for each price identifier. Used to
     /// rule out stale data and prevent repetitive publishing of
     /// unchanged prices.
-    last_published_state: HashMap<PriceIdentifier, PriceInfo>,
+    last_published_state: HashMap<pyth_sdk::Identifier, PriceInfo>,
 
     /// Watch receiver channel to access the current network state
     network_state_rx: watch::Receiver<NetworkState>,
@@ -417,7 +416,7 @@ impl Exporter {
         }
     }
 
-    async fn get_permissioned_updates(&mut self) -> Result<Vec<(PriceIdentifier, PriceInfo)>> {
+    async fn get_permissioned_updates(&mut self) -> Result<Vec<(pyth_sdk::Identifier, PriceInfo)>> {
         let local_store_contents = self.fetch_local_store_contents().await?;
 
         let publish_keypair = self.get_publish_keypair().await?;
@@ -595,7 +594,7 @@ impl Exporter {
             });
     }
 
-    async fn fetch_local_store_contents(&self) -> Result<HashMap<PriceIdentifier, PriceInfo>> {
+    async fn fetch_local_store_contents(&self) -> Result<HashMap<pyth_sdk::Identifier, PriceInfo>> {
         Ok(LocalStore::get_all_price_infos(&*self.state).await)
     }
 
