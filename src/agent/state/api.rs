@@ -1,38 +1,38 @@
 use {
     super::{
+        super::{
+            pyth::{
+                Conf,
+                NotifyPrice,
+                NotifyPriceSched,
+                Price,
+                PriceAccount,
+                PriceAccountMetadata,
+                PriceUpdate,
+                ProductAccount,
+                ProductAccountMetadata,
+                PublisherAccount,
+                SubscriptionID,
+            },
+            solana::{
+                self,
+                network::Network,
+                oracle::PriceEntry,
+            },
+        },
         global::{
             AllAccountsData,
-            AllAccountsMetadata,
             GlobalStore,
+            Update,
         },
         local::{
             self,
             LocalStore,
         },
+        Config,
         NotifyPriceSchedSubscription,
         NotifyPriceSubscription,
         State,
-    },
-    crate::agent::{
-        pythd::api::{
-            Conf,
-            NotifyPrice,
-            NotifyPriceSched,
-            Price,
-            PriceAccount,
-            PriceAccountMetadata,
-            PriceUpdate,
-            ProductAccount,
-            ProductAccountMetadata,
-            PublisherAccount,
-            SubscriptionID,
-        },
-        solana::{
-            self,
-            network::Network,
-            oracle::PriceEntry,
-        },
-        store::PriceIdentifier,
     },
     anyhow::{
         anyhow,
@@ -44,10 +44,17 @@ use {
         PriceComp,
         PriceStatus,
     },
-    std::sync::Arc,
+    std::{
+        collections::HashMap,
+        sync::{
+            atomic::AtomicI64,
+            Arc,
+        },
+        time::Duration,
+    },
     tokio::sync::{
-        broadcast,
         mpsc,
+        RwLock,
     },
 };
 
@@ -129,12 +136,32 @@ fn solana_price_account_to_pythd_api_price_account(
     }
 }
 
+type PriceSubscriptions = HashMap<pyth_sdk::Identifier, Vec<NotifyPriceSubscription>>;
+type PriceSchedSubscribtions = HashMap<pyth_sdk::Identifier, Vec<NotifyPriceSchedSubscription>>;
+
+#[derive(Default)]
+pub struct PricesState {
+    subscription_id_seq:                  AtomicI64,
+    notify_price_sched_interval_duration: Duration,
+    notify_price_subscriptions:           RwLock<PriceSubscriptions>,
+    notify_price_sched_subscriptions:     RwLock<PriceSchedSubscribtions>,
+}
+
+impl PricesState {
+    pub fn new(config: Config) -> Self {
+        Self {
+            subscription_id_seq:                  1.into(),
+            notify_price_sched_interval_duration: config.notify_price_sched_interval_duration,
+            notify_price_subscriptions:           Default::default(),
+            notify_price_sched_subscriptions:     Default::default(),
+        }
+    }
+}
+
 #[async_trait::async_trait]
-pub trait StateApi {
+pub trait Prices {
     async fn get_product_list(&self) -> Result<Vec<ProductAccountMetadata>>;
-    async fn lookup_all_accounts_metadata(&self) -> Result<AllAccountsMetadata>;
     async fn get_all_products(&self) -> Result<Vec<ProductAccount>>;
-    async fn lookup_all_accounts_data(&self) -> Result<AllAccountsData>;
     async fn get_product(
         &self,
         product_account_key: &solana_sdk::pubkey::Pubkey,
@@ -152,50 +179,35 @@ pub trait StateApi {
     ) -> SubscriptionID;
     async fn send_notify_price_sched(&self) -> Result<()>;
     async fn drop_closed_subscriptions(&self);
-    async fn update_price(
+    async fn update_local_price(
         &self,
         account: &solana_sdk::pubkey::Pubkey,
         price: Price,
         conf: Conf,
         status: String,
     ) -> Result<()>;
+    async fn update_global_price(&self, network: Network, update: &Update) -> Result<()>;
     // TODO: implement FromStr method on PriceStatus
     fn map_status(status: &str) -> Result<PriceStatus>;
-    async fn global_store_update(
-        &self,
-        price_identifier: PriceIdentifier,
-        price: i64,
-        conf: u64,
-        status: PriceStatus,
-        valid_slot: u64,
-        pub_slot: u64,
-    ) -> Result<()>;
 }
 
-pub async fn notifier(adapter: Arc<State>, mut shutdown_rx: broadcast::Receiver<()>) {
-    let mut interval = tokio::time::interval(adapter.notify_price_sched_interval_duration);
-    loop {
-        adapter.drop_closed_subscriptions().await;
-        tokio::select! {
-            _ = shutdown_rx.recv() => {
-                info!(adapter.logger, "shutdown signal received");
-                return;
-            }
-            _ = interval.tick() => {
-                if let Err(err) = adapter.send_notify_price_sched().await {
-                    error!(adapter.logger, "{}", err);
-                    debug!(adapter.logger, "error context"; "context" => format!("{:?}", err));
-                }
-            }
-        }
+// Allow downcasting State into Keypairs for functions that depend on the `Keypairs` service.
+impl<'a> From<&'a State> for &'a PricesState {
+    fn from(state: &'a State) -> &'a PricesState {
+        &state.prices
     }
 }
 
 #[async_trait::async_trait]
-impl StateApi for State {
+impl<T> Prices for T
+where
+    for<'a> &'a T: Into<&'a PricesState>,
+    T: GlobalStore,
+    T: LocalStore,
+    T: Sync,
+{
     async fn get_product_list(&self) -> Result<Vec<ProductAccountMetadata>> {
-        let all_accounts_metadata = self.lookup_all_accounts_metadata().await?;
-
+        let all_accounts_metadata = GlobalStore::accounts_metadata(self).await?;
         let mut result = Vec::new();
         for (product_account_key, product_account) in
             all_accounts_metadata.product_accounts_metadata
@@ -229,14 +241,8 @@ impl StateApi for State {
         Ok(result)
     }
 
-    // Fetches the Solana-specific Oracle data from the global store
-    async fn lookup_all_accounts_metadata(&self) -> Result<AllAccountsMetadata> {
-        GlobalStore::accounts_metadata(self).await
-    }
-
     async fn get_all_products(&self) -> Result<Vec<ProductAccount>> {
-        let solana_data = self.lookup_all_accounts_data().await?;
-
+        let solana_data = GlobalStore::accounts_data(self, Network::Primary).await?;
         let mut result = Vec::new();
         for (product_account_key, product_account) in &solana_data.product_accounts {
             let product_account_api = solana_product_account_to_pythd_api_product_account(
@@ -251,15 +257,11 @@ impl StateApi for State {
         Ok(result)
     }
 
-    async fn lookup_all_accounts_data(&self) -> Result<AllAccountsData> {
-        GlobalStore::accounts_data(self, Network::Primary).await
-    }
-
     async fn get_product(
         &self,
         product_account_key: &solana_sdk::pubkey::Pubkey,
     ) -> Result<ProductAccount> {
-        let all_accounts_data = self.lookup_all_accounts_data().await?;
+        let all_accounts_data = GlobalStore::accounts_data(self, Network::Primary).await?;
 
         // Look up the product account
         let product_account = all_accounts_data
@@ -280,7 +282,8 @@ impl StateApi for State {
         notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
     ) -> SubscriptionID {
         let subscription_id = self.next_subscription_id();
-        self.notify_price_sched_subscriptions
+        self.into()
+            .notify_price_sched_subscriptions
             .write()
             .await
             .entry(Identifier::new(account_pubkey.to_bytes()))
@@ -293,7 +296,8 @@ impl StateApi for State {
     }
 
     fn next_subscription_id(&self) -> SubscriptionID {
-        self.subscription_id_seq
+        self.into()
+            .subscription_id_seq
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 
@@ -303,7 +307,8 @@ impl StateApi for State {
         notify_price_tx: mpsc::Sender<NotifyPrice>,
     ) -> SubscriptionID {
         let subscription_id = self.next_subscription_id();
-        self.notify_price_subscriptions
+        self.into()
+            .notify_price_subscriptions
             .write()
             .await
             .entry(Identifier::new(account.to_bytes()))
@@ -317,6 +322,7 @@ impl StateApi for State {
 
     async fn send_notify_price_sched(&self) -> Result<()> {
         for subscription in self
+            .into()
             .notify_price_sched_subscriptions
             .read()
             .await
@@ -325,7 +331,7 @@ impl StateApi for State {
         {
             // Send the notify price sched update without awaiting. This results in raising errors
             // if the channel is full which normally should not happen. This is because we do not
-            // want to block the adapter if the channel is full.
+            // want to block the API if the channel is full.
             subscription
                 .notify_price_sched_tx
                 .try_send(NotifyPriceSched {
@@ -337,11 +343,18 @@ impl StateApi for State {
     }
 
     async fn drop_closed_subscriptions(&self) {
-        for subscriptions in self.notify_price_subscriptions.write().await.values_mut() {
+        for subscriptions in self
+            .into()
+            .notify_price_subscriptions
+            .write()
+            .await
+            .values_mut()
+        {
             subscriptions.retain(|subscription| !subscription.notify_price_tx.is_closed())
         }
 
         for subscriptions in self
+            .into()
             .notify_price_sched_subscriptions
             .write()
             .await
@@ -351,7 +364,7 @@ impl StateApi for State {
         }
     }
 
-    async fn update_price(
+    async fn update_local_price(
         &self,
         account: &solana_sdk::pubkey::Pubkey,
         price: Price,
@@ -372,6 +385,54 @@ impl StateApi for State {
         .map_err(|_| anyhow!("failed to send update to local store"))
     }
 
+    async fn update_global_price(&self, network: Network, update: &Update) -> Result<()> {
+        GlobalStore::update(self, network, update)
+            .await
+            .map_err(|_| anyhow!("failed to send update to global store"))?;
+
+        // Additionally, if the update is for a PriceAccount, we can notify our
+        // subscribers that the account has changed. We only notify when this is
+        // an update by the primary network as the account data might differ on
+        // the secondary network.
+        match (network, update) {
+            (
+                Network::Primary,
+                Update::PriceAccountUpdate {
+                    account_key,
+                    account,
+                },
+            ) => {
+                // Look up any subcriptions associated with the price identifier
+                let empty = Vec::new();
+                let subscriptions = self.into().notify_price_subscriptions.read().await;
+                let subscriptions = subscriptions
+                    .get(&Identifier::new(account_key.to_bytes()))
+                    .unwrap_or(&empty);
+
+                // Send the Notify Price update to each subscription
+                for subscription in subscriptions {
+                    // Send the notify price update without awaiting. This results in raising errors if the
+                    // channel is full which normally should not happen. This is because we do not want to
+                    // block the APIO if the channel is full.
+                    subscription.notify_price_tx.try_send(NotifyPrice {
+                        subscription: subscription.subscription_id,
+                        result:       PriceUpdate {
+                            price:      account.agg.price,
+                            conf:       account.agg.conf,
+                            status:     price_status_to_str(account.agg.status),
+                            valid_slot: account.valid_slot,
+                            pub_slot:   account.agg.pub_slot,
+                        },
+                    })?;
+                }
+
+                Ok(())
+            }
+
+            _ => Ok(()),
+        }
+    }
+
     // TODO: implement FromStr method on PriceStatus
     fn map_status(status: &str) -> Result<PriceStatus> {
         match status {
@@ -383,38 +444,28 @@ impl StateApi for State {
             _ => Err(anyhow!("invalid price status: {:#?}", status)),
         }
     }
+}
 
-    async fn global_store_update(
-        &self,
-        price_identifier: PriceIdentifier,
-        price: i64,
-        conf: u64,
-        status: PriceStatus,
-        valid_slot: u64,
-        pub_slot: u64,
-    ) -> Result<()> {
-        // Look up any subcriptions associated with the price identifier
-        let empty = Vec::new();
-        let subscriptions = self.notify_price_subscriptions.read().await;
-        let subscriptions = subscriptions.get(&price_identifier).unwrap_or(&empty);
-
-        // Send the Notify Price update to each subscription
-        for subscription in subscriptions {
-            // Send the notify price update without awaiting. This results in raising errors if the
-            // channel is full which normally should not happen. This is because we do not want to
-            // block the adapter if the channel is full.
-            subscription.notify_price_tx.try_send(NotifyPrice {
-                subscription: subscription.subscription_id,
-                result:       PriceUpdate {
-                    price,
-                    conf,
-                    status: price_status_to_str(status),
-                    valid_slot,
-                    pub_slot,
-                },
-            })?;
+pub async fn notifier<S>(state: Arc<S>)
+where
+    for<'a> &'a S: Into<&'a PricesState>,
+    S: Prices,
+{
+    let prices: &PricesState = (&*state).into();
+    let mut interval = tokio::time::interval(prices.notify_price_sched_interval_duration);
+    let mut exit = crate::agent::EXIT.subscribe();
+    loop {
+        Prices::drop_closed_subscriptions(&*state).await;
+        tokio::select! {
+            _ = exit.changed() => {
+                tracing::info!("Shutdown signal received.");
+                return;
+            }
+            _ = interval.tick() => {
+                if let Err(err) = state.send_notify_price_sched().await {
+                    tracing::error!(err = ?err, "Notifier: failed to send notify price sched.");
+                }
+            }
         }
-
-        Ok(())
     }
 }

@@ -61,31 +61,39 @@ Metrics Server:
 Note that there is an Oracle and Exporter for each network, but only one Local Store and Global Store.
 
 ################################################################################################################################## */
-
-pub mod legacy_schedule;
-pub mod market_schedule;
-pub mod metrics;
-pub mod pythd;
-pub mod remote_keypair_loader;
-pub mod solana;
-pub mod state;
-pub mod store;
 use {
     self::{
         config::Config,
-        pythd::api::rpc,
+        pyth::rpc,
         solana::network,
         state::notifier,
     },
     anyhow::Result,
     futures_util::future::join_all,
-    slog::Logger,
+    lazy_static::lazy_static,
     std::sync::Arc,
-    tokio::sync::{
-        broadcast,
-        mpsc,
-    },
+    tokio::sync::watch,
 };
+
+pub mod legacy_schedule;
+pub mod market_schedule;
+pub mod metrics;
+pub mod pyth;
+pub mod solana;
+pub mod state;
+
+lazy_static! {
+    /// A static exit flag to indicate to running threads that we're shutting down. This is used to
+    /// gracefully shut down the application.
+    ///
+    /// We make this global based on the fact the:
+    /// - The `Sender` side does not rely on any async runtime.
+    /// - Exit logic doesn't really require carefully threading this value through the app.
+    /// - The `Receiver` side of a watch channel performs the detection based on if the change
+    ///   happened after the subscribe, so it means all listeners should always be notified
+    ///   correctly.
+    pub static ref EXIT: watch::Sender<bool> = watch::channel(false).0;
+}
 
 pub struct Agent {
     config: Config,
@@ -96,40 +104,34 @@ impl Agent {
         Agent { config }
     }
 
-    pub async fn start(&self, logger: Logger) {
-        info!(logger, "Starting {}", env!("CARGO_PKG_NAME");
-              "config" => format!("{:?}", &self.config),
-              "version" => env!("CARGO_PKG_VERSION"),
-              "cwd" => std::env::current_dir().map(|p| format!("{}", p.display())).unwrap_or("<could not get current directory>".to_owned())
+    pub async fn start(&self) {
+        tracing::info!(
+            config = format!("{:?}", &self.config),
+            version = env!("CARGO_PKG_VERSION"),
+            cwd = std::env::current_dir()
+                .map(|p| format!("{}", p.display()))
+                .unwrap_or("<could not get current directory>".to_owned()),
+            "Starting {}",
+            env!("CARGO_PKG_NAME"),
         );
 
-        if let Err(err) = self.spawn(logger.clone()).await {
-            error!(logger, "{}", err);
-            debug!(logger, "error context"; "context" => format!("{:?}", err));
+        if let Err(err) = self.spawn().await {
+            tracing::error!(err = ?err, "Agent spawn failed.");
         };
     }
 
-    async fn spawn(&self, logger: Logger) -> Result<()> {
+    async fn spawn(&self) -> Result<()> {
         // job handles
         let mut jhs = vec![];
 
-        // Create the channels
-        // TODO: make all components listen to shutdown signal
-        let (shutdown_tx, _) = broadcast::channel(self.config.channel_capacities.shutdown);
-        let (primary_keypair_loader_tx, primary_keypair_loader_rx) = mpsc::channel(10);
-        let (secondary_keypair_loader_tx, secondary_keypair_loader_rx) = mpsc::channel(10);
-
-        // Create the Pythd Adapter.
-        let adapter =
-            Arc::new(state::State::new(self.config.pythd_adapter.clone(), logger.clone()).await);
+        // Create the Application State.
+        let state = Arc::new(state::State::new(self.config.state.clone()).await);
 
         // Spawn the primary network
         jhs.extend(network::spawn_network(
             self.config.primary_network.clone(),
             network::Network::Primary,
-            primary_keypair_loader_tx,
-            logger.new(o!("primary" => true)),
-            adapter.clone(),
+            state.clone(),
         )?);
 
         // Spawn the secondary network, if needed
@@ -137,45 +139,34 @@ impl Agent {
             jhs.extend(network::spawn_network(
                 config.clone(),
                 network::Network::Secondary,
-                secondary_keypair_loader_tx,
-                logger.new(o!("primary" => false)),
-                adapter.clone(),
+                state.clone(),
             )?);
         }
 
         // Create the Notifier task for the Pythd RPC.
-        jhs.push(tokio::spawn(notifier(
-            adapter.clone(),
-            shutdown_tx.subscribe(),
-        )));
+        jhs.push(tokio::spawn(notifier(state.clone())));
 
         // Spawn the Pythd API Server
         jhs.push(tokio::spawn(rpc::run(
             self.config.pythd_api_server.clone(),
-            logger.clone(),
-            adapter.clone(),
-            shutdown_tx.subscribe(),
+            state.clone(),
         )));
 
         // Spawn the metrics server
-        jhs.push(tokio::spawn(metrics::MetricsServer::spawn(
+        jhs.push(tokio::spawn(metrics::spawn(
             self.config.metrics_server.bind_address,
-            logger.clone(),
-            adapter,
         )));
 
         // Spawn the remote keypair loader endpoint for both networks
         jhs.append(
-            &mut remote_keypair_loader::RemoteKeypairLoader::spawn(
-                primary_keypair_loader_rx,
-                secondary_keypair_loader_rx,
+            &mut state::keypairs::spawn(
                 self.config.primary_network.rpc_url.clone(),
                 self.config
                     .secondary_network
                     .as_ref()
                     .map(|c| c.rpc_url.clone()),
                 self.config.remote_keypair_loader.clone(),
-                logger,
+                state,
             )
             .await,
         );
@@ -191,8 +182,7 @@ pub mod config {
     use {
         super::{
             metrics,
-            pythd,
-            remote_keypair_loader,
+            pyth,
             solana::network,
             state,
         },
@@ -214,13 +204,14 @@ pub mod config {
         pub primary_network:       network::Config,
         pub secondary_network:     Option<network::Config>,
         #[serde(default)]
-        pub pythd_adapter:         state::Config,
+        #[serde(rename = "pythd_adapter")]
+        pub state:                 state::Config,
         #[serde(default)]
-        pub pythd_api_server:      pythd::api::rpc::Config,
+        pub pythd_api_server:      pyth::rpc::Config,
         #[serde(default)]
         pub metrics_server:        metrics::Config,
         #[serde(default)]
-        pub remote_keypair_loader: remote_keypair_loader::Config,
+        pub remote_keypair_loader: state::keypairs::Config,
     }
 
     impl Config {

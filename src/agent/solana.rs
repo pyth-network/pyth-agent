@@ -14,25 +14,18 @@ pub mod network {
             },
             oracle,
         },
-        crate::agent::{
-            remote_keypair_loader::KeypairRequest,
-            state::State,
-        },
+        crate::agent::state::State,
         anyhow::Result,
         serde::{
             Deserialize,
             Serialize,
         },
-        slog::Logger,
         std::{
             sync::Arc,
             time::Duration,
         },
         tokio::{
-            sync::{
-                mpsc::Sender,
-                watch,
-            },
+            sync::watch,
             task::JoinHandle,
         },
     };
@@ -80,9 +73,7 @@ pub mod network {
     pub fn spawn_network(
         config: Config,
         network: Network,
-        keypair_request_tx: Sender<KeypairRequest>,
-        logger: Logger,
-        adapter: Arc<State>,
+        state: Arc<State>,
     ) -> Result<Vec<JoinHandle<()>>> {
         // Publisher permissions updates between oracle and exporter
         let (publisher_permissions_tx, publisher_permissions_rx) = watch::channel(<_>::default());
@@ -95,9 +86,8 @@ pub mod network {
             &config.wss_url,
             config.rpc_timeout,
             publisher_permissions_tx,
-            KeyStore::new(config.key_store.clone(), &logger)?,
-            logger.clone(),
-            adapter.clone(),
+            KeyStore::new(config.key_store.clone())?,
+            state.clone(),
         );
 
         // Spawn the Exporter
@@ -107,10 +97,8 @@ pub mod network {
             &config.rpc_url,
             config.rpc_timeout,
             publisher_permissions_rx,
-            KeyStore::new(config.key_store.clone(), &logger)?,
-            keypair_request_tx,
-            logger,
-            adapter,
+            KeyStore::new(config.key_store.clone())?,
+            state,
         )?;
 
         jhs.extend(exporter_jhs);
@@ -130,7 +118,6 @@ mod key_store {
             Serialize,
             Serializer,
         },
-        slog::Logger,
         solana_sdk::{
             pubkey::Pubkey,
             signature::Keypair,
@@ -184,13 +171,15 @@ mod key_store {
     }
 
     impl KeyStore {
-        pub fn new(config: Config, logger: &Logger) -> Result<Self> {
+        pub fn new(config: Config) -> Result<Self> {
             let publish_keypair = match keypair::read_keypair_file(&config.publish_keypair_path) {
                 Ok(k) => Some(k),
                 Err(e) => {
-                    warn!(logger,
-			  "Reading publish keypair returned an error. Waiting for a remote-loaded key before publishing.";
-			  "publish_keypair_path" => config.publish_keypair_path.display(), "error" => e.to_string());
+                    tracing::warn!(
+                        error = ?e,
+                        publish_keypair_path = config.publish_keypair_path.display().to_string(),
+                        "Reading publish keypair returned an error. Waiting for a remote-loaded key before publishing.",
+                    );
                     None
                 }
             };

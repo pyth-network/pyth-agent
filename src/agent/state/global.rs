@@ -16,15 +16,12 @@ use {
                 ProductEntry,
             },
         },
-        state::StateApi,
     },
     anyhow::{
         anyhow,
         Result,
     },
     prometheus_client::registry::Registry,
-    pyth_sdk::Identifier,
-    slog::Logger,
     solana_sdk::pubkey::Pubkey,
     std::collections::{
         BTreeMap,
@@ -118,20 +115,16 @@ pub struct Store {
 
     /// Prometheus metrics for prices
     price_metrics: PriceGlobalMetrics,
-
-    /// Shared logger configuration.
-    logger: Logger,
 }
 
 impl Store {
-    pub fn new(logger: Logger, registry: &mut Registry) -> Self {
+    pub fn new(registry: &mut Registry) -> Self {
         Store {
-            account_data_primary: Default::default(),
+            account_data_primary:   Default::default(),
             account_data_secondary: Default::default(),
-            account_metadata: Default::default(),
-            product_metrics: ProductGlobalMetrics::new(registry),
-            price_metrics: PriceGlobalMetrics::new(registry),
-            logger,
+            account_metadata:       Default::default(),
+            product_metrics:        ProductGlobalMetrics::new(registry),
+            price_metrics:          PriceGlobalMetrics::new(registry),
         }
     }
 }
@@ -164,10 +157,10 @@ pub trait GlobalStore {
     ) -> Result<HashMap<Pubkey, PriceEntry>>;
 }
 
-// Allow downcasting Adapter into GlobalStore for functions that depend on the `GlobalStore` service.
+// Allow downcasting State into GlobalStore for functions that depend on the `GlobalStore` service.
 impl<'a> From<&'a State> for &'a Store {
-    fn from(adapter: &'a State) -> &'a Store {
-        &adapter.global_store
+    fn from(state: &'a State) -> &'a Store {
+        &state.global_store
     }
 }
 
@@ -175,7 +168,6 @@ impl<'a> From<&'a State> for &'a Store {
 impl<T> GlobalStore for T
 where
     for<'a> &'a T: Into<&'a Store>,
-    T: StateApi,
     T: Sync,
 {
     async fn update(&self, network: Network, update: &Update) -> Result<()> {
@@ -223,7 +215,6 @@ where
 
 async fn update_data<S>(state: &S, network: Network, update: &Update) -> Result<()>
 where
-    S: StateApi,
     for<'a> &'a S: Into<&'a Store>,
 {
     let store: &Store = state.into();
@@ -261,10 +252,11 @@ where
                     // This message is not an error. It is common
                     // for primary and secondary network to have
                     // slight difference in their timestamps.
-                    debug!(store.logger, "Global store: ignoring stale update of an existing newer price";
-                        "price_key" => account_key.to_string(),
-                        "existing_timestamp" => existing_price.timestamp,
-                        "new_timestamp" => account.timestamp,
+                    tracing::debug!(
+                        price_key = account_key.to_string(),
+                        existing_timestamp = existing_price.timestamp,
+                        new_timestamp = account.timestamp,
+                        "Global store: ignoring stale update of an existing newer price"
                     );
                     return Ok(());
                 }
@@ -279,23 +271,6 @@ where
                 .await
                 .price_accounts
                 .insert(*account_key, *account);
-
-            // Notify the Pythd API adapter that this account has changed.
-            // As the account data might differ between the two networks
-            // we only notify the adapter of the primary network updates.
-            if let Network::Primary = network {
-                StateApi::global_store_update(
-                    state,
-                    Identifier::new(account_key.to_bytes()),
-                    account.agg.price,
-                    account.agg.conf,
-                    account.agg.status,
-                    account.valid_slot,
-                    account.agg.pub_slot,
-                )
-                .await
-                .map_err(|_| anyhow!("failed to notify pythd adapter of account update"))?;
-            }
         }
     }
 
@@ -304,7 +279,6 @@ where
 
 async fn update_metadata<S>(state: &S, update: &Update) -> Result<()>
 where
-    S: StateApi,
     for<'a> &'a S: Into<&'a Store>,
 {
     let store: &Store = state.into();

@@ -1,24 +1,18 @@
 use {
     self::transaction_monitor::TransactionMonitor,
     super::{
-        super::store::PriceIdentifier,
         key_store,
         network::Network,
         oracle::PricePublishingMetadata,
     },
-    crate::agent::{
-        remote_keypair_loader::{
-            KeypairRequest,
-            RemoteKeypairLoader,
+    crate::agent::state::{
+        global::GlobalStore,
+        keypairs::Keypairs,
+        local::{
+            LocalStore,
+            PriceInfo,
         },
-        state::{
-            global::GlobalStore,
-            local::{
-                LocalStore,
-                PriceInfo,
-            },
-            State,
-        },
+        State,
     },
     anyhow::{
         anyhow,
@@ -38,7 +32,6 @@ use {
         Deserialize,
         Serialize,
     },
-    slog::Logger,
     solana_client::{
         nonblocking::rpc_client::RpcClient,
         rpc_config::RpcSendTransactionConfig,
@@ -180,9 +173,7 @@ pub fn spawn_exporter(
         HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     >,
     key_store: KeyStore,
-    keypair_request_tx: mpsc::Sender<KeypairRequest>,
-    logger: Logger,
-    adapter: Arc<State>,
+    state: Arc<State>,
 ) -> Result<Vec<JoinHandle<()>>> {
     // Create and spawn the network state querier
     let (network_state_tx, network_state_rx) = watch::channel(Default::default());
@@ -191,7 +182,6 @@ pub fn spawn_exporter(
         rpc_timeout,
         time::interval(config.refresh_network_state_interval_duration),
         network_state_tx,
-        logger.clone(),
     );
     let network_state_querier_jh = tokio::spawn(async move { network_state_querier.run().await });
 
@@ -203,7 +193,6 @@ pub fn spawn_exporter(
         rpc_url,
         rpc_timeout,
         transactions_rx,
-        logger.clone(),
     );
     let transaction_monitor_jh = tokio::spawn(async move { transaction_monitor.run().await });
 
@@ -217,9 +206,7 @@ pub fn spawn_exporter(
         network_state_rx,
         transactions_tx,
         publisher_permissions_rx,
-        keypair_request_tx,
-        logger,
-        adapter,
+        state,
     );
     let exporter_jh = tokio::spawn(async move { exporter.run().await });
 
@@ -249,7 +236,7 @@ pub struct Exporter {
     /// The last state published for each price identifier. Used to
     /// rule out stale data and prevent repetitive publishing of
     /// unchanged prices.
-    last_published_state: HashMap<PriceIdentifier, PriceInfo>,
+    last_published_state: HashMap<pyth_sdk::Identifier, PriceInfo>,
 
     /// Watch receiver channel to access the current network state
     network_state_rx: watch::Receiver<NetworkState>,
@@ -270,11 +257,7 @@ pub struct Exporter {
     /// Recent compute unit price in micro lamports (set if dynamic compute unit pricing is enabled)
     recent_compute_unit_price_micro_lamports: Option<u64>,
 
-    keypair_request_tx: Sender<KeypairRequest>,
-
-    logger: Logger,
-
-    adapter: Arc<State>,
+    state: Arc<State>,
 }
 
 impl Exporter {
@@ -289,9 +272,7 @@ impl Exporter {
         publisher_permissions_rx: watch::Receiver<
             HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
         >,
-        keypair_request_tx: mpsc::Sender<KeypairRequest>,
-        logger: Logger,
-        adapter: Arc<State>,
+        state: Arc<State>,
     ) -> Self {
         let publish_interval = time::interval(config.publish_interval_duration);
         Exporter {
@@ -312,9 +293,7 @@ impl Exporter {
                 time::Duration::from_secs(1),
             ),
             recent_compute_unit_price_micro_lamports: None,
-            keypair_request_tx,
-            logger,
-            adapter,
+            state,
         }
     }
 
@@ -323,15 +302,13 @@ impl Exporter {
             tokio::select! {
                 _ = self.publish_interval.tick() => {
                     if let Err(err) = self.publish_updates().await {
-                        error!(self.logger, "{}", err);
-                        debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                        tracing::error!(err = ?err, "Exporter failed to publish.");
                     }
                 }
                 _ = self.dynamic_compute_unit_price_update_interval.tick() => {
                     if self.config.dynamic_compute_unit_pricing_enabled {
                         if let Err(err) = self.update_recent_compute_unit_price().await {
-                            error!(self.logger, "{}", err);
-                            debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                            tracing::error!(err = ?err, "Exporter failed to compute unit price.");
                         }
                     }
                 }
@@ -418,17 +395,14 @@ impl Exporter {
             //   keypairs it does not have. Currently expressed in
             //   handle_key_requests() in remote_keypair_loader.rs
 
-            debug!(
-                self.logger,
-                "Exporter: Publish keypair is None, requesting remote loaded key"
-            );
-            let kp = RemoteKeypairLoader::request_keypair(&self.keypair_request_tx).await?;
-            debug!(self.logger, "Exporter: Keypair received");
+            tracing::debug!("Exporter: Publish keypair is None, requesting remote loaded key");
+            let kp = Keypairs::request_keypair(&*self.state, self.network).await?;
+            tracing::debug!("Exporter: Keypair received");
             Ok(kp)
         }
     }
 
-    async fn get_permissioned_updates(&mut self) -> Result<Vec<(PriceIdentifier, PriceInfo)>> {
+    async fn get_permissioned_updates(&mut self) -> Result<Vec<(pyth_sdk::Identifier, PriceInfo)>> {
         let local_store_contents = self.fetch_local_store_contents().await?;
 
         let publish_keypair = self.get_publish_keypair().await?;
@@ -436,9 +410,10 @@ impl Exporter {
 
         let now = Utc::now().naive_utc();
 
-        debug!(self.logger, "Exporter: filtering prices permissioned to us";
-               "our_prices" => format!("{:?}", self.our_prices.keys()),
-               "publish_pubkey" => publish_keypair.pubkey().to_string(),
+        tracing::debug!(
+            our_prices = ?self.our_prices.keys(),
+            publish_pubkey = publish_keypair.pubkey().to_string(),
+            "Exporter: filtering prices permissioned to us",
         );
 
         // Filter the contents to only include information we haven't already sent,
@@ -471,10 +446,11 @@ impl Exporter {
                     let ret = publisher_permission.schedule.can_publish_at(&now_utc);
 
                     if !ret {
-                        debug!(self.logger, "Exporter: Attempted to publish price outside market hours";
-                            "price_account" => key_from_id.to_string(),
-                            "schedule" => format!("{:?}", publisher_permission.schedule),
-                            "utc_time" => now_utc.format("%c").to_string(),
+                        tracing::debug!(
+                            price_account = key_from_id.to_string(),
+                            schedule = ?publisher_permission.schedule,
+                            utc_time = now_utc.format("%c").to_string(),
+                            "Exporter: Attempted to publish price outside market hours",
                         );
                     }
 
@@ -483,11 +459,10 @@ impl Exporter {
                     // Note: This message is not an error. Some
                     // publishers have different permissions on
                     // primary/secondary networks
-                    debug!(
-                        self.logger,
-                        "Exporter: Attempted to publish a price without permission, skipping";
-                        "unpermissioned_price_account" => key_from_id.to_string(),
-                        "permissioned_accounts" => format!("{:?}", self.our_prices)
+                    tracing::debug!(
+                        unpermissioned_price_account = key_from_id.to_string(),
+                        permissioned_accounts = ?self.our_prices,
+                        "Exporter: Attempted to publish a price without permission, skipping",
                     );
                     false
                 }
@@ -581,11 +556,10 @@ impl Exporter {
             Ok(true) => {}
             Ok(false) => return,
             Err(other) => {
-                warn!(
-                    self.logger,
-                    "Exporter: Updating permissioned price accounts failed unexpectedly, using cached value";
-                    "cached_value" => format!("{:?}", self.our_prices),
-                    "error" => other.to_string(),
+                tracing::warn!(
+                    cached_value = ?self.our_prices,
+                    error = other.to_string(),
+                    "Exporter: Updating permissioned price accounts failed unexpectedly, using cached value",
                 );
                 return;
             }
@@ -597,17 +571,16 @@ impl Exporter {
             .get(publish_pubkey)
             .cloned()
             .unwrap_or_else(|| {
-                warn!(
-                    self.logger,
-                    "Exporter: No permissioned prices were found for the publishing keypair on-chain. This is expected only on startup.";
-                    "publish_pubkey" => publish_pubkey.to_string(),
+                tracing::warn!(
+                    publish_pubkey = publish_pubkey.to_string(),
+                    "Exporter: No permissioned prices were found for the publishing keypair on-chain. This is expected only on startup.",
                 );
                 HashMap::new()
             });
     }
 
-    async fn fetch_local_store_contents(&self) -> Result<HashMap<PriceIdentifier, PriceInfo>> {
-        Ok(LocalStore::get_all_price_infos(&*self.adapter).await)
+    async fn fetch_local_store_contents(&self) -> Result<HashMap<pyth_sdk::Identifier, PriceInfo>> {
+        Ok(LocalStore::get_all_price_infos(&*self.state).await)
     }
 
     async fn publish_batch(&self, batch: &[(Identifier, PriceInfo)]) -> Result<()> {
@@ -711,7 +684,7 @@ impl Exporter {
             // in this batch. This will use the maximum total compute unit fee if the publisher
             // hasn't updated for >= MAXIMUM_SLOT_GAP_FOR_DYNAMIC_COMPUTE_UNIT_PRICE slots.
             let result = GlobalStore::price_accounts(
-                &*self.adapter,
+                &*self.state,
                 self.network,
                 price_accounts.clone().into_iter().collect(),
             )
@@ -762,7 +735,10 @@ impl Exporter {
             compute_unit_price_micro_lamports = compute_unit_price_micro_lamports
                 .min(self.config.maximum_compute_unit_price_micro_lamports);
 
-            debug!(self.logger, "setting compute unit price"; "unit_price" => compute_unit_price_micro_lamports);
+            tracing::debug!(
+                unit_price = compute_unit_price_micro_lamports,
+                "setting compute unit price",
+            );
             instructions.push(ComputeBudgetInstruction::set_compute_unit_price(
                 compute_unit_price_micro_lamports,
             ));
@@ -776,7 +752,6 @@ impl Exporter {
         );
 
         let tx = self.inflight_transactions_tx.clone();
-        let logger = self.logger.clone();
         let rpc_client = self.rpc_client.clone();
 
         // Fire this off in a separate task so we don't block the main thread of the exporter
@@ -793,17 +768,20 @@ impl Exporter {
             {
                 Ok(signature) => signature,
                 Err(err) => {
-                    error!(logger, "{}", err);
-                    debug!(logger, "error context"; "context" => format!("{:?}", err));
+                    tracing::error!(err = ?err, "Exporter: failed to send transaction.");
                     return;
                 }
             };
 
-            debug!(logger, "sent upd_price transaction"; "signature" => signature.to_string(), "instructions" => instructions.len(), "price_accounts" => format!("{:?}", price_accounts));
+            tracing::debug!(
+                signature = signature.to_string(),
+                instructions = instructions.len(),
+                price_accounts = ?price_accounts,
+                "Sent upd_price transaction.",
+            );
 
             if let Err(err) = tx.send(signature).await {
-                error!(logger, "{}", err);
-                debug!(logger, "error context"; "context" => format!("{:?}", err));
+                tracing::error!(err = ?err, "Exporter failed to send signature to transaction monitor");
             }
         });
 
@@ -958,9 +936,6 @@ struct NetworkStateQuerier {
 
     /// Channel the current network state is sent on
     network_state_tx: watch::Sender<NetworkState>,
-
-    /// Logger
-    logger: Logger,
 }
 
 impl NetworkStateQuerier {
@@ -969,13 +944,11 @@ impl NetworkStateQuerier {
         rpc_timeout: Duration,
         query_interval: Interval,
         network_state_tx: watch::Sender<NetworkState>,
-        logger: Logger,
     ) -> Self {
         NetworkStateQuerier {
             rpc_client: RpcClient::new_with_timeout(rpc_endpoint.to_string(), rpc_timeout),
             query_interval,
             network_state_tx,
-            logger,
         }
     }
 
@@ -983,8 +956,7 @@ impl NetworkStateQuerier {
         loop {
             self.query_interval.tick().await;
             if let Err(err) = self.query_network_state().await {
-                error!(self.logger, "{}", err);
-                debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                tracing::error!(err = ?err, "Network state query failed");
             }
         }
     }
@@ -1016,7 +988,6 @@ mod transaction_monitor {
             Deserialize,
             Serialize,
         },
-        slog::Logger,
         solana_client::nonblocking::rpc_client::RpcClient,
         solana_sdk::{
             commitment_config::CommitmentConfig,
@@ -1073,8 +1044,6 @@ mod transaction_monitor {
 
         /// Interval with which to poll the status of transactions
         poll_interval: Interval,
-
-        logger: Logger,
     }
 
     impl TransactionMonitor {
@@ -1083,7 +1052,6 @@ mod transaction_monitor {
             rpc_url: &str,
             rpc_timeout: Duration,
             transactions_rx: mpsc::Receiver<Signature>,
-            logger: Logger,
         ) -> Self {
             let poll_interval = time::interval(config.poll_interval_duration);
             let rpc_client = RpcClient::new_with_timeout(rpc_url.to_string(), rpc_timeout);
@@ -1093,15 +1061,13 @@ mod transaction_monitor {
                 sent_transactions: VecDeque::new(),
                 transactions_rx,
                 poll_interval,
-                logger,
             }
         }
 
         pub async fn run(&mut self) {
             loop {
                 if let Err(err) = self.handle_next().await {
-                    error!(self.logger, "{}", err);
-                    debug!(self.logger, "error context"; "context" => format!("{:?}", err));
+                    tracing::error!(err = ?err, "Transaction monitor failed.");
                 }
             }
         }
@@ -1119,7 +1085,10 @@ mod transaction_monitor {
         }
 
         fn add_transaction(&mut self, signature: Signature) {
-            debug!(self.logger, "monitoring new transaction"; "signature" => signature.to_string());
+            tracing::debug!(
+                signature = signature.to_string(),
+                "Monitoring new transaction.",
+            );
 
             // Add the new transaction to the list
             self.sent_transactions.push_back(signature);
@@ -1144,7 +1113,10 @@ mod transaction_monitor {
                 .await?
                 .value;
 
-            debug!(self.logger, "Processing Signature Statuses"; "statuses" => format!("{:?}", statuses));
+            tracing::debug!(
+                statuses = ?statuses,
+                "Processing Signature Statuses",
+            );
 
             // Determine the percentage of the recently sent transactions that have successfully been committed
             // TODO: expose as metric
@@ -1155,10 +1127,11 @@ mod transaction_monitor {
                 .flatten()
                 .filter(|(status, sig)| {
                     if let Some(err) = status.err.as_ref() {
-                        warn!(self.logger, "TX status has err value";
-                        "error" => err.to_string(),
-                        "tx_signature" => sig.to_string(),
-                                          )
+                        tracing::warn!(
+                            error = err.to_string(),
+                            tx_signature = sig.to_string(),
+                            "TX status has err value",
+                        );
                     }
 
                     status.satisfies_commitment(CommitmentConfig::confirmed())
@@ -1166,7 +1139,11 @@ mod transaction_monitor {
                 .count();
             let percentage_confirmed =
                 ((confirmed as f64) / (self.sent_transactions.len() as f64)) * 100.0;
-            info!(self.logger, "monitoring transaction hit rate"; "percentage confirmed" => format!("{:.}", percentage_confirmed));
+
+            tracing::info!(
+                percentage_confirmed = format!("{:.}", percentage_confirmed),
+                "monitoring transaction hit rate",
+            );
 
             Ok(())
         }

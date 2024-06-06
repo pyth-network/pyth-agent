@@ -15,11 +15,11 @@ use {
 };
 
 pub async fn get_product<S>(
-    adapter: &S,
+    state: &S,
     request: &Request<Method, Value>,
 ) -> Result<serde_json::Value>
 where
-    S: state::StateApi,
+    S: state::Prices,
 {
     let params: GetProductParams = {
         let value = request.params.clone();
@@ -27,6 +27,6 @@ where
     }?;
 
     let account = params.account.parse::<solana_sdk::pubkey::Pubkey>()?;
-    let product = adapter.get_product(&account).await?;
+    let product = state.get_product(&account).await?;
     Ok(serde_json::to_value(product)?)
 }

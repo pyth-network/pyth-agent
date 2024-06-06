@@ -695,7 +695,7 @@ class TestUpdatePrice(PythTest):
                     lines_found += 1
                     expected_unperm_pubkey = final_price_account_unperm["account"]
                     # Must point at the expected account as all other attempts must be valid
-                    assert f"price_account: {expected_unperm_pubkey}" in line
+                    assert f'"unpermissioned_price_account":"{expected_unperm_pubkey}"' in line
 
             # Must find at least one log discarding the account
             assert lines_found > 0

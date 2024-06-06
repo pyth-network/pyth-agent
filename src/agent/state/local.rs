@@ -2,11 +2,7 @@
 // is contributing to the network. The Exporters will then take this data and publish
 // it to the networks.
 use {
-    super::{
-        PriceIdentifier,
-        State,
-        StateApi,
-    },
+    super::State,
     crate::agent::metrics::PriceLocalMetrics,
     anyhow::{
         anyhow,
@@ -15,7 +11,6 @@ use {
     chrono::NaiveDateTime,
     prometheus_client::registry::Registry,
     pyth_sdk_solana::state::PriceStatus,
-    slog::Logger,
     solana_sdk::bs58,
     std::collections::HashMap,
     tokio::sync::RwLock,
@@ -46,31 +41,33 @@ impl PriceInfo {
 }
 
 pub struct Store {
-    prices:  RwLock<HashMap<PriceIdentifier, PriceInfo>>,
+    prices:  RwLock<HashMap<pyth_sdk::Identifier, PriceInfo>>,
     metrics: PriceLocalMetrics,
-    logger:  Logger,
 }
 
 impl Store {
-    pub fn new(logger: Logger, registry: &mut Registry) -> Self {
+    pub fn new(registry: &mut Registry) -> Self {
         Store {
-            prices: RwLock::new(HashMap::new()),
+            prices:  RwLock::new(HashMap::new()),
             metrics: PriceLocalMetrics::new(registry),
-            logger,
         }
     }
 }
 
 #[async_trait::async_trait]
 pub trait LocalStore {
-    async fn update(&self, price_identifier: PriceIdentifier, price_info: PriceInfo) -> Result<()>;
-    async fn get_all_price_infos(&self) -> HashMap<PriceIdentifier, PriceInfo>;
+    async fn update(
+        &self,
+        price_identifier: pyth_sdk::Identifier,
+        price_info: PriceInfo,
+    ) -> Result<()>;
+    async fn get_all_price_infos(&self) -> HashMap<pyth_sdk::Identifier, PriceInfo>;
 }
 
-// Allow downcasting Adapter into GlobalStore for functions that depend on the `GlobalStore` service.
+// Allow downcasting State into GlobalStore for functions that depend on the `GlobalStore` service.
 impl<'a> From<&'a State> for &'a Store {
-    fn from(adapter: &'a State) -> &'a Store {
-        &adapter.local_store
+    fn from(state: &'a State) -> &'a Store {
+        &state.local_store
     }
 }
 
@@ -78,11 +75,17 @@ impl<'a> From<&'a State> for &'a Store {
 impl<T> LocalStore for T
 where
     for<'a> &'a T: Into<&'a Store>,
-    T: StateApi,
     T: Sync,
 {
-    async fn update(&self, price_identifier: PriceIdentifier, price_info: PriceInfo) -> Result<()> {
-        debug!(self.into().logger, "local store received price update"; "identifier" => bs58::encode(price_identifier.to_bytes()).into_string());
+    async fn update(
+        &self,
+        price_identifier: pyth_sdk::Identifier,
+        price_info: PriceInfo,
+    ) -> Result<()> {
+        tracing::debug!(
+            identifier = bs58::encode(price_identifier.to_bytes()).into_string(),
+            "Local store received price update."
+        );
 
         // Drop the update if it is older than the current one stored for the price
         if let Some(current_price_info) = self.into().prices.read().await.get(&price_identifier) {
@@ -104,7 +107,7 @@ where
         Ok(())
     }
 
-    async fn get_all_price_infos(&self) -> HashMap<PriceIdentifier, PriceInfo> {
+    async fn get_all_price_infos(&self) -> HashMap<pyth_sdk::Identifier, PriceInfo> {
         self.into().prices.read().await.clone()
     }
 }

@@ -1,12 +1,6 @@
 use {
-    super::state::{
-        local::PriceInfo,
-        State,
-    },
-    crate::agent::{
-        solana::oracle::PriceEntry,
-        store::PriceIdentifier,
-    },
+    super::state::local::PriceInfo,
+    crate::agent::solana::oracle::PriceEntry,
     lazy_static::lazy_static,
     prometheus_client::{
         encoding::{
@@ -21,7 +15,6 @@ use {
         registry::Registry,
     },
     serde::Deserialize,
-    slog::Logger,
     solana_sdk::pubkey::Pubkey,
     std::{
         net::SocketAddr,
@@ -29,7 +22,6 @@ use {
             atomic::AtomicU64,
             Arc,
         },
-        time::Instant,
     },
     tokio::sync::Mutex,
     warp::{
@@ -64,49 +56,33 @@ lazy_static! {
         Arc::new(Mutex::new(<Registry>::default()));
 }
 
-/// Internal metrics server state, holds state needed for serving
-/// metrics.
-pub struct MetricsServer {
-    pub start_time: Instant,
-    pub logger:     Logger,
-    pub adapter:    Arc<State>,
-}
+/// Instantiate a metrics API.
+pub async fn spawn(addr: impl Into<SocketAddr> + 'static) {
+    let metrics_route = warp::path("metrics")
+        .and(warp::path::end())
+        .and_then(move || async move {
+            let mut buf = String::new();
+            let response = encode(&mut buf, &&PROMETHEUS_REGISTRY.lock().await)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })
+                .and_then(|_| -> Result<_, Box<dyn std::error::Error>> {
+                    Ok(Box::new(reply::with_status(buf, StatusCode::OK)))
+                })
+                .unwrap_or_else(|e| {
+                    tracing::error!(err = ?e, "Metrics: Could not gather metrics from registry");
+                    Box::new(reply::with_status(
+                        "Could not gather metrics. See logs for details".to_string(),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    ))
+                });
 
-impl MetricsServer {
-    /// Instantiate a metrics API.
-    pub async fn spawn(addr: impl Into<SocketAddr> + 'static, logger: Logger, adapter: Arc<State>) {
-        let server = MetricsServer {
-            start_time: Instant::now(),
-            logger,
-            adapter,
-        };
+            Result::<Box<dyn Reply>, Rejection>::Ok(response)
+        });
 
-        let shared_state = Arc::new(Mutex::new(server));
-        let shared_state4metrics = shared_state.clone();
-        let metrics_route = warp::path("metrics")
-            .and(warp::path::end())
-            .and_then(move || {
-                let shared_state = shared_state4metrics.clone();
-                async move {
-                    let locked_state = shared_state.lock().await;
-                    let mut buf = String::new();
-                    let response = encode(&mut buf, &&PROMETHEUS_REGISTRY.lock().await)
-                        .map_err(|e| -> Box<dyn std::error::Error> {
-                            e.into()
-                        })
-                        .and_then(|_| -> Result<_, Box<dyn std::error::Error>> {
-                            Ok(Box::new(reply::with_status(buf, StatusCode::OK)))
-                        }).unwrap_or_else(|e| {
-                            error!(locked_state.logger, "Metrics: Could not gather metrics from registry"; "error" => e.to_string());
-                            Box::new(reply::with_status("Could not gather metrics. See logs for details".to_string(), StatusCode::INTERNAL_SERVER_ERROR))
-                        });
+    let (_, serve) = warp::serve(metrics_route).bind_with_graceful_shutdown(addr, async {
+        let _ = crate::agent::EXIT.subscribe().changed().await;
+    });
 
-                    Result::<Box<dyn Reply>, Rejection>::Ok(response)
-                }
-            });
-
-        warp::serve(metrics_route).bind(addr).await;
-    }
+    serve.await
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -362,7 +338,7 @@ impl PriceLocalMetrics {
         metrics
     }
 
-    pub fn update(&self, price_id: &PriceIdentifier, price_info: &PriceInfo) {
+    pub fn update(&self, price_id: &pyth_sdk::Identifier, price_info: &PriceInfo) {
         #[deny(unused_variables)]
         let Self {
             price,

@@ -1,8 +1,8 @@
 use {
     super::{
         Method,
-        NotifyPriceSched,
-        SubscribePriceSchedParams,
+        NotifyPrice,
+        SubscribePriceParams,
         SubscribeResult,
     },
     crate::agent::state,
@@ -17,15 +17,15 @@ use {
     tokio::sync::mpsc,
 };
 
-pub async fn subscribe_price_sched<S>(
-    adapter: &S,
-    notify_price_sched_tx: &mpsc::Sender<NotifyPriceSched>,
+pub async fn subscribe_price<S>(
+    state: &S,
+    notify_price_tx: &mpsc::Sender<NotifyPrice>,
     request: &Request<Method, Value>,
 ) -> Result<serde_json::Value>
 where
-    S: state::StateApi,
+    S: state::Prices,
 {
-    let params: SubscribePriceSchedParams = serde_json::from_value(
+    let params: SubscribePriceParams = serde_json::from_value(
         request
             .params
             .clone()
@@ -33,8 +33,8 @@ where
     )?;
 
     let account = params.account.parse::<solana_sdk::pubkey::Pubkey>()?;
-    let subscription = adapter
-        .subscribe_price_sched(&account, notify_price_sched_tx.clone())
+    let subscription = state
+        .subscribe_price(&account, notify_price_tx.clone())
         .await;
 
     Ok(serde_json::to_value(SubscribeResult { subscription })?)

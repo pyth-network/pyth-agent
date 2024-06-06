@@ -1,35 +1,27 @@
 use {
-    super::{
-        pythd::api::{
+    crate::agent::{
+        metrics::PROMETHEUS_REGISTRY,
+        pyth::{
             NotifyPrice,
             NotifyPriceSched,
             SubscriptionID,
         },
-        store::PriceIdentifier,
     },
-    crate::agent::metrics::PROMETHEUS_REGISTRY,
     serde::{
         Deserialize,
         Serialize,
     },
-    slog::Logger,
-    std::{
-        collections::HashMap,
-        sync::atomic::AtomicI64,
-        time::Duration,
-    },
-    tokio::sync::{
-        mpsc,
-        RwLock,
-    },
+    std::time::Duration,
+    tokio::sync::mpsc,
 };
 
 pub mod api;
 pub mod global;
+pub mod keypairs;
 pub mod local;
 pub use api::{
     notifier,
-    StateApi,
+    Prices,
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -49,31 +41,19 @@ impl Default for Config {
     }
 }
 
-/// Adapter is the adapter between the pythd websocket API, and the stores.
-/// It is responsible for implementing the business logic for responding to
-/// the pythd websocket API calls.
+/// State contains all relevant shared application state.
 pub struct State {
-    /// Subscription ID sequencer.
-    subscription_id_seq: AtomicI64,
-
-    /// Notify Price Sched subscriptions
-    notify_price_sched_subscriptions:
-        RwLock<HashMap<PriceIdentifier, Vec<NotifyPriceSchedSubscription>>>,
-
-    // Notify Price Subscriptions
-    notify_price_subscriptions: RwLock<HashMap<PriceIdentifier, Vec<NotifyPriceSubscription>>>,
-
-    /// The fixed interval at which Notify Price Sched notifications are sent
-    notify_price_sched_interval_duration: Duration,
-
-    /// The logger
-    logger: Logger,
-
     /// Global store for managing the unified state of Pyth-on-Solana networks.
     global_store: global::Store,
 
     /// Local store for managing the unpushed state.
     local_store: local::Store,
+
+    /// State for managing state of runtime keypairs.
+    keypairs: keypairs::KeypairState,
+
+    /// State for Price related functionality.
+    prices: api::PricesState,
 }
 
 /// Represents a single Notify Price Sched subscription
@@ -93,16 +73,13 @@ struct NotifyPriceSubscription {
 }
 
 impl State {
-    pub async fn new(config: Config, logger: Logger) -> Self {
+    pub async fn new(config: Config) -> Self {
         let registry = &mut *PROMETHEUS_REGISTRY.lock().await;
         State {
-            global_store: global::Store::new(logger.clone(), registry),
-            local_store: local::Store::new(logger.clone(), registry),
-            subscription_id_seq: 1.into(),
-            notify_price_sched_subscriptions: RwLock::new(HashMap::new()),
-            notify_price_subscriptions: RwLock::new(HashMap::new()),
-            notify_price_sched_interval_duration: config.notify_price_sched_interval_duration,
-            logger,
+            global_store: global::Store::new(registry),
+            local_store:  local::Store::new(registry),
+            keypairs:     keypairs::KeypairState::default(),
+            prices:       api::PricesState::new(config),
         }
     }
 }
@@ -117,11 +94,11 @@ mod tests {
             },
             notifier,
             Config,
+            Prices,
             State,
-            StateApi,
         },
         crate::agent::{
-            pythd::api::{
+            pyth::{
                 self,
                 NotifyPrice,
                 NotifyPriceSched,
@@ -131,10 +108,16 @@ mod tests {
                 ProductAccountMetadata,
                 PublisherAccount,
             },
-            solana,
-            state::local::LocalStore,
+            solana::{
+                self,
+                network::Network,
+                oracle::PriceEntry,
+            },
+            state::{
+                global::Update,
+                local::LocalStore,
+            },
         },
-        iobuffer::IoBuffer,
         pyth_sdk::Identifier,
         pyth_sdk_solana::state::{
             PriceComp,
@@ -144,7 +127,6 @@ mod tests {
             Rational,
             SolanaPriceAccount,
         },
-        slog_extlog::slog_test,
         std::{
             collections::{
                 BTreeMap,
@@ -163,27 +145,25 @@ mod tests {
         },
     };
 
-    struct TestAdapter {
-        adapter:     Arc<State>,
+    struct TestState {
+        state:       Arc<State>,
         shutdown_tx: broadcast::Sender<()>,
         jh:          JoinHandle<()>,
     }
 
-    async fn setup() -> TestAdapter {
-        // Create and spawn an adapter
+    async fn setup() -> TestState {
         let notify_price_sched_interval_duration = Duration::from_nanos(10);
-        let logger = slog_test::new_test_logger(IoBuffer::new());
         let config = Config {
             notify_price_sched_interval_duration,
         };
-        let adapter = Arc::new(State::new(config, logger).await);
+        let state = Arc::new(State::new(config).await);
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn Price Notifier
-        let jh = tokio::spawn(notifier(adapter.clone(), shutdown_tx.subscribe()));
+        let jh = tokio::spawn(notifier(state.clone()));
 
-        TestAdapter {
-            adapter,
+        TestState {
+            state,
             shutdown_tx,
             jh,
         }
@@ -191,15 +171,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_subscribe_price_sched() {
-        let test_adapter = setup().await;
+        let state = setup().await;
 
         // Send a Subscribe Price Sched message
         let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF"
             .parse::<solana_sdk::pubkey::Pubkey>()
             .unwrap();
         let (notify_price_sched_tx, mut notify_price_sched_rx) = mpsc::channel(1000);
-        let subscription_id = test_adapter
-            .adapter
+        let subscription_id = state
+            .state
             .subscribe_price_sched(&account, notify_price_sched_tx)
             .await;
 
@@ -213,8 +193,8 @@ mod tests {
             )
         }
 
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     fn get_test_all_accounts_metadata() -> global::AllAccountsMetadata {
@@ -336,17 +316,16 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_get_product_list() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
         let accounts_metadata = get_test_all_accounts_metadata();
-        test_adapter
-            .adapter
+        state
+            .state
             .global_store
             ._account_metadata(accounts_metadata)
             .await;
 
         // Send a Get Product List message
-        let mut product_list = test_adapter.adapter.get_product_list().await.unwrap();
+        let mut product_list = state.state.get_product_list().await.unwrap();
 
         // Check that the result is what we expected
         let expected = vec![
@@ -416,8 +395,8 @@ mod tests {
 
         product_list.sort();
         assert_eq!(product_list, expected);
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     fn pad_price_comps(mut inputs: Vec<PriceComp>) -> [PriceComp; 32] {
@@ -1043,21 +1022,20 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_get_all_products() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
         let accounts_data = get_all_accounts_data();
-        test_adapter
-            .adapter
+        state
+            .state
             .global_store
             ._account_data_primary(accounts_data)
             .await;
 
         // Send a Get All Products message
-        let mut all_products = test_adapter.adapter.get_all_products().await.unwrap();
+        let mut all_products = state.state.get_all_products().await.unwrap();
 
         // Check that the result of the conversion to the Pythd API format is what we expected
         let expected = vec![
-            api::ProductAccount {
+            pyth::ProductAccount {
                 account:        "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc".to_string(),
                 attr_dict:      BTreeMap::from(
                     [
@@ -1071,7 +1049,7 @@ mod tests {
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
                 price_accounts: vec![
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1103,7 +1081,7 @@ mod tests {
                             },
                         ],
                     },
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "fTNjSfj5uW9e4CAMHzUcm65ftRNBxCN1gG5GS1mYfid"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1135,7 +1113,7 @@ mod tests {
                             },
                         ],
                     },
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1160,7 +1138,7 @@ mod tests {
                     },
                 ],
             },
-            api::ProductAccount {
+            pyth::ProductAccount {
                 account:        "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string(),
                 attr_dict:      BTreeMap::from(
                     [
@@ -1174,7 +1152,7 @@ mod tests {
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
                 price_accounts: vec![
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1191,7 +1169,7 @@ mod tests {
                         prev_conf:          398674,
                         publisher_accounts: vec![],
                     },
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1214,7 +1192,7 @@ mod tests {
                             slot:    14765,
                         }],
                     },
-                    api::PriceAccount {
+                    pyth::PriceAccount {
                         account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6"
                             .to_string(),
                         price_type:         "price".to_string(),
@@ -1252,17 +1230,16 @@ mod tests {
 
         all_products.sort();
         assert_eq!(all_products, expected);
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_get_product() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
         let accounts_data = get_all_accounts_data();
-        test_adapter
-            .adapter
+        state
+            .state
             .global_store
             ._account_data_primary(accounts_data)
             .await;
@@ -1271,13 +1248,13 @@ mod tests {
         let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t"
             .parse::<solana_sdk::pubkey::Pubkey>()
             .unwrap();
-        let product = test_adapter.adapter.get_product(&account).await.unwrap();
+        let product = state.state.get_product(&account).await.unwrap();
 
         // Check that the result of the conversion to the Pythd API format is what we expected
         let expected = ProductAccount {
             account:        account.to_string(),
             price_accounts: vec![
-                api::PriceAccount {
+                pyth::PriceAccount {
                     account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".to_string(),
                     price_type:         "price".to_string(),
                     price_exponent:     -8,
@@ -1293,7 +1270,7 @@ mod tests {
                     prev_conf:          398674,
                     publisher_accounts: vec![],
                 },
-                api::PriceAccount {
+                pyth::PriceAccount {
                     account:            "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr".to_string(),
                     price_type:         "price".to_string(),
                     price_exponent:     -10,
@@ -1315,7 +1292,7 @@ mod tests {
                         slot:    14765,
                     }],
                 },
-                api::PriceAccount {
+                pyth::PriceAccount {
                     account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6".to_string(),
                     price_type:         "price".to_string(),
                     price_exponent:     -6,
@@ -1361,14 +1338,13 @@ mod tests {
         };
 
         assert_eq!(product, expected);
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_update_price() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
 
         // Send an Update Price message
         let account = "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t"
@@ -1376,14 +1352,14 @@ mod tests {
             .unwrap();
         let price = 2365;
         let conf = 98754;
-        let _ = test_adapter
-            .adapter
-            .update_price(&account, price, conf, "trading".to_string())
+        let _ = state
+            .state
+            .update_local_price(&account, price, conf, "trading".to_string())
             .await
             .unwrap();
 
         // Check that the local store indeed received the correct update
-        let price_infos = LocalStore::get_all_price_infos(&*test_adapter.adapter).await;
+        let price_infos = LocalStore::get_all_price_infos(&*state.state).await;
         let price_info = price_infos
             .get(&Identifier::new(account.to_bytes()))
             .unwrap();
@@ -1392,60 +1368,101 @@ mod tests {
         assert_eq!(price_info.conf, conf);
         assert_eq!(price_info.status, PriceStatus::Trading);
 
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_subscribe_notify_price() {
-        // Start the test adapter
-        let test_adapter = setup().await;
+        let state = setup().await;
 
         // Send a Subscribe Price message
         let account = "2wrWGm63xWubz7ue4iYR3qvBbaUJhZVi4eSpNuU8k8iF"
             .parse::<solana_sdk::pubkey::Pubkey>()
             .unwrap();
         let (notify_price_tx, mut notify_price_rx) = mpsc::channel(1000);
-        let subscription_id = test_adapter
-            .adapter
-            .subscribe_price(&account, notify_price_tx)
-            .await;
+        let subscription_id = state.state.subscribe_price(&account, notify_price_tx).await;
 
-        // Send an update from the global store to the adapter
-        let price = 52162;
-        let conf = 1646;
-        let valid_slot = 75684;
-        let pub_slot = 32565;
-        let _ = test_adapter
-            .adapter
-            .global_store_update(
-                Identifier::new(account.to_bytes()),
-                price,
-                conf,
-                PriceStatus::Trading,
-                valid_slot,
-                pub_slot,
+        // Send an update via the global store.
+        let test_price: PriceEntry = SolanaPriceAccount {
+            magic:          0xa1b2c3d4,
+            ver:            7,
+            atype:          9,
+            size:           300,
+            ptype:          PriceType::Price,
+            expo:           -8,
+            num:            8794,
+            num_qt:         32,
+            last_slot:      172761888,
+            valid_slot:     310,
+            ema_price:      Rational {
+                val:   5882210200,
+                numer: 921349408,
+                denom: 1566332030,
+            },
+            ema_conf:       Rational {
+                val:   1422289,
+                numer: 2227777916,
+                denom: 1566332030,
+            },
+            timestamp:      1667333704,
+            min_pub:        23,
+            drv2:           0xde,
+            drv3:           0xdeed,
+            drv4:           0xdeeed,
+            prod:           solana_sdk::pubkey::Pubkey::from_str(
+                "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t",
+            )
+            .unwrap(),
+            next:           solana_sdk::pubkey::Pubkey::from_str(
+                "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr",
+            )
+            .unwrap(),
+            prev_slot:      172761778,
+            prev_price:     22691000,
+            prev_conf:      398674,
+            prev_timestamp: 1667333702,
+            agg:            PriceInfo {
+                price:    736382,
+                conf:     85623946,
+                status:   pyth_sdk_solana::state::PriceStatus::Trading,
+                corp_act: pyth_sdk_solana::state::CorpAction::NoCorpAct,
+                pub_slot: 7262746,
+            },
+            comp:           [PriceComp::default(); 32],
+            extended:       (),
+        }
+        .into();
+
+        let _ = state
+            .state
+            .update_global_price(
+                Network::Primary,
+                &Update::PriceAccountUpdate {
+                    account_key: account,
+                    account:     test_price.into(),
+                },
             )
             .await
             .unwrap();
 
-        // Check that the adapter sends a notify price message with the corresponding subscription id
+        // Check that the application sends a notify price message with the corresponding subscription id
         // to the expected channel.
         assert_eq!(
             notify_price_rx.recv().await.unwrap(),
             NotifyPrice {
                 subscription: subscription_id,
                 result:       PriceUpdate {
-                    price,
-                    conf,
-                    status: "trading".to_string(),
-                    valid_slot,
-                    pub_slot
+                    price:      test_price.agg.price,
+                    conf:       test_price.agg.conf,
+                    status:     "trading".to_string(),
+                    valid_slot: test_price.valid_slot,
+                    pub_slot:   test_price.agg.pub_slot,
                 },
             }
         );
 
-        let _ = test_adapter.shutdown_tx.send(());
-        test_adapter.jh.abort();
+        let _ = state.shutdown_tx.send(());
+        state.jh.abort();
     }
 }
