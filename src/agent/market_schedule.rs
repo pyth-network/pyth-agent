@@ -1,5 +1,6 @@
 //! Holiday hours metadata parsing and evaluation logic
 
+#[allow(deprecated)]
 use {
     super::legacy_schedule::{
         LegacySchedule,
@@ -129,6 +130,7 @@ impl FromStr for MarketSchedule {
     }
 }
 
+#[allow(deprecated)]
 impl From<LegacySchedule> for MarketSchedule {
     fn from(legacy: LegacySchedule) -> Self {
         Self {
