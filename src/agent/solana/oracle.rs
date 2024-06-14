@@ -1,5 +1,6 @@
 // This module is responsible for loading the current state of the
 // on-chain Oracle program accounts from Solana.
+#[allow(deprecated)]
 use {
     self::subscriber::Subscriber,
     super::{
@@ -648,6 +649,7 @@ impl Poller {
                 let product = load_product_account(prod_acc.data.as_slice())
                     .context(format!("Could not parse product account {}", product_key))?;
 
+                #[allow(deprecated)]
                 let legacy_schedule: LegacySchedule = if let Some((_wsched_key, wsched_val)) =
                     product.iter().find(|(k, _v)| *k == "weekly_schedule")
                 {

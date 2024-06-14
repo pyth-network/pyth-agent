@@ -1,4 +1,5 @@
 //! Market hours metadata parsing and evaluation logic
+#![allow(deprecated)]
 
 use {
     anyhow::{
