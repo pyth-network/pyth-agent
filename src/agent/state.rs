@@ -19,10 +19,7 @@ pub mod api;
 pub mod global;
 pub mod keypairs;
 pub mod local;
-pub use api::{
-    notifier,
-    Prices,
-};
+pub use api::Prices;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
@@ -92,7 +89,6 @@ mod tests {
                 self,
                 AllAccountsData,
             },
-            notifier,
             Config,
             Prices,
             State,
@@ -108,6 +104,7 @@ mod tests {
                 ProductAccountMetadata,
                 PublisherAccount,
             },
+            services::notifier,
             solana::{
                 self,
                 network::Network,

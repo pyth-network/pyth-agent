@@ -66,7 +66,6 @@ use {
         config::Config,
         pyth::rpc,
         solana::network,
-        state::notifier,
     },
     anyhow::Result,
     futures_util::future::join_all,
@@ -79,6 +78,7 @@ pub mod legacy_schedule;
 pub mod market_schedule;
 pub mod metrics;
 pub mod pyth;
+pub mod services;
 pub mod solana;
 pub mod state;
 
@@ -144,7 +144,7 @@ impl Agent {
         }
 
         // Create the Notifier task for the Pythd RPC.
-        jhs.push(tokio::spawn(notifier(state.clone())));
+        jhs.push(tokio::spawn(services::notifier(state.clone())));
 
         // Spawn the Pythd API Server
         jhs.push(tokio::spawn(rpc::run(
