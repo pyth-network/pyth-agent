@@ -14,11 +14,7 @@ use {
                 PublisherAccount,
                 SubscriptionID,
             },
-            solana::{
-                self,
-                network::Network,
-                oracle::PriceEntry,
-            },
+            solana::network::Network,
         },
         global::{
             AllAccountsData,
@@ -28,6 +24,10 @@ use {
         local::{
             self,
             LocalStore,
+        },
+        oracle::{
+            PriceEntry,
+            ProductEntry,
         },
         Config,
         NotifyPriceSchedSubscription,
@@ -68,7 +68,7 @@ fn price_status_to_str(price_status: PriceStatus) -> String {
 }
 
 fn solana_product_account_to_pythd_api_product_account(
-    product_account: &solana::oracle::ProductEntry,
+    product_account: &ProductEntry,
     all_accounts_data: &AllAccountsData,
     product_account_key: &solana_sdk::pubkey::Pubkey,
 ) -> ProductAccount {

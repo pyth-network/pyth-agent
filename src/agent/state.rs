@@ -19,6 +19,7 @@ pub mod api;
 pub mod global;
 pub mod keypairs;
 pub mod local;
+pub mod oracle;
 pub use api::Prices;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -51,6 +52,9 @@ pub struct State {
 
     /// State for Price related functionality.
     prices: api::PricesState,
+
+    /// State for the Solana-based Oracle functionality.
+    oracle: oracle::OracleState,
 }
 
 /// Represents a single Notify Price Sched subscription
@@ -77,6 +81,7 @@ impl State {
             local_store:  local::Store::new(registry),
             keypairs:     keypairs::KeypairState::default(),
             prices:       api::PricesState::new(config),
+            oracle:       oracle::OracleState::new(),
         }
     }
 }
@@ -89,6 +94,7 @@ mod tests {
                 self,
                 AllAccountsData,
             },
+            oracle::ProductEntry,
             Config,
             Prices,
             State,
@@ -105,14 +111,11 @@ mod tests {
                 PublisherAccount,
             },
             services::notifier,
-            solana::{
-                self,
-                network::Network,
-                oracle::PriceEntry,
-            },
+            solana::network::Network,
             state::{
                 global::Update,
                 local::LocalStore,
+                oracle::PriceEntry,
             },
         },
         pyth_sdk::Identifier,
@@ -409,7 +412,7 @@ mod tests {
                         "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t",
                     )
                     .unwrap(),
-                    solana::oracle::ProductEntry {
+                    ProductEntry {
                         account_data:     pyth_sdk_solana::state::ProductAccount {
                             magic:  0xa1b2c3d4,
                             ver:    6,
@@ -470,7 +473,7 @@ mod tests {
                         "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc",
                     )
                     .unwrap(),
-                    solana::oracle::ProductEntry {
+                    ProductEntry {
                         account_data:     pyth_sdk_solana::state::ProductAccount {
                             magic:  0xa1b2c3d4,
                             ver:    5,
