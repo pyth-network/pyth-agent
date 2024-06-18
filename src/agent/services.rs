@@ -1,3 +1,7 @@
-mod notifier;
+pub mod keypairs;
+pub mod notifier;
 
-pub use notifier::notifier;
+pub use {
+    keypairs::keypairs,
+    notifier::notifier,
+};

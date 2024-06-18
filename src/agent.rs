@@ -159,7 +159,7 @@ impl Agent {
 
         // Spawn the remote keypair loader endpoint for both networks
         jhs.append(
-            &mut state::keypairs::spawn(
+            &mut services::keypairs(
                 self.config.primary_network.rpc_url.clone(),
                 self.config
                     .secondary_network
@@ -183,6 +183,7 @@ pub mod config {
         super::{
             metrics,
             pyth,
+            services,
             solana::network,
             state,
         },
@@ -211,7 +212,7 @@ pub mod config {
         #[serde(default)]
         pub metrics_server:        metrics::Config,
         #[serde(default)]
-        pub remote_keypair_loader: state::keypairs::Config,
+        pub remote_keypair_loader: services::keypairs::Config,
     }
 
     impl Config {
