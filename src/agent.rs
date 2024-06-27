@@ -126,48 +126,34 @@ impl Agent {
         let mut jhs = vec![];
 
         // Create the Application State.
-        let state = Arc::new(state::State::new(self.config.state.clone()).await);
+        let state = Arc::new(state::State::new(&self.config).await);
 
         // Spawn the primary network Oracle.
-        {
-            // Publisher permissions updates between oracle and exporter
-            let (publisher_permissions_tx, publisher_permissions_rx) =
-                watch::channel(<_>::default());
+        jhs.push(tokio::spawn(services::oracle(
+            self.config.primary_network.clone(),
+            network::Network::Primary,
+            state.clone(),
+        )));
 
-            jhs.push(tokio::spawn(services::oracle(
-                self.config.primary_network.clone(),
-                network::Network::Primary,
-                state.clone(),
-                publisher_permissions_tx.clone(),
-            )));
-
-            // Spawn the primary network
-            jhs.extend(network::spawn_network(
-                self.config.primary_network.clone(),
-                network::Network::Primary,
-                state.clone(),
-                publisher_permissions_rx.clone(),
-            )?);
-        }
+        jhs.push(tokio::spawn(services::exporter(
+            self.config.primary_network.clone(),
+            network::Network::Primary,
+            state.clone(),
+        )));
 
         // Spawn the secondary network Oracle, if needed.
         if let Some(config) = &self.config.secondary_network {
-            let (publisher_permissions_tx, publisher_permissions_rx) =
-                watch::channel(<_>::default());
-
             jhs.push(tokio::spawn(services::oracle(
                 config.clone(),
                 network::Network::Secondary,
                 state.clone(),
-                publisher_permissions_tx.clone(),
             )));
 
-            jhs.extend(network::spawn_network(
+            jhs.push(tokio::spawn(services::exporter(
                 config.clone(),
                 network::Network::Secondary,
                 state.clone(),
-                publisher_permissions_rx,
-            )?);
+            )));
         }
 
         // Create the Notifier task for the Pythd RPC.

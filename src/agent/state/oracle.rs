@@ -1,5 +1,8 @@
 use {
-    super::super::solana::network::Network,
+    super::{
+        super::solana::network::Network,
+        exporter::Exporter,
+    },
     crate::agent::{
         legacy_schedule::LegacySchedule,
         market_schedule::MarketSchedule,
@@ -32,6 +35,7 @@ use {
         account::Account,
         commitment_config::CommitmentLevel,
         pubkey::Pubkey,
+        signature::Keypair,
     },
     std::{
         collections::{
@@ -40,10 +44,7 @@ use {
         },
         time::Duration,
     },
-    tokio::sync::{
-        watch::Sender,
-        RwLock,
-    },
+    tokio::sync::RwLock,
 };
 
 #[derive(Debug, Clone)]
@@ -185,10 +186,11 @@ pub trait Oracle {
     async fn sync_global_store(&self, network: Network) -> Result<()>;
     async fn poll_updates(
         &self,
+        network: Network,
         mapping_key: Pubkey,
+        publish_keypair: Option<&Keypair>,
         rpc_client: &RpcClient,
         max_lookup_batch_size: usize,
-        publisher_permissions_tx: Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
     ) -> Result<()>;
     async fn handle_price_account_update(
         &self,
@@ -209,8 +211,9 @@ impl<'a> From<&'a State> for &'a OracleState {
 impl<T> Oracle for T
 where
     for<'a> &'a T: Into<&'a OracleState>,
+    T: Send + Sync + 'static,
     T: Prices,
-    T: Sync,
+    T: Exporter,
 {
     async fn handle_price_account_update(
         &self,
@@ -258,10 +261,11 @@ where
     /// Poll target Solana based chain for Pyth related accounts.
     async fn poll_updates(
         &self,
+        network: Network,
         mapping_key: Pubkey,
+        publish_keypair: Option<&Keypair>,
         rpc_client: &RpcClient,
         max_lookup_batch_size: usize,
-        publisher_permissions_tx: Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
     ) -> Result<()> {
         let mut publisher_permissions = HashMap::new();
         let mapping_accounts = fetch_mapping_accounts(rpc_client, mapping_key).await?;
@@ -313,7 +317,13 @@ where
         log_data_diff(&data, &new_data);
         *data = new_data;
 
-        publisher_permissions_tx.send_replace(data.publisher_permissions.clone());
+        Exporter::update_permissions(
+            self,
+            network,
+            publish_keypair,
+            data.publisher_permissions.clone(),
+        )
+        .await?;
 
         Ok(())
     }

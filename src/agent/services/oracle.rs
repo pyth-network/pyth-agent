@@ -11,10 +11,7 @@ use {
                 Network,
             },
         },
-        state::oracle::{
-            Oracle,
-            PricePublishingMetadata,
-        },
+        state::oracle::Oracle,
     },
     anyhow::Result,
     solana_account_decoder::UiAccountEncoding,
@@ -32,25 +29,20 @@ use {
         account::Account,
         commitment_config::CommitmentConfig,
         pubkey::Pubkey,
+        signature::Keypair,
     },
     std::{
-        collections::HashMap,
         sync::Arc,
         time::{
             Duration,
             Instant,
         },
     },
-    tokio::sync::watch::Sender,
     tokio_stream::StreamExt,
 };
 
-pub async fn oracle<S>(
-    config: Config,
-    network: Network,
-    state: Arc<S>,
-    publisher_permissions_tx: Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
-) where
+pub async fn oracle<S>(config: Config, network: Network, state: Arc<S>)
+where
     S: Oracle,
     S: Send + Sync + 'static,
 {
@@ -64,8 +56,8 @@ pub async fn oracle<S>(
         network,
         state.clone(),
         key_store.mapping_key,
+        key_store.publish_keypair,
         config.oracle.max_lookup_batch_size,
-        publisher_permissions_tx.clone(),
     ));
 
     if config.oracle.subscriber_enabled {
@@ -158,8 +150,8 @@ async fn poller<S>(
     network: Network,
     state: Arc<S>,
     mapping_key: Pubkey,
+    publish_keypair: Option<Keypair>,
     max_lookup_batch_size: usize,
-    publisher_permissions_tx: Sender<HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>>,
 ) where
     S: Oracle,
     S: Send + Sync + 'static,
@@ -175,15 +167,16 @@ async fn poller<S>(
     ));
 
     loop {
-        tick.tick().await;
-        tracing::debug!("Polling for updates.");
         if let Err(err) = async {
+            tick.tick().await;
+            tracing::debug!("Polling for updates.");
             Oracle::poll_updates(
                 &*state,
+                network,
                 mapping_key,
+                publish_keypair.as_ref(),
                 &client,
                 max_lookup_batch_size,
-                publisher_permissions_tx.clone(),
             )
             .await?;
             Oracle::sync_global_store(&*state, network).await

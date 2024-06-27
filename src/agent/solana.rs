@@ -5,35 +5,20 @@ pub mod exporter;
 /// - The Exporter, which publishes data to the network
 pub mod network {
     use {
-        super::{
-            exporter,
-            key_store::{
+        super::key_store::{
+            self,
+        },
+        crate::agent::{
+            services::exporter,
+            state::oracle::{
                 self,
-                KeyStore,
             },
         },
-        crate::agent::state::{
-            oracle::{
-                self,
-                PricePublishingMetadata,
-            },
-            State,
-        },
-        anyhow::Result,
         serde::{
             Deserialize,
             Serialize,
         },
-        solana_sdk::pubkey::Pubkey,
-        std::{
-            collections::HashMap,
-            sync::Arc,
-            time::Duration,
-        },
-        tokio::{
-            sync::watch,
-            task::JoinHandle,
-        },
+        std::time::Duration,
     };
 
     #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
@@ -74,68 +59,6 @@ pub mod network {
         /// Configuration for the Exporter publishing data to this network
         #[serde(default)]
         pub exporter:    exporter::Config,
-    }
-
-    /// Spawn an Oracle, in-progress porting this to State.
-    ///
-    /// Behaviour:
-    /// - Spawns Oracle: (Obsolete, now Extracted to state/oracle.rs)
-    ///   - Spawns a Subscriber:
-    ///     o Subscribes to the Oracle program key.
-    ///     o Decodes account events related to the Oracle.
-    ///     o Sends update.
-    ///   - Spawns a Poller:
-    ///     o Fetches Mapping Accounts
-    ///     o Iterates Product+Price Accounts
-    ///     o Sends update.
-    ///   - Oracle then Listens for Updates from Subscriber
-    ///     o Filters for Price Account Updates.
-    ///     o Stores its own copy of the Price Account.
-    ///     o Updates the Global Store for that Price Account.
-    ///   - Oracle also Listens for Updates from Poller
-    ///     o Tracks if any new Mapping Accounts were found.
-    ///     o Update Local Data
-    ///     o Updates entire Global Store View.
-    /// - Spawns Exporter:
-    ///   - Spawns NetworkQuerier
-    ///     - Queries BlockHash in a timer.
-    ///     - Sends BlockHash + Slot
-    /// - Spawns Transaction Monitor:
-    ///   - Listens for for Transactions
-    ///   - Adds to tracked Transactions
-    ///   - Responds to queries about Tx status.
-    /// - Spawns Exporter
-    ///   - On Publish tick: pushes updates to the network as a batch.
-    ///   - On Compute Unit Price Tick: calculates new median price fee from recent
-    ///
-    /// Plan:
-    ///  - Subscriber & Poller Can Be Spawnable Tasks
-    ///  - Oracle becomes a State API
-    ///  -
-    pub fn spawn_network(
-        config: Config,
-        network: Network,
-        state: Arc<State>,
-        publisher_permissions_rx: watch::Receiver<
-            HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
-        >,
-    ) -> Result<Vec<JoinHandle<()>>> {
-        let mut jhs = vec![];
-
-        // Spawn the Exporter
-        let exporter_jhs = exporter::spawn_exporter(
-            config.exporter,
-            network,
-            &config.rpc_url,
-            config.rpc_timeout,
-            publisher_permissions_rx,
-            KeyStore::new(config.key_store.clone())?,
-            state,
-        )?;
-
-        jhs.extend(exporter_jhs);
-
-        Ok(jhs)
     }
 }
 

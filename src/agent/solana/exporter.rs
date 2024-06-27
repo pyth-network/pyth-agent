@@ -514,7 +514,6 @@ impl Exporter {
     ///   (n / batch_size) requests in flight.
     async fn publish_updates(&mut self) -> Result<()> {
         let permissioned_updates = self.get_permissioned_updates().await?;
-        let current_timestamp_millis = Utc::now().timestamp_millis();
 
         if permissioned_updates.is_empty() {
             return Ok(());

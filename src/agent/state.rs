@@ -16,10 +16,12 @@ use {
 };
 
 pub mod api;
+pub mod exporter;
 pub mod global;
 pub mod keypairs;
 pub mod local;
 pub mod oracle;
+pub mod transactions;
 pub use api::Prices;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -55,6 +57,12 @@ pub struct State {
 
     /// State for the Solana-based Oracle functionality.
     oracle: oracle::OracleState,
+
+    /// State for the Solana-based Exporter functionality.
+    exporter: exporter::ExporterState,
+
+    /// State for the Solana transaction monitor
+    transactions: transactions::TransactionsState,
 }
 
 /// Represents a single Notify Price Sched subscription
@@ -74,7 +82,27 @@ struct NotifyPriceSubscription {
 }
 
 impl State {
-    pub async fn new(config: Config) -> Self {
+    pub async fn new(config: &crate::agent::config::Config) -> Self {
+        let registry = &mut *PROMETHEUS_REGISTRY.lock().await;
+        State {
+            global_store: global::Store::new(registry),
+            local_store:  local::Store::new(registry),
+            keypairs:     keypairs::KeypairState::default(),
+            prices:       api::PricesState::new(config.state.clone()),
+            oracle:       oracle::OracleState::new(),
+            exporter:     exporter::ExporterState::new(),
+            transactions: transactions::TransactionsState::new(
+                config
+                    .primary_network
+                    .exporter
+                    .transaction_monitor
+                    .max_transactions,
+            ),
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn new_tests(config: Config) -> Self {
         let registry = &mut *PROMETHEUS_REGISTRY.lock().await;
         State {
             global_store: global::Store::new(registry),
@@ -82,6 +110,8 @@ impl State {
             keypairs:     keypairs::KeypairState::default(),
             prices:       api::PricesState::new(config),
             oracle:       oracle::OracleState::new(),
+            exporter:     exporter::ExporterState::new(),
+            transactions: transactions::TransactionsState::new(100),
         }
     }
 }
@@ -156,7 +186,7 @@ mod tests {
         let config = Config {
             notify_price_sched_interval_duration,
         };
-        let state = Arc::new(State::new(config).await);
+        let state = Arc::new(State::new_tests(config).await);
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn Price Notifier
