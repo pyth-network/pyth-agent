@@ -101,7 +101,6 @@ where
     async fn record_publish(&self, batch_state: HashMap<Identifier, PriceInfo>);
     async fn get_permissioned_updates(
         &self,
-        network: Network,
         publish_keypair: &Keypair,
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
@@ -109,7 +108,6 @@ where
     async fn get_recent_compute_unit_price_micro_lamports(&self) -> Option<u64>;
     async fn update_recent_compute_unit_price(
         &self,
-        network: Network,
         publish_keypair: &Keypair,
         rpc_client: &RpcClient,
         staleness_threshold: Duration,
@@ -150,7 +148,6 @@ where
 
     async fn get_permissioned_updates(
         &self,
-        network: Network,
         publish_keypair: &Keypair,
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
@@ -259,7 +256,6 @@ where
 
     async fn update_recent_compute_unit_price(
         &self,
-        network: Network,
         publish_keypair: &Keypair,
         rpc_client: &RpcClient,
         staleness_threshold: Duration,
@@ -267,7 +263,6 @@ where
     ) -> Result<()> {
         let permissioned_updates = self
             .get_permissioned_updates(
-                network,
                 publish_keypair,
                 staleness_threshold,
                 unchanged_publish_threshold,
@@ -345,14 +340,10 @@ where
     }
 }
 
-async fn estimate_compute_unit_price_micro_lamports<S>(
+async fn estimate_compute_unit_price_micro_lamports(
     rpc_client: &RpcClient,
     price_accounts: &[Pubkey],
-) -> Result<Option<u64>>
-where
-    for<'a> &'a S: Into<&'a ExporterState>,
-    S: Exporter,
-{
+) -> Result<Option<u64>> {
     let mut slot_compute_fee: BTreeMap<u64, u64> = BTreeMap::new();
 
     // Maximum allowed number of accounts is 128. So we need to chunk the requests
@@ -446,7 +437,7 @@ where
     let mut batch_state = HashMap::new();
     let mut batch_futures = vec![];
 
-    let network_state = network_state_rx.borrow().clone();
+    let network_state = *network_state_rx.borrow();
     for batch in batches {
         batch_futures.push(publish_batch(
             state,
@@ -508,7 +499,7 @@ where
     let mut instructions = Vec::new();
 
     // Refresh the data in the batch
-    let local_store_contents = LocalStore::get_all_price_infos(&*state).await;
+    let local_store_contents = LocalStore::get_all_price_infos(state).await;
     let refreshed_batch = batch.iter().map(|(identifier, _)| {
         (
             identifier,
@@ -606,7 +597,7 @@ where
         // in this batch. This will use the maximum total compute unit fee if the publisher
         // hasn't updated for >= MAXIMUM_SLOT_GAP_FOR_DYNAMIC_COMPUTE_UNIT_PRICE slots.
         let result = GlobalStore::price_accounts(
-            &*state,
+            state,
             network,
             price_accounts.clone().into_iter().collect(),
         )
@@ -694,7 +685,7 @@ where
         "Sent upd_price transaction.",
     );
 
-    Transactions::add_transaction(&*state, signature).await;
+    Transactions::add_transaction(state, signature).await;
 
     Ok(())
 }

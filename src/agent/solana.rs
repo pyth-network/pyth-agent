@@ -1,5 +1,3 @@
-pub mod exporter;
-
 /// This module encapsulates all the interaction with a single Solana network:
 /// - The Oracle, which reads data from the network
 /// - The Exporter, which publishes data to the network

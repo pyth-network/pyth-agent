@@ -65,7 +65,7 @@ impl LegacySchedule {
 
         let market_time = when_market_local.time();
 
-        let ret = match market_weekday {
+        match market_weekday {
             Weekday::Mon => self.mon.can_publish_at(market_time),
             Weekday::Tue => self.tue.can_publish_at(market_time),
             Weekday::Wed => self.wed.can_publish_at(market_time),
@@ -73,16 +73,14 @@ impl LegacySchedule {
             Weekday::Fri => self.fri.can_publish_at(market_time),
             Weekday::Sat => self.sat.can_publish_at(market_time),
             Weekday::Sun => self.sun.can_publish_at(market_time),
-        };
-
-        ret
+        }
     }
 }
 
 impl FromStr for LegacySchedule {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self> {
-        let mut split_by_commas = s.split(",");
+        let mut split_by_commas = s.split(',');
 
         // Timezone id, e.g. Europe/Paris
         let tz_str = split_by_commas.next().ok_or(anyhow!(
@@ -195,7 +193,7 @@ impl FromStr for MHKind {
             "O" => Ok(MHKind::Open),
             "C" => Ok(MHKind::Closed),
             other => {
-                let (start_str, end_str) = other.split_once("-").ok_or(anyhow!(
+                let (start_str, end_str) = other.split_once('-').ok_or(anyhow!(
                     "Missing '-' delimiter between start and end of range"
                 ))?;
 
@@ -207,7 +205,7 @@ impl FromStr for MHKind {
                 // the next best thing - see MAX_TIME_INSTANT for
                 // details.
                 let end = if end_str.contains("24:00") {
-                    MAX_TIME_INSTANT.clone()
+                    *MAX_TIME_INSTANT
                 } else {
                     NaiveTime::parse_from_str(end_str, "%H:%M")
                         .context("end time does not match HH:MM format")?

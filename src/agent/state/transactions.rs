@@ -84,8 +84,7 @@ where
         let confirmed = statuses
             .into_iter()
             .zip(signatures_contiguous)
-            .map(|(status, sig)| status.map(|some_status| (some_status, sig))) // Collate Some() statuses with their tx signatures before flatten()
-            .flatten()
+            .filter_map(|(status, sig)| status.map(|some_status| (some_status, sig)))
             .filter(|(status, sig)| {
                 if let Some(err) = status.err.as_ref() {
                     tracing::warn!(

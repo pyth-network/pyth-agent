@@ -170,8 +170,8 @@ where
     T: Sync,
 {
     async fn update(&self, network: Network, update: &Update) -> Result<()> {
-        update_data(self, network, &update).await?;
-        update_metadata(self, &update).await?;
+        update_data(self, network, update).await?;
+        update_metadata(self, update).await?;
         Ok(())
     }
 

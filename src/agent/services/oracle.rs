@@ -102,7 +102,6 @@ where
     let client = PubsubClient::new(config.wss_url.as_str()).await?;
 
     let (mut notifier, _unsub) = {
-        let program_key = program_key;
         let commitment = config.oracle.commitment;
         let config = RpcProgramAccountsConfig {
             account_config: RpcAccountInfoConfig {
@@ -141,7 +140,7 @@ where
     }
 
     tracing::debug!("Subscriber closed connection.");
-    return Ok(());
+    Ok(())
 }
 
 /// On poll lookup all Pyth Mapping/Product/Price accounts and sync.

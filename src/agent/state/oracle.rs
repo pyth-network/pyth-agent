@@ -1,10 +1,11 @@
+#[allow(deprecated)]
+use crate::agent::legacy_schedule::LegacySchedule;
 use {
     super::{
         super::solana::network::Network,
         exporter::Exporter,
     },
     crate::agent::{
-        legacy_schedule::LegacySchedule,
         market_schedule::MarketSchedule,
         state::{
             global::Update,
@@ -242,8 +243,7 @@ where
             "Observed on-chain price account update.",
         );
 
-        data.price_accounts
-            .insert(*account_key, price_entry.clone());
+        data.price_accounts.insert(*account_key, price_entry);
 
         Prices::update_global_price(
             self,
@@ -291,7 +291,7 @@ where
                 {
                     PricePublishingMetadata {
                         schedule:         prod_entry.schedule.clone(),
-                        publish_interval: prod_entry.publish_interval.clone(),
+                        publish_interval: prod_entry.publish_interval,
                     }
                 } else {
                     tracing::warn!(
@@ -351,7 +351,7 @@ where
                 network,
                 &Update::PriceAccountUpdate {
                     account_key: *price_account_key,
-                    account:     price_account.clone(),
+                    account:     *price_account,
                 },
             )
             .await
@@ -408,7 +408,7 @@ where
     // Lookup products and their prices using the configured batch size
     for product_key_batch in product_keys.as_slice().chunks(max_lookup_batch_size) {
         let (mut batch_products, mut batch_prices) =
-            fetch_batch_of_product_and_price_accounts(&rpc_client, product_key_batch).await?;
+            fetch_batch_of_product_and_price_accounts(rpc_client, product_key_batch).await?;
 
         product_entries.extend(batch_products.drain());
         price_entries.extend(batch_prices.drain());
