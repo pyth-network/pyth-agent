@@ -2,20 +2,19 @@
 // on-chain aggregation contracts, across both the primary and secondary networks.
 // This enables this data to be easily queried by other components.
 use {
-    super::State,
+    super::{
+        oracle::{
+            PriceEntry,
+            ProductEntry,
+        },
+        State,
+    },
     crate::agent::{
         metrics::{
             PriceGlobalMetrics,
             ProductGlobalMetrics,
         },
-        solana::{
-            network::Network,
-            oracle::{
-                self,
-                PriceEntry,
-                ProductEntry,
-            },
-        },
+        solana::network::Network,
     },
     anyhow::{
         anyhow,
@@ -35,8 +34,8 @@ use {
 /// from the primary network.
 #[derive(Debug, Clone, Default)]
 pub struct AllAccountsData {
-    pub product_accounts: HashMap<Pubkey, oracle::ProductEntry>,
-    pub price_accounts:   HashMap<Pubkey, oracle::PriceEntry>,
+    pub product_accounts: HashMap<Pubkey, ProductEntry>,
+    pub price_accounts:   HashMap<Pubkey, PriceEntry>,
 }
 
 /// AllAccountsMetadata contains the metadata for all the price and product accounts.
@@ -57,8 +56,8 @@ pub struct ProductAccountMetadata {
     pub price_accounts: Vec<Pubkey>,
 }
 
-impl From<oracle::ProductEntry> for ProductAccountMetadata {
-    fn from(product_account: oracle::ProductEntry) -> Self {
+impl From<ProductEntry> for ProductAccountMetadata {
+    fn from(product_account: ProductEntry) -> Self {
         ProductAccountMetadata {
             attr_dict:      product_account
                 .account_data
@@ -77,8 +76,8 @@ pub struct PriceAccountMetadata {
     pub expo: i32,
 }
 
-impl From<oracle::PriceEntry> for PriceAccountMetadata {
-    fn from(price_account: oracle::PriceEntry) -> Self {
+impl From<PriceEntry> for PriceAccountMetadata {
+    fn from(price_account: PriceEntry) -> Self {
         PriceAccountMetadata {
             expo: price_account.expo,
         }

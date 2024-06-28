@@ -1,33 +1,24 @@
 pub mod exporter;
-pub mod oracle;
 
 /// This module encapsulates all the interaction with a single Solana network:
 /// - The Oracle, which reads data from the network
 /// - The Exporter, which publishes data to the network
 pub mod network {
     use {
-        super::{
-            exporter,
-            key_store::{
-                self,
-                KeyStore,
-            },
-            oracle,
+        super::key_store::{
+            self,
         },
-        crate::agent::state::State,
-        anyhow::Result,
+        crate::agent::{
+            services::exporter,
+            state::oracle::{
+                self,
+            },
+        },
         serde::{
             Deserialize,
             Serialize,
         },
-        std::{
-            sync::Arc,
-            time::Duration,
-        },
-        tokio::{
-            sync::watch,
-            task::JoinHandle,
-        },
+        std::time::Duration,
     };
 
     #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
@@ -69,46 +60,10 @@ pub mod network {
         #[serde(default)]
         pub exporter:    exporter::Config,
     }
-
-    pub fn spawn_network(
-        config: Config,
-        network: Network,
-        state: Arc<State>,
-    ) -> Result<Vec<JoinHandle<()>>> {
-        // Publisher permissions updates between oracle and exporter
-        let (publisher_permissions_tx, publisher_permissions_rx) = watch::channel(<_>::default());
-
-        // Spawn the Oracle
-        let mut jhs = oracle::spawn_oracle(
-            config.oracle.clone(),
-            network,
-            &config.rpc_url,
-            &config.wss_url,
-            config.rpc_timeout,
-            publisher_permissions_tx,
-            KeyStore::new(config.key_store.clone())?,
-            state.clone(),
-        );
-
-        // Spawn the Exporter
-        let exporter_jhs = exporter::spawn_exporter(
-            config.exporter,
-            network,
-            &config.rpc_url,
-            config.rpc_timeout,
-            publisher_permissions_rx,
-            KeyStore::new(config.key_store.clone())?,
-            state,
-        )?;
-
-        jhs.extend(exporter_jhs);
-
-        Ok(jhs)
-    }
 }
 
 /// The key_store module is responsible for parsing the pythd key store.
-mod key_store {
+pub mod key_store {
     use {
         anyhow::Result,
         serde::{

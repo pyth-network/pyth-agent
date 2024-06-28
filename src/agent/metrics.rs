@@ -1,6 +1,6 @@
 use {
     super::state::local::PriceInfo,
-    crate::agent::solana::oracle::PriceEntry,
+    crate::agent::state::oracle::PriceEntry,
     lazy_static::lazy_static,
     prometheus_client::{
         encoding::{

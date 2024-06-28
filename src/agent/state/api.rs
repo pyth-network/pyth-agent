@@ -14,11 +14,7 @@ use {
                 PublisherAccount,
                 SubscriptionID,
             },
-            solana::{
-                self,
-                network::Network,
-                oracle::PriceEntry,
-            },
+            solana::network::Network,
         },
         global::{
             AllAccountsData,
@@ -28,6 +24,10 @@ use {
         local::{
             self,
             LocalStore,
+        },
+        oracle::{
+            PriceEntry,
+            ProductEntry,
         },
         Config,
         NotifyPriceSchedSubscription,
@@ -46,10 +46,7 @@ use {
     },
     std::{
         collections::HashMap,
-        sync::{
-            atomic::AtomicI64,
-            Arc,
-        },
+        sync::atomic::AtomicI64,
         time::Duration,
     },
     tokio::sync::{
@@ -71,7 +68,7 @@ fn price_status_to_str(price_status: PriceStatus) -> String {
 }
 
 fn solana_product_account_to_pythd_api_product_account(
-    product_account: &solana::oracle::ProductEntry,
+    product_account: &ProductEntry,
     all_accounts_data: &AllAccountsData,
     product_account_key: &solana_sdk::pubkey::Pubkey,
 ) -> ProductAccount {
@@ -171,7 +168,6 @@ pub trait Prices {
         account_pubkey: &solana_sdk::pubkey::Pubkey,
         notify_price_sched_tx: mpsc::Sender<NotifyPriceSched>,
     ) -> SubscriptionID;
-    fn next_subscription_id(&self) -> SubscriptionID;
     async fn subscribe_price(
         &self,
         account: &solana_sdk::pubkey::Pubkey,
@@ -187,7 +183,8 @@ pub trait Prices {
         status: String,
     ) -> Result<()>;
     async fn update_global_price(&self, network: Network, update: &Update) -> Result<()>;
-    // TODO: implement FromStr method on PriceStatus
+    fn notify_interval_duration(&self) -> Duration;
+    fn next_subscription_id(&self) -> SubscriptionID;
     fn map_status(status: &str) -> Result<PriceStatus>;
 }
 
@@ -433,6 +430,10 @@ where
         }
     }
 
+    fn notify_interval_duration(&self) -> Duration {
+        self.into().notify_price_sched_interval_duration
+    }
+
     // TODO: implement FromStr method on PriceStatus
     fn map_status(status: &str) -> Result<PriceStatus> {
         match status {
@@ -442,30 +443,6 @@ where
             "auction" => Ok(PriceStatus::Auction),
             "ignored" => Ok(PriceStatus::Ignored),
             _ => Err(anyhow!("invalid price status: {:#?}", status)),
-        }
-    }
-}
-
-pub async fn notifier<S>(state: Arc<S>)
-where
-    for<'a> &'a S: Into<&'a PricesState>,
-    S: Prices,
-{
-    let prices: &PricesState = (&*state).into();
-    let mut interval = tokio::time::interval(prices.notify_price_sched_interval_duration);
-    let mut exit = crate::agent::EXIT.subscribe();
-    loop {
-        Prices::drop_closed_subscriptions(&*state).await;
-        tokio::select! {
-            _ = exit.changed() => {
-                tracing::info!("Shutdown signal received.");
-                return;
-            }
-            _ = interval.tick() => {
-                if let Err(err) = state.send_notify_price_sched().await {
-                    tracing::error!(err = ?err, "Notifier: failed to send notify price sched.");
-                }
-            }
         }
     }
 }

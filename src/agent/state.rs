@@ -16,13 +16,13 @@ use {
 };
 
 pub mod api;
+pub mod exporter;
 pub mod global;
 pub mod keypairs;
 pub mod local;
-pub use api::{
-    notifier,
-    Prices,
-};
+pub mod oracle;
+pub mod transactions;
+pub use api::Prices;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
@@ -54,6 +54,15 @@ pub struct State {
 
     /// State for Price related functionality.
     prices: api::PricesState,
+
+    /// State for the Solana-based Oracle functionality.
+    oracle: oracle::OracleState,
+
+    /// State for the Solana-based Exporter functionality.
+    exporter: exporter::ExporterState,
+
+    /// State for the Solana transaction monitor
+    transactions: transactions::TransactionsState,
 }
 
 /// Represents a single Notify Price Sched subscription
@@ -73,13 +82,36 @@ struct NotifyPriceSubscription {
 }
 
 impl State {
-    pub async fn new(config: Config) -> Self {
+    pub async fn new(config: &crate::agent::config::Config) -> Self {
+        let registry = &mut *PROMETHEUS_REGISTRY.lock().await;
+        State {
+            global_store: global::Store::new(registry),
+            local_store:  local::Store::new(registry),
+            keypairs:     keypairs::KeypairState::default(),
+            prices:       api::PricesState::new(config.state.clone()),
+            oracle:       oracle::OracleState::new(),
+            exporter:     exporter::ExporterState::new(),
+            transactions: transactions::TransactionsState::new(
+                config
+                    .primary_network
+                    .exporter
+                    .transaction_monitor
+                    .max_transactions,
+            ),
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn new_tests(config: Config) -> Self {
         let registry = &mut *PROMETHEUS_REGISTRY.lock().await;
         State {
             global_store: global::Store::new(registry),
             local_store:  local::Store::new(registry),
             keypairs:     keypairs::KeypairState::default(),
             prices:       api::PricesState::new(config),
+            oracle:       oracle::OracleState::new(),
+            exporter:     exporter::ExporterState::new(),
+            transactions: transactions::TransactionsState::new(100),
         }
     }
 }
@@ -92,7 +124,7 @@ mod tests {
                 self,
                 AllAccountsData,
             },
-            notifier,
+            oracle::ProductEntry,
             Config,
             Prices,
             State,
@@ -108,14 +140,12 @@ mod tests {
                 ProductAccountMetadata,
                 PublisherAccount,
             },
-            solana::{
-                self,
-                network::Network,
-                oracle::PriceEntry,
-            },
+            services::notifier,
+            solana::network::Network,
             state::{
                 global::Update,
                 local::LocalStore,
+                oracle::PriceEntry,
             },
         },
         pyth_sdk::Identifier,
@@ -156,7 +186,7 @@ mod tests {
         let config = Config {
             notify_price_sched_interval_duration,
         };
-        let state = Arc::new(State::new(config).await);
+        let state = Arc::new(State::new_tests(config).await);
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn Price Notifier
@@ -412,7 +442,7 @@ mod tests {
                         "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t",
                     )
                     .unwrap(),
-                    solana::oracle::ProductEntry {
+                    ProductEntry {
                         account_data:     pyth_sdk_solana::state::ProductAccount {
                             magic:  0xa1b2c3d4,
                             ver:    6,
@@ -473,7 +503,7 @@ mod tests {
                         "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc",
                     )
                     .unwrap(),
-                    solana::oracle::ProductEntry {
+                    ProductEntry {
                         account_data:     pyth_sdk_solana::state::ProductAccount {
                             magic:  0xa1b2c3d4,
                             ver:    5,

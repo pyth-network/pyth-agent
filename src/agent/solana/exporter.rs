@@ -3,7 +3,6 @@ use {
     super::{
         key_store,
         network::Network,
-        oracle::PricePublishingMetadata,
     },
     crate::agent::state::{
         global::GlobalStore,
@@ -12,6 +11,7 @@ use {
             LocalStore,
             PriceInfo,
         },
+        oracle::PricePublishingMetadata,
         State,
     },
     anyhow::{
