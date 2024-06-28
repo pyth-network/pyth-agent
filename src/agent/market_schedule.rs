@@ -240,7 +240,7 @@ impl Display for ScheduleDayKind {
     }
 }
 
-fn time_parser<'s>(input: &mut &'s str) -> PResult<NaiveTime> {
+fn time_parser(input: &mut &str) -> PResult<NaiveTime> {
     alt(("2400", take(4usize)))
         .verify_map(|time_str| match time_str {
             "2400" => Some(MAX_TIME_INSTANT),
@@ -249,7 +249,7 @@ fn time_parser<'s>(input: &mut &'s str) -> PResult<NaiveTime> {
         .parse_next(input)
 }
 
-fn time_range_parser<'s>(input: &mut &'s str) -> PResult<RangeInclusive<NaiveTime>> {
+fn time_range_parser(input: &mut &str) -> PResult<RangeInclusive<NaiveTime>> {
     seq!(
         time_parser,
         _: "-",
@@ -259,7 +259,7 @@ fn time_range_parser<'s>(input: &mut &'s str) -> PResult<RangeInclusive<NaiveTim
     .parse_next(input)
 }
 
-fn schedule_day_kind_parser<'s>(input: &mut &'s str) -> PResult<ScheduleDayKind> {
+fn schedule_day_kind_parser(input: &mut &str) -> PResult<ScheduleDayKind> {
     alt((
         "C".map(|_| ScheduleDayKind::Closed),
         "O".map(|_| ScheduleDayKind::Open),
@@ -350,7 +350,7 @@ mod tests {
     fn test_parsing_holiday_day_schedule() -> Result<()> {
         let input = "0412/O";
         let expected = HolidayDaySchedule {
-            month: 04,
+            month: 4,
             day:   12,
             kind:  ScheduleDayKind::Open,
         };
@@ -360,7 +360,7 @@ mod tests {
 
         let input = "0412/C";
         let expected = HolidayDaySchedule {
-            month: 04,
+            month: 4,
             day:   12,
             kind:  ScheduleDayKind::Closed,
         };
@@ -369,7 +369,7 @@ mod tests {
 
         let input = "0412/1234-1347";
         let expected = HolidayDaySchedule {
-            month: 04,
+            month: 4,
             day:   12,
             kind:  ScheduleDayKind::TimeRanges(vec![
                 NaiveTime::from_hms_opt(12, 34, 0).unwrap()
@@ -400,7 +400,7 @@ mod tests {
                         ..=NaiveTime::from_hms_opt(13, 47, 0).unwrap(),
                 ]),
                 ScheduleDayKind::TimeRanges(vec![
-                    NaiveTime::from_hms_opt(09, 30, 0).unwrap()..=MAX_TIME_INSTANT,
+                    NaiveTime::from_hms_opt(9, 30, 0).unwrap()..=MAX_TIME_INSTANT,
                 ]),
                 ScheduleDayKind::Closed,
                 ScheduleDayKind::Closed,
@@ -409,17 +409,17 @@ mod tests {
             ],
             holidays:        vec![
                 HolidayDaySchedule {
-                    month: 04,
+                    month: 4,
                     day:   12,
                     kind:  ScheduleDayKind::Open,
                 },
                 HolidayDaySchedule {
-                    month: 04,
+                    month: 4,
                     day:   13,
                     kind:  ScheduleDayKind::Closed,
                 },
                 HolidayDaySchedule {
-                    month: 04,
+                    month: 4,
                     day:   14,
                     kind:  ScheduleDayKind::TimeRanges(vec![
                         NaiveTime::from_hms_opt(12, 34, 0).unwrap()
@@ -430,7 +430,7 @@ mod tests {
                     month: 12,
                     day:   30,
                     kind:  ScheduleDayKind::TimeRanges(vec![
-                        NaiveTime::from_hms_opt(09, 30, 0).unwrap()..=MAX_TIME_INSTANT,
+                        NaiveTime::from_hms_opt(9, 30, 0).unwrap()..=MAX_TIME_INSTANT,
                     ]),
                 },
             ],
