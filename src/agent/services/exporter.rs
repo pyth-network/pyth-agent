@@ -233,7 +233,6 @@ mod exporter {
                     if let Ok(publish_keypair) = get_publish_keypair(&*state, network, key_store.publish_keypair.as_ref()).await {
                         if let Ok(permissioned_updates) = Exporter::get_permissioned_updates(
                             &*state,
-                            network,
                             &publish_keypair,
                             config.exporter.staleness_threshold,
                             config.exporter.unchanged_publish_threshold,
@@ -265,7 +264,6 @@ mod exporter {
                         if let Ok(publish_keypair) = get_publish_keypair(&*state, network, key_store.publish_keypair.as_ref()).await {
                             if let Err(err) = Exporter::update_recent_compute_unit_price(
                                 &*state,
-                                network,
                                 &publish_keypair,
                                 &client,
                                 config.exporter.staleness_threshold,

@@ -101,7 +101,6 @@ where
     async fn record_publish(&self, batch_state: HashMap<Identifier, PriceInfo>);
     async fn get_permissioned_updates(
         &self,
-        network: Network,
         publish_keypair: &Keypair,
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
@@ -109,7 +108,6 @@ where
     async fn get_recent_compute_unit_price_micro_lamports(&self) -> Option<u64>;
     async fn update_recent_compute_unit_price(
         &self,
-        network: Network,
         publish_keypair: &Keypair,
         rpc_client: &RpcClient,
         staleness_threshold: Duration,
@@ -150,7 +148,6 @@ where
 
     async fn get_permissioned_updates(
         &self,
-        network: Network,
         publish_keypair: &Keypair,
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
@@ -259,7 +256,6 @@ where
 
     async fn update_recent_compute_unit_price(
         &self,
-        network: Network,
         publish_keypair: &Keypair,
         rpc_client: &RpcClient,
         staleness_threshold: Duration,
@@ -267,7 +263,6 @@ where
     ) -> Result<()> {
         let permissioned_updates = self
             .get_permissioned_updates(
-                network,
                 publish_keypair,
                 staleness_threshold,
                 unchanged_publish_threshold,

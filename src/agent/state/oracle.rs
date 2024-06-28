@@ -1,10 +1,11 @@
+#[allow(deprecated)]
+use crate::agent::legacy_schedule::LegacySchedule;
 use {
     super::{
         super::solana::network::Network,
         exporter::Exporter,
     },
     crate::agent::{
-        legacy_schedule::LegacySchedule,
         market_schedule::MarketSchedule,
         state::{
             global::Update,
