@@ -6,8 +6,10 @@
 use {
     crate::agent::state::Prices,
     std::sync::Arc,
+    tracing::instrument,
 };
 
+#[instrument(skip(state))]
 pub async fn notifier<S>(state: Arc<S>)
 where
     S: Prices,

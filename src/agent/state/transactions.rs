@@ -8,6 +8,7 @@ use {
     },
     std::collections::VecDeque,
     tokio::sync::RwLock,
+    tracing::instrument,
 };
 
 #[derive(Default)]
@@ -44,6 +45,7 @@ where
     for<'a> &'a T: Into<&'a TransactionsState>,
     T: Sync + Send + 'static,
 {
+    #[instrument(skip(self))]
     async fn add_transaction(&self, signature: Signature) {
         tracing::debug!(
             signature = signature.to_string(),
@@ -60,6 +62,7 @@ where
         }
     }
 
+    #[instrument(skip(self, rpc))]
     async fn poll_transactions_status(&self, rpc: &RpcClient) -> Result<()> {
         let mut txs = self.into().sent_transactions.write().await;
         if txs.is_empty() {

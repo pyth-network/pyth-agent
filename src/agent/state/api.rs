@@ -53,6 +53,7 @@ use {
         mpsc,
         RwLock,
     },
+    tracing::instrument,
 };
 
 // TODO: implement Display on PriceStatus and then just call PriceStatus::to_string
@@ -382,6 +383,10 @@ where
         .map_err(|_| anyhow!("failed to send update to local store"))
     }
 
+    #[instrument(skip(self, update), fields(update = match update {
+        Update::ProductAccountUpdate { account_key, .. } => account_key,
+        Update::PriceAccountUpdate   { account_key, .. } => account_key,
+    }.to_string()))]
     async fn update_global_price(&self, network: Network, update: &Update) -> Result<()> {
         GlobalStore::update(self, network, update)
             .await

@@ -8,6 +8,7 @@ use {
     anyhow::Result,
     solana_sdk::signature::Keypair,
     tokio::sync::RwLock,
+    tracing::instrument,
 };
 
 #[derive(Default)]
@@ -35,6 +36,7 @@ where
     for<'a> &'a T: Into<&'a KeypairState>,
     T: Sync,
 {
+    #[instrument(skip(self))]
     async fn request_keypair(&self, network: Network) -> Result<Keypair> {
         let keypair = match network {
             Network::Primary => &self.into().primary_current_keypair,
@@ -51,6 +53,7 @@ where
         )?)
     }
 
+    #[instrument(skip(self))]
     async fn update_keypair(&self, network: Network, new_keypair: Keypair) {
         *match network {
             Network::Primary => self.into().primary_current_keypair.write().await,

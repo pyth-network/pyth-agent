@@ -38,30 +38,35 @@ use {
             Instant,
         },
     },
+    tokio::task::JoinHandle,
     tokio_stream::StreamExt,
+    tracing::instrument,
 };
 
-pub async fn oracle<S>(config: Config, network: Network, state: Arc<S>)
+#[instrument(skip(config, state))]
+pub fn oracle<S>(config: Config, network: Network, state: Arc<S>) -> Vec<JoinHandle<()>>
 where
     S: Oracle,
     S: Send + Sync + 'static,
 {
+    let mut handles = Vec::new();
+
     let Ok(key_store) = KeyStore::new(config.key_store.clone()) else {
         tracing::warn!("Key store not available, Oracle won't start.");
-        return;
+        return handles;
     };
 
-    tokio::spawn(poller(
+    handles.push(tokio::spawn(poller(
         config.clone(),
         network,
         state.clone(),
         key_store.mapping_key,
         key_store.publish_keypair,
         config.oracle.max_lookup_batch_size,
-    ));
+    )));
 
     if config.oracle.subscriber_enabled {
-        tokio::spawn(async move {
+        handles.push(tokio::spawn(async move {
             loop {
                 let current_time = Instant::now();
                 if let Err(ref err) = subscriber(
@@ -79,8 +84,10 @@ where
                     }
                 }
             }
-        });
+        }));
     }
+
+    handles
 }
 
 /// When an account RPC Subscription update is receiveed.
@@ -88,6 +95,7 @@ where
 /// We check if the account is one we're aware of and tracking, and if so, spawn
 /// a small background task that handles that update. We only do this for price
 /// accounts, all other accounts are handled below in the poller.
+#[instrument(skip(config, state))]
 async fn subscriber<S>(
     config: Config,
     network: Network,
@@ -144,6 +152,7 @@ where
 }
 
 /// On poll lookup all Pyth Mapping/Product/Price accounts and sync.
+#[instrument(skip(config, state))]
 async fn poller<S>(
     config: Config,
     network: Network,
