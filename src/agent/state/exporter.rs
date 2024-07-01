@@ -53,6 +53,7 @@ use {
         watch,
         RwLock,
     },
+    tracing::instrument,
 };
 
 const PYTH_ORACLE_VERSION: u32 = 2;
@@ -146,6 +147,14 @@ where
             .extend(batch_state);
     }
 
+    #[instrument(
+        skip_all,
+        fields(
+            publish_keypair             = publish_keypair.pubkey().to_string(),
+            staleness_threshold         = staleness_threshold.as_millis(),
+            unchanged_publish_threshold = unchanged_publish_threshold.as_millis(),
+        )
+    )]
     async fn get_permissioned_updates(
         &self,
         publish_keypair: &Keypair,
@@ -254,6 +263,14 @@ where
             .await
     }
 
+    #[instrument(
+        skip_all,
+        fields(
+            publish_keypair             = publish_keypair.pubkey().to_string(),
+            staleness_threshold         = staleness_threshold.as_millis(),
+            unchanged_publish_threshold = unchanged_publish_threshold.as_millis(),
+        )
+    )]
     async fn update_recent_compute_unit_price(
         &self,
         publish_keypair: &Keypair,
@@ -283,6 +300,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip(self, publisher_permissions))]
     async fn update_permissions(
         &self,
         network: Network,
@@ -305,6 +323,7 @@ where
     }
 }
 
+#[instrument(skip(state))]
 pub async fn get_publish_keypair<S>(
     state: &S,
     network: Network,
@@ -402,6 +421,13 @@ async fn estimate_compute_unit_price_micro_lamports(
 /// - Degrade gracefully if the blockchain RPC node exhibits poor performance. If the RPC node takes a long
 ///   time to respond, no internal queues grow unboundedly. At any single point in time there are at most
 ///   (n / batch_size) requests in flight.
+#[instrument(
+    skip(state, client, network_state_rx, publish_keypair, staleness_threshold, permissioned_updates),
+    fields(
+        publish_keypair     = publish_keypair.pubkey().to_string(),
+        staleness_threshold = staleness_threshold.as_millis(),
+    )
+)]
 pub async fn publish_batches<S>(
     state: &S,
     client: Arc<RpcClient>,
@@ -472,6 +498,16 @@ where
     Ok(())
 }
 
+#[instrument(
+    skip(state, client, network_state, publish_keypair, batch, staleness_threshold),
+    fields(
+        publish_keypair     = publish_keypair.pubkey().to_string(),
+        blockhash           = network_state.blockhash.to_string(),
+        current_slot        = network_state.current_slot,
+        staleness_threshold = staleness_threshold.as_millis(),
+        batch               = ?batch.iter().map(|(identifier, _)| identifier.to_string()).collect::<Vec<_>>(),
+    )
+)]
 async fn publish_batch<S>(
     state: &S,
     client: Arc<RpcClient>,

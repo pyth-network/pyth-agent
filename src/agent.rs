@@ -72,6 +72,7 @@ use {
     lazy_static::lazy_static,
     std::sync::Arc,
     tokio::sync::watch,
+    tracing::instrument,
 };
 
 pub mod config;
@@ -121,58 +122,59 @@ impl Agent {
         };
     }
 
+    #[instrument(skip(self))]
     async fn spawn(&self) -> Result<()> {
         // job handles
-        let mut jhs = vec![];
+        let mut handles = vec![];
 
         // Create the Application State.
         let state = Arc::new(state::State::new(&self.config).await);
 
         // Spawn the primary network Oracle.
-        jhs.push(tokio::spawn(services::oracle(
+        handles.extend(services::oracle(
             self.config.primary_network.clone(),
             network::Network::Primary,
             state.clone(),
-        )));
+        ));
 
-        jhs.push(tokio::spawn(services::exporter(
+        handles.extend(services::exporter(
             self.config.primary_network.clone(),
             network::Network::Primary,
             state.clone(),
-        )));
+        ));
 
         // Spawn the secondary network Oracle, if needed.
         if let Some(config) = &self.config.secondary_network {
-            jhs.push(tokio::spawn(services::oracle(
+            handles.extend(services::oracle(
                 config.clone(),
                 network::Network::Secondary,
                 state.clone(),
-            )));
+            ));
 
-            jhs.push(tokio::spawn(services::exporter(
+            handles.extend(services::exporter(
                 config.clone(),
                 network::Network::Secondary,
                 state.clone(),
-            )));
+            ));
         }
 
         // Create the Notifier task for the Pythd RPC.
-        jhs.push(tokio::spawn(services::notifier(state.clone())));
+        handles.push(tokio::spawn(services::notifier(state.clone())));
 
         // Spawn the Pythd API Server
-        jhs.push(tokio::spawn(rpc::run(
+        handles.push(tokio::spawn(rpc::run(
             self.config.pythd_api_server.clone(),
             state.clone(),
         )));
 
         // Spawn the metrics server
-        jhs.push(tokio::spawn(metrics::spawn(
+        handles.push(tokio::spawn(metrics::spawn(
             self.config.metrics_server.bind_address,
         )));
 
         // Spawn the remote keypair loader endpoint for both networks
-        jhs.append(
-            &mut services::keypairs(
+        handles.extend(
+            services::keypairs(
                 self.config.primary_network.rpc_url.clone(),
                 self.config
                     .secondary_network
@@ -185,7 +187,7 @@ impl Agent {
         );
 
         // Wait for all tasks to complete
-        join_all(jhs).await;
+        join_all(handles).await;
 
         Ok(())
     }

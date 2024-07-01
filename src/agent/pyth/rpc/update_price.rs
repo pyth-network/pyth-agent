@@ -12,8 +12,10 @@ use {
         Request,
         Value,
     },
+    tracing::instrument,
 };
 
+#[instrument(skip_all, fields(account))]
 pub async fn update_price<S>(
     state: &S,
     request: &Request<Method, Value>,
@@ -27,6 +29,8 @@ where
             .clone()
             .ok_or_else(|| anyhow!("Missing request parameters"))?,
     )?;
+
+    tracing::Span::current().record("account", params.account.to_string());
 
     state
         .update_local_price(
