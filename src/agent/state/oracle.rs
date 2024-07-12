@@ -1,23 +1,48 @@
 #[allow(deprecated)]
 use crate::agent::legacy_schedule::LegacySchedule;
 use {
-    super::{super::solana::network::Network, exporter::Exporter},
+    super::{
+        super::solana::network::Network,
+        exporter::Exporter,
+    },
     crate::agent::{
         market_schedule::MarketSchedule,
-        state::{global::Update, Prices, State},
+        state::{
+            global::Update,
+            Prices,
+            State,
+        },
     },
-    anyhow::{anyhow, Context, Result},
+    anyhow::{
+        anyhow,
+        Context,
+        Result,
+    },
     pyth_sdk_solana::state::{
-        load_mapping_account, load_product_account, GenericPriceAccount, MappingAccount, PriceComp,
-        PythnetPriceAccount, SolanaPriceAccount,
+        load_mapping_account,
+        load_product_account,
+        GenericPriceAccount,
+        MappingAccount,
+        PriceComp,
+        PythnetPriceAccount,
+        SolanaPriceAccount,
     },
-    serde::{Deserialize, Serialize},
+    serde::{
+        Deserialize,
+        Serialize,
+    },
     solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
-        account::Account, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Keypair,
+        account::Account,
+        commitment_config::CommitmentLevel,
+        pubkey::Pubkey,
+        signature::Keypair,
     },
     std::{
-        collections::{HashMap, HashSet},
+        collections::{
+            HashMap,
+            HashSet,
+        },
         time::Duration,
     },
     tokio::sync::RwLock,
@@ -26,15 +51,15 @@ use {
 
 #[derive(Debug, Clone)]
 pub struct ProductEntry {
-    pub account_data: pyth_sdk_solana::state::ProductAccount,
-    pub schedule: MarketSchedule,
-    pub price_accounts: Vec<Pubkey>,
+    pub account_data:     pyth_sdk_solana::state::ProductAccount,
+    pub schedule:         MarketSchedule,
+    pub price_accounts:   Vec<Pubkey>,
     pub publish_interval: Option<Duration>,
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct PricePublishingMetadata {
-    pub schedule: MarketSchedule,
+    pub schedule:         MarketSchedule,
     pub publish_interval: Option<Duration>,
 }
 
@@ -52,7 +77,7 @@ pub struct PricePublishingMetadata {
 #[derive(Copy, Clone, Debug)]
 pub struct PriceEntry {
     // We intentionally act as if we have a truncated account where the underlying memory is unavailable.
-    account: GenericPriceAccount<0, ()>,
+    account:  GenericPriceAccount<0, ()>,
     pub comp: [PriceComp; 64],
 }
 
@@ -104,9 +129,9 @@ impl std::ops::Deref for PriceEntry {
 
 #[derive(Default, Debug, Clone)]
 pub struct Data {
-    pub mapping_accounts: HashMap<Pubkey, MappingAccount>,
-    pub product_accounts: HashMap<Pubkey, ProductEntry>,
-    pub price_accounts: HashMap<Pubkey, PriceEntry>,
+    pub mapping_accounts:      HashMap<Pubkey, MappingAccount>,
+    pub product_accounts:      HashMap<Pubkey, ProductEntry>,
+    pub price_accounts:        HashMap<Pubkey, PriceEntry>,
     /// publisher => {their permissioned price accounts => price publishing metadata}
     pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
 }
@@ -115,16 +140,16 @@ pub struct Data {
 #[serde(default)]
 pub struct Config {
     /// The commitment level to use when reading data from the RPC node.
-    pub commitment: CommitmentLevel,
+    pub commitment:               CommitmentLevel,
     /// The interval with which to poll account information.
     #[serde(with = "humantime_serde")]
-    pub poll_interval_duration: Duration,
+    pub poll_interval_duration:   Duration,
     /// Whether subscribing to account updates over websocket is enabled
-    pub subscriber_enabled: bool,
+    pub subscriber_enabled:       bool,
     /// Capacity of the channel over which the Subscriber sends updates to the Oracle
     pub updates_channel_capacity: usize,
     /// Capacity of the channel over which the Poller sends data to the Oracle
-    pub data_channel_capacity: usize,
+    pub data_channel_capacity:    usize,
 
     /// Ask the RPC for up to this many product/price accounts in a
     /// single request. Tune this setting if you're experiencing
@@ -137,12 +162,12 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            commitment: CommitmentLevel::Confirmed,
-            poll_interval_duration: Duration::from_secs(5),
-            subscriber_enabled: true,
+            commitment:               CommitmentLevel::Confirmed,
+            poll_interval_duration:   Duration::from_secs(5),
+            subscriber_enabled:       true,
             updates_channel_capacity: 10000,
-            data_channel_capacity: 10000,
-            max_lookup_batch_size: 100,
+            data_channel_capacity:    10000,
+            max_lookup_batch_size:    100,
         }
     }
 }
@@ -231,7 +256,7 @@ where
             network,
             &Update::PriceAccountUpdate {
                 account_key: *account_key,
-                account: price_entry,
+                account:     price_entry,
             },
         )
         .await?;
@@ -275,7 +300,7 @@ where
                     product_accounts.get(&price_entry.prod)
                 {
                     PricePublishingMetadata {
-                        schedule: prod_entry.schedule.clone(),
+                        schedule:         prod_entry.schedule.clone(),
                         publish_interval: prod_entry.publish_interval,
                     }
                 } else {
@@ -326,7 +351,7 @@ where
                 network,
                 &Update::ProductAccountUpdate {
                     account_key: *product_account_key,
-                    account: product_account.clone(),
+                    account:     product_account.clone(),
                 },
             )
             .await
@@ -339,7 +364,7 @@ where
                 network,
                 &Update::PriceAccountUpdate {
                     account_key: *price_account_key,
-                    account: *price_account,
+                    account:     *price_account,
                 },
             )
             .await
