@@ -5,6 +5,8 @@ use {
         Result,
     },
     clap::Parser,
+    opentelemetry::KeyValue,
+    opentelemetry_otlp::WithExportConfig,
     pyth_agent::agent::{
         config::Config,
         Agent,
@@ -12,7 +14,9 @@ use {
     std::{
         io::IsTerminal,
         path::PathBuf,
+        time::Duration,
     },
+    tracing_subscriber::prelude::*,
 };
 
 #[derive(Parser, Debug)]
@@ -31,18 +35,38 @@ struct Arguments {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize a Tracing Subscriber
-    let fmt_builder = tracing_subscriber::fmt()
+    let fmt_layer = tracing_subscriber::fmt::layer()
         .with_file(false)
         .with_line_number(true)
         .with_thread_ids(true)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_target(true)
         .with_ansi(std::io::stderr().is_terminal());
+
+    // Set up the OpenTelemetry exporter, defaults to 127.0.0.1:4317
+    let otlp_exporter = opentelemetry_otlp::new_exporter()
+        .tonic()
+        .with_timeout(Duration::from_secs(3));
+
+    // Set up the OpenTelemetry tracer
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(otlp_exporter)
+        .with_trace_config(opentelemetry_sdk::trace::config().with_resource(
+            opentelemetry_sdk::Resource::new(vec![KeyValue::new("service.name", "pyth-agent")]),
+        ))
+        .install_batch(opentelemetry_sdk::runtime::Tokio)
+        .map_err(|e| anyhow::anyhow!("Error initializing open telemetry: {}", e))?;
+
+    // Set up the telemetry layer
+    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    let registry = tracing_subscriber::registry().with(telemetry);
 
     // Use the compact formatter if we're in a terminal, otherwise use the JSON formatter.
     if std::io::stderr().is_terminal() {
-        tracing::subscriber::set_global_default(fmt_builder.compact().finish())?;
+        registry.with(fmt_layer.compact()).init();
     } else {
-        tracing::subscriber::set_global_default(fmt_builder.json().finish())?;
+        registry.with(fmt_layer.json()).init();
     }
 
     let args = Arguments::parse();
