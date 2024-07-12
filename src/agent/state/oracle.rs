@@ -178,7 +178,6 @@ pub struct OracleState {
 
 impl OracleState {
     pub fn new() -> Self {
-        tracing::info!("Initializing OracleState");
         Self {
             data: Default::default(),
         }
@@ -226,14 +225,11 @@ where
         account_key: &Pubkey,
         account: &Account,
     ) -> Result<()> {
-        tracing::debug!("Handling account update.");
-
         let mut data = self.into().data.write().await;
 
         // We are only interested in price account updates, all other types of updates
         // will be fetched using polling.
         if !data.price_accounts.contains_key(account_key) {
-            tracing::info!("Account key not found in price accounts, skipping update.");
             return Ok(());
         }
 
@@ -249,7 +245,6 @@ where
         );
 
         data.price_accounts.insert(*account_key, price_entry);
-        tracing::info!("Updated price account for key: {}", account_key);
 
         Prices::update_global_price(
             self,
@@ -274,17 +269,14 @@ where
         rpc_client: &RpcClient,
         max_lookup_batch_size: usize,
     ) -> Result<()> {
-        tracing::info!("Polling updates for network: {:?}", network);
         let mut publisher_permissions = HashMap::new();
         let mapping_accounts = fetch_mapping_accounts(rpc_client, mapping_key).await?;
-        tracing::info!("Fetched mapping accounts.");
         let (product_accounts, price_accounts) = fetch_product_and_price_accounts(
             rpc_client,
             max_lookup_batch_size,
             mapping_accounts.values(),
         )
         .await?;
-        tracing::info!("Fetched product and price accounts.");
 
         for (price_key, price_entry) in price_accounts.iter() {
             for component in price_entry.comp {
@@ -326,7 +318,6 @@ where
         let mut data = self.into().data.write().await;
         log_data_diff(&data, &new_data);
         *data = new_data;
-        tracing::info!("Updated OracleState data.");
 
         Exporter::update_permissions(
             self,
@@ -342,7 +333,6 @@ where
     /// Sync Product/Price Accounts found by polling to the Global Store.
     #[instrument(skip(self))]
     async fn sync_global_store(&self, network: Network) -> Result<()> {
-        tracing::info!("Syncing global store for network: {:?}", network);
         for (product_account_key, product_account) in
             &self.into().data.read().await.product_accounts
         {
@@ -370,8 +360,6 @@ where
             .await
             .map_err(|_| anyhow!("failed to notify price account update"))?;
         }
-
-        tracing::info!("Global store sync completed.");
         Ok(())
     }
 }
@@ -381,10 +369,6 @@ async fn fetch_mapping_accounts(
     rpc_client: &RpcClient,
     mapping_account_key: Pubkey,
 ) -> Result<HashMap<Pubkey, MappingAccount>> {
-    tracing::info!(
-        "Fetching mapping accounts starting from key: {}",
-        mapping_account_key
-    );
     let mut accounts = HashMap::new();
     let mut account_key = mapping_account_key;
     while account_key != Pubkey::default() {
@@ -397,7 +381,6 @@ async fn fetch_mapping_accounts(
         accounts.insert(account_key, account);
         account_key = account.next;
     }
-    tracing::info!("Fetched {} mapping accounts.", accounts.len());
     Ok(accounts)
 }
 
@@ -410,7 +393,6 @@ async fn fetch_product_and_price_accounts<'a, A>(
 where
     A: IntoIterator<Item = &'a MappingAccount>,
 {
-    tracing::info!("Fetching product and price accounts.");
     let mut product_keys = vec![];
 
     // Get all product keys
@@ -436,11 +418,6 @@ where
         price_entries.extend(batch_prices.drain());
     }
 
-    tracing::info!(
-        "Fetched {} product entries and {} price entries.",
-        product_entries.len(),
-        price_entries.len()
-    );
     Ok((product_entries, price_entries))
 }
 
@@ -448,7 +425,6 @@ async fn fetch_batch_of_product_and_price_accounts(
     rpc_client: &RpcClient,
     product_key_batch: &[Pubkey],
 ) -> Result<(HashMap<Pubkey, ProductEntry>, HashMap<Pubkey, PriceEntry>)> {
-    tracing::info!("Fetching batch of product and price accounts.");
     let mut product_entries = HashMap::new();
 
     let product_keys = product_key_batch;
@@ -589,7 +565,6 @@ async fn fetch_batch_of_product_and_price_accounts(
 
         todo = next_todo;
     }
-    tracing::info!("Fetched batch of product and price accounts.");
     Ok((product_entries, price_entries))
 }
 
