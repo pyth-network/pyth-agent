@@ -53,7 +53,7 @@ where
         )?)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self, new_keypair))]
     async fn update_keypair(&self, network: Network, new_keypair: Keypair) {
         *match network {
             Network::Primary => self.into().primary_current_keypair.write().await,

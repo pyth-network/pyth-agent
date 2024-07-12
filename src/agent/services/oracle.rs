@@ -152,7 +152,7 @@ where
 }
 
 /// On poll lookup all Pyth Mapping/Product/Price accounts and sync.
-#[instrument(skip(config, state))]
+#[instrument(skip(config, publish_keypair, state))]
 async fn poller<S>(
     config: Config,
     network: Network,

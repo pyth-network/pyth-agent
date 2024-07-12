@@ -300,7 +300,7 @@ where
         Ok(())
     }
 
-    #[instrument(skip(self, publisher_permissions))]
+    #[instrument(skip(self, publish_keypair, publisher_permissions))]
     async fn update_permissions(
         &self,
         network: Network,
@@ -323,7 +323,7 @@ where
     }
 }
 
-#[instrument(skip(state))]
+#[instrument(skip(state, publish_keypair))]
 pub async fn get_publish_keypair<S>(
     state: &S,
     network: Network,

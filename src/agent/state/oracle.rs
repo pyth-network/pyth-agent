@@ -262,7 +262,7 @@ where
     }
 
     /// Poll target Solana based chain for Pyth related accounts.
-    #[instrument(skip(self, rpc_client))]
+    #[instrument(skip(self, publish_keypair, rpc_client))]
     async fn poll_updates(
         &self,
         network: Network,
