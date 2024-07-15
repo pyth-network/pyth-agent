@@ -421,6 +421,7 @@ where
     Ok((product_entries, price_entries))
 }
 
+#[instrument(skip(rpc_client, product_key_batch))]
 async fn fetch_batch_of_product_and_price_accounts(
     rpc_client: &RpcClient,
     product_key_batch: &[Pubkey],
@@ -568,6 +569,7 @@ async fn fetch_batch_of_product_and_price_accounts(
     Ok((product_entries, price_entries))
 }
 
+#[instrument(skip(data, new_data))]
 fn log_data_diff(data: &Data, new_data: &Data) {
     // Log new accounts which have been found
     let previous_mapping_accounts = data
