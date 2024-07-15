@@ -12,8 +12,10 @@ use {
         Request,
         Value,
     },
+    tracing::instrument,
 };
 
+#[instrument(skip_all, fields(account))]
 pub async fn get_product<S>(
     state: &S,
     request: &Request<Method, Value>,
@@ -27,6 +29,8 @@ where
     }?;
 
     let account = params.account.parse::<solana_sdk::pubkey::Pubkey>()?;
+    tracing::Span::current().record("account", account.to_string());
+
     let product = state.get_product(&account).await?;
     Ok(serde_json::to_value(product)?)
 }
