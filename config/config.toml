@@ -181,3 +181,13 @@ key_store.mapping_key = "RelevantOracleMappingAddress"
 # publish data to. In most cases this should be a Solana endpoint. The
 # options correspond to the ones in primary_network
 # [secondary_network]
+
+
+## Configuration for OpenTelemetry ##
+[opentelemetry]
+
+# Timeout in seconds for the OpenTelemetry exporter
+exporter_timeout_secs = 3
+
+# Endpoint URL for the OpenTelemetry exporter
+exporter_endpoint = "http://127.0.0.1:4317"

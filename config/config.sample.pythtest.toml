@@ -60,3 +60,12 @@ exporter.compute_unit_price_micro_lamports = 1000
 # Note that this doesn't affect the rate at which transactions are published:
 # this is soley a backwards-compatibility API feature.
 notify_price_sched_interval_duration = "400ms"
+
+# Configuration for OpenTelemetry
+[opentelemetry]
+
+# Timeout in seconds for the OpenTelemetry exporter
+exporter_timeout_secs = 3
+
+# Endpoint URL for the OpenTelemetry exporter
+exporter_endpoint = "http://127.0.0.1:4317"
