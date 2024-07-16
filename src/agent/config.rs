@@ -32,6 +32,8 @@ pub struct Config {
     pub metrics_server:        metrics::Config,
     #[serde(default)]
     pub remote_keypair_loader: services::keypairs::Config,
+    #[serde(default)]
+    pub opentelemetry:         OpenTelemetryConfig,
 }
 
 impl Config {
@@ -80,6 +82,22 @@ impl Default for ChannelCapacities {
             local_store:              10000,
             pythd_adapter:            10000,
             logger_buffer:            10000,
+        }
+    }
+}
+
+
+#[derive(Deserialize, Debug)]
+pub struct OpenTelemetryConfig {
+    pub exporter_timeout_secs: u64,
+    pub exporter_endpoint:     String,
+}
+
+impl Default for OpenTelemetryConfig {
+    fn default() -> Self {
+        Self {
+            exporter_timeout_secs: 3,
+            exporter_endpoint:     "http://127.0.0.1:4317".to_string(),
         }
     }
 }

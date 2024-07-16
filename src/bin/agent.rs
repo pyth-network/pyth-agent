@@ -34,18 +34,31 @@ struct Arguments {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = Arguments::parse();
+
+    if !args.config.as_path().exists() {
+        return Err(anyhow!("No config found under {:?}", args.config.to_str()));
+    }
+
+    println!("Loading config from {:?}", args.config.display());
+
+    // Parse config early for logging channel capacity
+    let config = Config::new(args.config).context("Could not parse config")?;
+
     // Initialize a Tracing Subscriber
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_file(false)
         .with_line_number(true)
         .with_thread_ids(true)
-        .with_target(true)
         .with_ansi(std::io::stderr().is_terminal());
 
     // Set up the OpenTelemetry exporter, defaults to 127.0.0.1:4317
     let otlp_exporter = opentelemetry_otlp::new_exporter()
         .tonic()
-        .with_timeout(Duration::from_secs(3));
+        .with_endpoint(&config.opentelemetry.exporter_endpoint)
+        .with_timeout(Duration::from_secs(
+            config.opentelemetry.exporter_timeout_secs,
+        ));
 
     // Set up the OpenTelemetry tracer
     let tracer = opentelemetry_otlp::new_pipeline()
@@ -68,17 +81,6 @@ async fn main() -> Result<()> {
     } else {
         registry.with(fmt_layer.json()).init();
     }
-
-    let args = Arguments::parse();
-
-    if !args.config.as_path().exists() {
-        return Err(anyhow!("No config found under {:?}", args.config.to_str()));
-    }
-
-    println!("Loading config from {:?}", args.config.display());
-
-    // Parse config early for logging channel capacity
-    let config = Config::new(args.config).context("Could not parse config")?;
 
     // Launch the application. If it fails, print the full backtrace and exit. RUST_BACKTRACE
     // should be set to 1 for this otherwise it will only print the top-level error.
