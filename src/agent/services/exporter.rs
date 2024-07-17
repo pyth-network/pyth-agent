@@ -23,8 +23,10 @@ use {
     },
     tokio::{
         sync::watch,
+        task::JoinHandle,
         time::Interval,
     },
+    tracing::instrument,
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -118,6 +120,13 @@ struct NetworkStateQuerier {
 }
 
 impl NetworkStateQuerier {
+    #[instrument(
+        skip(rpc_endpoint, rpc_timeout, query_interval),
+        fields(
+            rpc_timeout    = rpc_timeout.as_millis(),
+            query_interval = query_interval.period().as_millis(),
+        )
+    )]
     pub fn new(
         rpc_endpoint: &str,
         rpc_timeout: Duration,
@@ -140,6 +149,7 @@ impl NetworkStateQuerier {
         }
     }
 
+    #[instrument(skip(self))]
     async fn query_network_state(&mut self) -> Result<()> {
         // Fetch the blockhash and current slot in parallel
         let current_slot_future = self
@@ -160,12 +170,15 @@ impl NetworkStateQuerier {
     }
 }
 
-pub async fn exporter<S>(config: network::Config, network: Network, state: Arc<S>)
+#[instrument(skip(config, state))]
+pub fn exporter<S>(config: network::Config, network: Network, state: Arc<S>) -> Vec<JoinHandle<()>>
 where
     S: Exporter,
     S: Transactions,
     S: Send + Sync + 'static,
 {
+    let mut handles = Vec::new();
+
     // Create and spawn the network state querier
     let (network_state_tx, network_state_rx) = watch::channel(Default::default());
     let mut network_state_querier = NetworkStateQuerier::new(
@@ -175,12 +188,23 @@ where
         network_state_tx,
     );
 
-    tokio::spawn(transaction_monitor::transaction_monitor(
+    handles.push(tokio::spawn(transaction_monitor::transaction_monitor(
         config.clone(),
         state.clone(),
+    )));
+
+    handles.push(tokio::spawn(exporter::exporter(
+        config,
+        network,
+        state,
+        network_state_rx,
+    )));
+
+    handles.push(tokio::spawn(
+        async move { network_state_querier.run().await },
     ));
-    tokio::spawn(exporter::exporter(config, network, state, network_state_rx));
-    tokio::spawn(async move { network_state_querier.run().await });
+
+    handles
 }
 
 mod exporter {
@@ -294,6 +318,7 @@ mod transaction_monitor {
             sync::Arc,
             time::Duration,
         },
+        tracing::instrument,
     };
 
     #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -318,6 +343,7 @@ mod transaction_monitor {
         }
     }
 
+    #[instrument(skip(config, state))]
     pub async fn transaction_monitor<S>(config: network::Config, state: Arc<S>)
     where
         S: Transactions,

@@ -46,6 +46,7 @@ use {
         time::Duration,
     },
     tokio::sync::RwLock,
+    tracing::instrument,
 };
 
 #[derive(Debug, Clone)]
@@ -96,6 +97,7 @@ impl From<SolanaPriceAccount> for PriceEntry {
 
 impl PriceEntry {
     /// Construct the right underlying GenericPriceAccount based on the account size.
+    #[instrument(skip(acc))]
     pub fn load_from_account(acc: &[u8]) -> Option<Self> {
         unsafe {
             let size = match acc.len() {
@@ -216,14 +218,13 @@ where
     T: Prices,
     T: Exporter,
 {
+    #[instrument(skip(self, account_key))]
     async fn handle_price_account_update(
         &self,
         network: Network,
         account_key: &Pubkey,
         account: &Account,
     ) -> Result<()> {
-        tracing::debug!("Handling account update.");
-
         let mut data = self.into().data.write().await;
 
         // We are only interested in price account updates, all other types of updates
@@ -259,6 +260,7 @@ where
     }
 
     /// Poll target Solana based chain for Pyth related accounts.
+    #[instrument(skip(self, publish_keypair, rpc_client))]
     async fn poll_updates(
         &self,
         network: Network,
@@ -329,6 +331,7 @@ where
     }
 
     /// Sync Product/Price Accounts found by polling to the Global Store.
+    #[instrument(skip(self))]
     async fn sync_global_store(&self, network: Network) -> Result<()> {
         for (product_account_key, product_account) in
             &self.into().data.read().await.product_accounts
@@ -357,11 +360,11 @@ where
             .await
             .map_err(|_| anyhow!("failed to notify price account update"))?;
         }
-
         Ok(())
     }
 }
 
+#[instrument(skip(rpc_client))]
 async fn fetch_mapping_accounts(
     rpc_client: &RpcClient,
     mapping_account_key: Pubkey,
@@ -381,6 +384,7 @@ async fn fetch_mapping_accounts(
     Ok(accounts)
 }
 
+#[instrument(skip(rpc_client, mapping_accounts))]
 async fn fetch_product_and_price_accounts<'a, A>(
     rpc_client: &RpcClient,
     max_lookup_batch_size: usize,
@@ -417,6 +421,7 @@ where
     Ok((product_entries, price_entries))
 }
 
+#[instrument(skip(rpc_client, product_key_batch))]
 async fn fetch_batch_of_product_and_price_accounts(
     rpc_client: &RpcClient,
     product_key_batch: &[Pubkey],
@@ -564,6 +569,7 @@ async fn fetch_batch_of_product_and_price_accounts(
     Ok((product_entries, price_entries))
 }
 
+#[instrument(skip(data, new_data))]
 fn log_data_diff(data: &Data, new_data: &Data) {
     // Log new accounts which have been found
     let previous_mapping_accounts = data

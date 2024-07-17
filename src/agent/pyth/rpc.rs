@@ -50,6 +50,7 @@ use {
         sync::Arc,
     },
     tokio::sync::mpsc,
+    tracing::instrument,
     warp::{
         ws::{
             Message,
@@ -411,6 +412,7 @@ impl Default for Config {
     }
 }
 
+#[instrument(skip_all)]
 pub async fn run<S>(config: Config, state: Arc<S>)
 where
     S: state::Prices,

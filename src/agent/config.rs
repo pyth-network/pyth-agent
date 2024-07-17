@@ -32,6 +32,7 @@ pub struct Config {
     pub metrics_server:        metrics::Config,
     #[serde(default)]
     pub remote_keypair_loader: services::keypairs::Config,
+    pub opentelemetry:         Option<OpenTelemetryConfig>,
 }
 
 impl Config {
@@ -82,4 +83,11 @@ impl Default for ChannelCapacities {
             logger_buffer:            10000,
         }
     }
+}
+
+
+#[derive(Deserialize, Debug)]
+pub struct OpenTelemetryConfig {
+    pub exporter_timeout_secs: u64,
+    pub exporter_endpoint:     String,
 }

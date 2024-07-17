@@ -5,6 +5,8 @@ use {
         Result,
     },
     clap::Parser,
+    opentelemetry::KeyValue,
+    opentelemetry_otlp::WithExportConfig,
     pyth_agent::agent::{
         config::Config,
         Agent,
@@ -12,6 +14,11 @@ use {
     std::{
         io::IsTerminal,
         path::PathBuf,
+        time::Duration,
+    },
+    tracing_subscriber::{
+        prelude::*,
+        EnvFilter,
     },
 };
 
@@ -30,21 +37,6 @@ struct Arguments {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize a Tracing Subscriber
-    let fmt_builder = tracing_subscriber::fmt()
-        .with_file(false)
-        .with_line_number(true)
-        .with_thread_ids(true)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_ansi(std::io::stderr().is_terminal());
-
-    // Use the compact formatter if we're in a terminal, otherwise use the JSON formatter.
-    if std::io::stderr().is_terminal() {
-        tracing::subscriber::set_global_default(fmt_builder.compact().finish())?;
-    } else {
-        tracing::subscriber::set_global_default(fmt_builder.json().finish())?;
-    }
-
     let args = Arguments::parse();
 
     if !args.config.as_path().exists() {
@@ -55,6 +47,51 @@ async fn main() -> Result<()> {
 
     // Parse config early for logging channel capacity
     let config = Config::new(args.config).context("Could not parse config")?;
+
+    let env_filter = EnvFilter::from_default_env();
+
+    // Initialize a Tracing Subscriber
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_file(false)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_ansi(std::io::stderr().is_terminal());
+
+    let mut layers = Vec::new();
+    layers.push(env_filter.boxed());
+
+    // Set up OpenTelemetry only if it's configured
+    if let Some(opentelemetry_config) = &config.opentelemetry {
+        // Set up the OpenTelemetry exporter
+        let otlp_exporter = opentelemetry_otlp::new_exporter()
+            .tonic()
+            .with_endpoint(&opentelemetry_config.exporter_endpoint)
+            .with_timeout(Duration::from_secs(
+                opentelemetry_config.exporter_timeout_secs,
+            ));
+
+        // Set up the OpenTelemetry tracer
+        let tracer = opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_exporter(otlp_exporter)
+            .with_trace_config(opentelemetry_sdk::trace::config().with_resource(
+                opentelemetry_sdk::Resource::new(vec![KeyValue::new("service.name", "pyth-agent")]),
+            ))
+            .install_batch(opentelemetry_sdk::runtime::Tokio)
+            .map_err(|e| anyhow::anyhow!("Error initializing open telemetry: {}", e))?;
+
+        // Set up the telemetry layer
+        let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+        layers.push(telemetry.boxed());
+    }
+    // Use the compact formatter if we're in a terminal, otherwise use the JSON formatter.
+    if std::io::stderr().is_terminal() {
+        layers.push(fmt_layer.compact().boxed());
+    } else {
+        layers.push(fmt_layer.json().boxed());
+    }
+
+    tracing_subscriber::registry().with(layers).init();
 
     // Launch the application. If it fails, print the full backtrace and exit. RUST_BACKTRACE
     // should be set to 1 for this otherwise it will only print the top-level error.

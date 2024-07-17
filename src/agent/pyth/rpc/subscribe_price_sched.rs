@@ -15,8 +15,10 @@ use {
         Value,
     },
     tokio::sync::mpsc,
+    tracing::instrument,
 };
 
+#[instrument(skip_all, fields(account))]
 pub async fn subscribe_price_sched<S>(
     state: &S,
     notify_price_sched_tx: &mpsc::Sender<NotifyPriceSched>,
@@ -33,6 +35,8 @@ where
     )?;
 
     let account = params.account.parse::<solana_sdk::pubkey::Pubkey>()?;
+    tracing::Span::current().record("account", account.to_string());
+
     let subscription = state
         .subscribe_price_sched(&account, notify_price_sched_tx.clone())
         .await;
