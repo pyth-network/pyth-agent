@@ -16,7 +16,10 @@ use {
         path::PathBuf,
         time::Duration,
     },
-    tracing_subscriber::prelude::*,
+    tracing_subscriber::{
+        prelude::*,
+        EnvFilter,
+    },
 };
 
 #[derive(Parser, Debug)]
@@ -44,6 +47,8 @@ async fn main() -> Result<()> {
 
     // Parse config early for logging channel capacity
     let config = Config::new(args.config).context("Could not parse config")?;
+
+    let env_filter = EnvFilter::from_default_env();
 
     // Initialize a Tracing Subscriber
     let fmt_layer = tracing_subscriber::fmt::layer()
@@ -73,7 +78,9 @@ async fn main() -> Result<()> {
     // Set up the telemetry layer
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let registry = tracing_subscriber::registry().with(telemetry);
+    let registry = tracing_subscriber::registry()
+        .with(telemetry)
+        .with(env_filter);
 
     // Use the compact formatter if we're in a terminal, otherwise use the JSON formatter.
     if std::io::stderr().is_terminal() {
