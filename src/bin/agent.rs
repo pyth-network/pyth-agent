@@ -57,37 +57,41 @@ async fn main() -> Result<()> {
         .with_thread_ids(true)
         .with_ansi(std::io::stderr().is_terminal());
 
-    // Set up the OpenTelemetry exporter, defaults to 127.0.0.1:4317
-    let otlp_exporter = opentelemetry_otlp::new_exporter()
-        .tonic()
-        .with_endpoint(&config.opentelemetry.exporter_endpoint)
-        .with_timeout(Duration::from_secs(
-            config.opentelemetry.exporter_timeout_secs,
-        ));
+    let mut layers = Vec::new();
+    layers.push(env_filter.boxed());
 
-    // Set up the OpenTelemetry tracer
-    let tracer = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(otlp_exporter)
-        .with_trace_config(opentelemetry_sdk::trace::config().with_resource(
-            opentelemetry_sdk::Resource::new(vec![KeyValue::new("service.name", "pyth-agent")]),
-        ))
-        .install_batch(opentelemetry_sdk::runtime::Tokio)
-        .map_err(|e| anyhow::anyhow!("Error initializing open telemetry: {}", e))?;
+    // Set up OpenTelemetry only if it's configured
+    if let Some(opentelemetry_config) = &config.opentelemetry {
+        // Set up the OpenTelemetry exporter
+        let otlp_exporter = opentelemetry_otlp::new_exporter()
+            .tonic()
+            .with_endpoint(&opentelemetry_config.exporter_endpoint)
+            .with_timeout(Duration::from_secs(
+                opentelemetry_config.exporter_timeout_secs,
+            ));
 
-    // Set up the telemetry layer
-    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+        // Set up the OpenTelemetry tracer
+        let tracer = opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_exporter(otlp_exporter)
+            .with_trace_config(opentelemetry_sdk::trace::config().with_resource(
+                opentelemetry_sdk::Resource::new(vec![KeyValue::new("service.name", "pyth-agent")]),
+            ))
+            .install_batch(opentelemetry_sdk::runtime::Tokio)
+            .map_err(|e| anyhow::anyhow!("Error initializing open telemetry: {}", e))?;
 
-    let registry = tracing_subscriber::registry()
-        .with(telemetry)
-        .with(env_filter);
-
+        // Set up the telemetry layer
+        let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+        layers.push(telemetry.boxed());
+    }
     // Use the compact formatter if we're in a terminal, otherwise use the JSON formatter.
     if std::io::stderr().is_terminal() {
-        registry.with(fmt_layer.compact()).init();
+        layers.push(fmt_layer.compact().boxed());
     } else {
-        registry.with(fmt_layer.json()).init();
+        layers.push(fmt_layer.json().boxed());
     }
+
+    tracing_subscriber::registry().with(layers).init();
 
     // Launch the application. If it fails, print the full backtrace and exit. RUST_BACKTRACE
     // should be set to 1 for this otherwise it will only print the top-level error.
