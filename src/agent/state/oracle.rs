@@ -521,7 +521,13 @@ async fn fetch_batch_of_product_and_price_accounts(
     // the product entries
     let mut todo = product_entries
         .values()
-        .map(|p| p.account_data.px_acc)
+        .filter_map(|p| {
+            if p.account_data.px_acc != Pubkey::default() {
+                Some(p.account_data.px_acc)
+            } else {
+                None
+            }
+        })
         .collect::<Vec<_>>();
 
     while !todo.is_empty() {
