@@ -58,7 +58,6 @@ async fn main() -> Result<()> {
         .with_ansi(std::io::stderr().is_terminal());
 
     let mut layers = Vec::new();
-    layers.push(env_filter.boxed());
 
     // Set up OpenTelemetry only if it's configured
     if let Some(opentelemetry_config) = &config.opentelemetry {
@@ -91,7 +90,10 @@ async fn main() -> Result<()> {
         layers.push(fmt_layer.json().boxed());
     }
 
-    tracing_subscriber::registry().with(layers).init();
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(layers)
+        .init();
 
     // Launch the application. If it fails, print the full backtrace and exit. RUST_BACKTRACE
     // should be set to 1 for this otherwise it will only print the top-level error.
