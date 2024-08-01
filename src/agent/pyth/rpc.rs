@@ -48,6 +48,7 @@ use {
         fmt::Debug,
         net::SocketAddr,
         sync::Arc,
+        time::Duration,
     },
     tokio::sync::mpsc,
     tracing::instrument,
@@ -115,6 +116,7 @@ async fn handle_connection<S>(
     state: Arc<S>,
     notify_price_tx_buffer: usize,
     notify_price_sched_tx_buffer: usize,
+    flush_interval_duration: Duration,
 ) where
     S: state::Prices,
     S: Send,
@@ -127,6 +129,8 @@ async fn handle_connection<S>(
     let (mut notify_price_sched_tx, mut notify_price_sched_rx) =
         mpsc::channel(notify_price_sched_tx_buffer);
 
+    let mut flush_interval = tokio::time::interval(flush_interval_duration);
+
     loop {
         if let Err(err) = handle_next(
             &*state,
@@ -136,6 +140,7 @@ async fn handle_connection<S>(
             &mut notify_price_rx,
             &mut notify_price_sched_tx,
             &mut notify_price_sched_rx,
+            &mut flush_interval,
         )
         .await
         {
@@ -159,6 +164,7 @@ async fn handle_next<S>(
     notify_price_rx: &mut mpsc::Receiver<NotifyPrice>,
     notify_price_sched_tx: &mut mpsc::Sender<NotifyPriceSched>,
     notify_price_sched_rx: &mut mpsc::Receiver<NotifyPriceSched>,
+    flush_interval: &mut tokio::time::Interval,
 ) -> Result<()>
 where
     S: state::Prices,
@@ -183,12 +189,15 @@ where
             }
         }
         Some(notify_price) = notify_price_rx.recv() => {
-            send_notification(ws_tx, Method::NotifyPrice, Some(notify_price))
+            feed_notification(ws_tx, Method::NotifyPrice, Some(notify_price))
                 .await
         }
         Some(notify_price_sched) = notify_price_sched_rx.recv() => {
-            send_notification(ws_tx, Method::NotifyPriceSched, Some(notify_price_sched))
+            feed_notification(ws_tx, Method::NotifyPriceSched, Some(notify_price_sched))
                 .await
+        }
+        _ = flush_interval.tick() => {
+            flush(ws_tx).await
         }
     }
 }
@@ -229,9 +238,9 @@ where
             // Send an array if we're handling a batch
             // request, single response object otherwise
             if is_batch {
-                send_text(ws_tx, &serde_json::to_string(&responses)?).await?;
+                feed_text(ws_tx, &serde_json::to_string(&responses)?).await?;
             } else {
-                send_text(ws_tx, &serde_json::to_string(&responses[0])?).await?;
+                feed_text(ws_tx, &serde_json::to_string(&responses[0])?).await?;
             }
         }
         // The top-level parsing errors are fine to share with client
@@ -354,10 +363,10 @@ async fn send_error(
         error.to_string(),
         None,
     );
-    send_text(ws_tx, &response.to_string()).await
+    feed_text(ws_tx, &response.to_string()).await
 }
 
-async fn send_notification<T>(
+async fn feed_notification<T>(
     ws_tx: &mut SplitSink<WebSocket, Message>,
     method: Method,
     params: Option<T>,
@@ -365,10 +374,10 @@ async fn send_notification<T>(
 where
     T: Sized + Serialize + DeserializeOwned,
 {
-    send_request(ws_tx, IdReq::Notification, method, params).await
+    feed_request(ws_tx, IdReq::Notification, method, params).await
 }
 
-async fn send_request<I, T>(
+async fn feed_request<I, T>(
     ws_tx: &mut SplitSink<WebSocket, Message>,
     id: I,
     method: Method,
@@ -379,14 +388,18 @@ where
     T: Sized + Serialize + DeserializeOwned,
 {
     let request = Request::with_params(id, method, params);
-    send_text(ws_tx, &request.to_string()).await
+    feed_text(ws_tx, &request.to_string()).await
 }
 
-async fn send_text(ws_tx: &mut SplitSink<WebSocket, Message>, msg: &str) -> Result<()> {
+async fn feed_text(ws_tx: &mut SplitSink<WebSocket, Message>, msg: &str) -> Result<()> {
     ws_tx
-        .send(Message::text(msg.to_string()))
+        .feed(Message::text(msg.to_string()))
         .await
         .map_err(|e| e.into())
+}
+
+async fn flush(ws_tx: &mut SplitSink<WebSocket, Message>) -> Result<()> {
+    ws_tx.flush().await.map_err(|e| e.into())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -400,6 +413,9 @@ pub struct Config {
     /// Size of the buffer of each Server's channel on which `notify_price_sched` events are
     /// received from the Price state.
     pub notify_price_sched_tx_buffer: usize,
+    /// Flush interval duration for the notifications.
+    #[serde(with = "humantime_serde")]
+    pub flush_interval_duration:      Duration,
 }
 
 impl Default for Config {
@@ -408,6 +424,7 @@ impl Default for Config {
             listen_address:               "127.0.0.1:8910".to_string(),
             notify_price_tx_buffer:       10000,
             notify_price_sched_tx_buffer: 10000,
+            flush_interval_duration:      Duration::from_millis(50),
         }
     }
 }
@@ -448,6 +465,7 @@ where
                         state,
                         config.notify_price_tx_buffer,
                         config.notify_price_sched_tx_buffer,
+                        config.flush_interval_duration,
                     )
                     .await
                 })

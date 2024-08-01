@@ -13,7 +13,10 @@ use {
         File,
     },
     serde::Deserialize,
-    std::path::Path,
+    std::{
+        path::Path,
+        time::Duration,
+    },
 };
 
 /// Configuration for all components of the Agent
@@ -88,6 +91,7 @@ impl Default for ChannelCapacities {
 
 #[derive(Deserialize, Debug)]
 pub struct OpenTelemetryConfig {
-    pub exporter_timeout_secs: u64,
-    pub exporter_endpoint:     String,
+    #[serde(with = "humantime_serde")]
+    pub exporter_timeout_duration: Duration,
+    pub exporter_endpoint:         String,
 }
