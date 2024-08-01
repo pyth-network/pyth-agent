@@ -6,6 +6,18 @@
 # connection is not exposed for unauthorized access.
 listen_address = "127.0.0.1:8910"
 
+# Size of the buffer of each Server's channel on which `notify_price` events are
+# received from the Price state.
+# notify_price_tx_buffer = 10000
+
+# Size of the buffer of each Server's channel on which `notify_price_sched` events are
+# received from the Price state.
+# notify_price_sched_tx_buffer = 10000
+
+# Flush interval for responses and notifications. This is the maximum time the
+# server will wait before flushing the messages to the client.
+# flush_interval_duration = "50ms"
+
 # Configuration for the primary network this agent will publish data to. In most cases this should be a Pythnet endpoint.
 [primary_network]
 ### Required fields ###
