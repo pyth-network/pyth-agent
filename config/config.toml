@@ -198,8 +198,8 @@ key_store.mapping_key = "RelevantOracleMappingAddress"
 ## Configuration for OpenTelemetry ##
 [opentelemetry]
 
-# Timeout in seconds for the OpenTelemetry exporter
-exporter_timeout_secs = 3
+# Timeout duration for the OpenTelemetry exporter
+exporter_timeout_duration = "3s"
 
 # Endpoint URL for the OpenTelemetry exporter
 exporter_endpoint = "http://127.0.0.1:4317"
