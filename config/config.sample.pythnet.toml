@@ -32,38 +32,6 @@ exporter.max_batch_size = 7
 # Duration of the interval at which to publish updates
 exporter.publish_interval_duration = "1s"
 
-# Configuration for the optional secondary network this agent will publish data to.
-# In most cases this should be a Solana endpoint.
-[secondary_network]
-
-# Please use other endpoints as these are rate limited
-rpc_url = "https://api.mainnet-beta.solana.com"
-wss_url = "wss://api.mainnet-beta.solana.com"
-
-# Path to your publishing keypair.
-key_store.publish_keypair_path = "/path/to/keypair.json"
-
-# Oracle program pubkey
-key_store.program_key = "FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH"
-
-# Oracle mapping pubkey
-key_store.mapping_key = "AHtgzX45WTKfkPG53L6WYhGEXwQkN1BVknET3sVsLL8J"
-
-# Compute unit limit requested per instruction for transactions that update the price.
-# This should be an upper bound of the compute units a single upd_price instruction might consume.
-# For solana mainnet, this should be set to 20000 instead of the default 40000 since there is no accumulator.
-exporter.compute_unit_limit = 20000
-
-# Whether the dynamic compute unit pricing is enabled.
-# This is needed for solana to be able to land transactions on the network
-# during periods of high network congestion.
-exporter.dynamic_compute_unit_pricing_enabled = true
-
-# Price per compute unit offered for update_price transactions
-exporter.compute_unit_price_micro_lamports = 1000
-
-exporter.maximum_compute_unit_price_micro_lamports = 100000
-
 # Configuration for the JRPC API
 [pythd_adapter]
 
