@@ -22,7 +22,7 @@ listen_address = "127.0.0.1:8910"
 
 # Flush interval for responses and notifications. This is the maximum time the
 # server will wait before flushing the messages to the client. It will have no
-# effect if `flush_immediately` is set to true.
+# effect if `instant_flush` is set to true.
 # flush_interval_duration = "50ms"
 
 # Configuration for the primary network this agent will publish data to. In most cases this should be a Pythnet endpoint.
