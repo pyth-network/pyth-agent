@@ -14,7 +14,6 @@ use {
     std::{
         io::IsTerminal,
         path::PathBuf,
-        time::Duration,
     },
     tracing_subscriber::{
         prelude::*,
@@ -65,9 +64,7 @@ async fn main() -> Result<()> {
         let otlp_exporter = opentelemetry_otlp::new_exporter()
             .tonic()
             .with_endpoint(&opentelemetry_config.exporter_endpoint)
-            .with_timeout(Duration::from_secs(
-                opentelemetry_config.exporter_timeout_secs,
-            ));
+            .with_timeout(opentelemetry_config.exporter_timeout_duration);
 
         // Set up the OpenTelemetry tracer
         let tracer = opentelemetry_otlp::new_pipeline()

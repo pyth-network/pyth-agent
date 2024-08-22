@@ -6,17 +6,29 @@
 # connection is not exposed for unauthorized access.
 listen_address = "127.0.0.1:8910"
 
+# Size of the buffer of each Server's channel on which `notify_price` events are
+# received from the Price state.
+# notify_price_tx_buffer = 10000
+
+# Size of the buffer of each Server's channel on which `notify_price_sched` events are
+# received from the Price state.
+# notify_price_sched_tx_buffer = 10000
+
+# Flush interval for responses and notifications. This is the maximum time the
+# server will wait before flushing the messages to the client.
+# flush_interval_duration = "50ms"
+
 # Configuration for the primary network this agent will publish data to. In most cases this should be a Pythnet endpoint.
 [primary_network]
 ### Required fields ###
 
-# HTTP(S) endpoint of the RPC node. Public RPC endpoints are usually rate-limited, so a private endpoint should be used in most cases.
-# Note that api.pythtest.pyth.network is a private endpoint: please contact us for access.
+# HTTP(S) endpoint of the RPC node. Public RPC endpoints are usually
+# rate-limited for Pythnet, and so a private endpoint should be used in most
+# cases. For Pythtest, the public endpoint can be used.
 rpc_url = "https://api.pythtest.pyth.network"
 
 # WS(S) endpoint of the RRC node. This is used to subscribe to account changes on the network.
 # This can be omitted when oracle.subscriber_enabled is set to false.
-# Note that api.pythtest.pyth.network is a private endpoint: please contact us for access.
 wss_url = "wss://api.pythtest.pyth.network"
 
 # Path to the keypair used to publish price updates. If set to a
@@ -186,8 +198,8 @@ key_store.mapping_key = "RelevantOracleMappingAddress"
 ## Configuration for OpenTelemetry ##
 [opentelemetry]
 
-# Timeout in seconds for the OpenTelemetry exporter
-exporter_timeout_secs = 3
+# Timeout duration for the OpenTelemetry exporter
+exporter_timeout_duration = "3s"
 
 # Endpoint URL for the OpenTelemetry exporter
 exporter_endpoint = "http://127.0.0.1:4317"

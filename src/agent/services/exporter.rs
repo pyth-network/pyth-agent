@@ -262,7 +262,7 @@ mod exporter {
                             config.exporter.unchanged_publish_threshold,
                         ).await {
                             if let Err(err) = publish_batches(
-                                &*state,
+                                state.clone(),
                                 client.clone(),
                                 network,
                                 &network_state_rx,

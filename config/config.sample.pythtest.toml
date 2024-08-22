@@ -3,12 +3,12 @@ listen_address = "127.0.0.1:8910"
 
 [primary_network]
 
-# HTTP(S) endpoint of the RPC node. Public RPC endpoints are usually rate-limited, so a private
-# endpoint should be used in most cases.
+# HTTP(S) endpoint of the RPC node.
 rpc_url = "https://api.pythtest.pyth.network"
 
-# WS(S) endpoint of the RRC node. This is used to subscribe to account changes on the network.
-# This can be omitted when oracle.subscriber_enabled is set to false.
+# WS(S) endpoint of the RRC node. This is used to subscribe to account changes
+# on the network. This can be omitted when oracle.subscriber_enabled is set to
+# false.
 wss_url = "wss://api.pythtest.pyth.network"
 
 # Path to your publishing keypair.
@@ -27,31 +27,6 @@ key_store.mapping_key = "AFmdnt9ng1uVxqCmqwQJDAYC5cKTkw8gJKSM5PnzuF6z" # conform
 
 # Duration of the interval at which to publish updates
 exporter.publish_interval_duration = "400ms"
-
-# Configuration for the optional secondary network this agent will publish data to.
-# In most cases this should be a Solana endpoint.
-[secondary_network]
-
-# Please use other endpoints as these are rate limited
-rpc_url = "https://api.testnet.solana.com"
-wss_url = "wss://api.testnet.solana.com"
-
-# Path to your publishing keypair.
-key_store.publish_keypair_path = "/path/to/keypair.json"
-
-# Oracle program pubkey
-key_store.program_key = "8tfDNiaEyrV6Q1U4DEXrEigs9DoDtkugzFbybENEbCDz"
-
-# Oracle mapping pubkey
-key_store.mapping_key = "AFmdnt9ng1uVxqCmqwQJDAYC5cKTkw8gJKSM5PnzuF6z"
-
-# Duration of the interval at which to publish updates. Default interval is 1 seconds.
-# exporter.publish_interval_duration = "1s"
-
-# Price per compute unit offered for update_price transactions.
-# This is needed for solana to be able to land transactions on the network
-# during periods of high network congestion.
-exporter.compute_unit_price_micro_lamports = 1000
 
 # Configuration for the JRPC API
 [pythd_adapter]
