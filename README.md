@@ -34,57 +34,21 @@ through the `RUST_LOG` environment variable using the standard
 `error|warn|info|debug|trace`.
 
 #### Plain/JSON logging
-By default, pyth-agent will print plaintext log statements. This can be switched to structured JSON output with `-l json`.
-
-#### Code location in logs
-For debugging purposes, you can specify `-L` to print file/line information with each log statement. This option is disabled by default.
-
-### Key Store Config Migration [v1.x.x LEGACY]
-Pyth agent v2.0.0 introduces a simplified program and mapping key configuration. This breaking change alters how you define program/mapping key options in your agent config:
-```toml
-# Old v1.x.x way
-[primary network]
-key_store.root_path = "/path/to/keystore"
-key_store.publish_keypair_path = "publish_key_pair.json" # Relative path from root_path, "publish_key_pair.json" by default
-key_store.program_key_path = "program_key.json" # Relative path from root_path, "program_key.json" by default
-key_store.mapping_key_path = "mapping_key.json" # Relative path from root_path, "mapping_key.json" by default
-
-# [...]
-
-# New v2.0.0 way
-[primary_network]
-key_store.publish_keypair_path = "/path/to/keypair.json" # The root_path is gone, we specify the full path
-# Not using separate files anymore
-key_store.program_key = "LiteralProgramPubkeyInsideTheConfig" # contents of legacy program_key.json;
-key_store.mapping_key = "LiteralMappingPubkeyInsideTheConfig" # contents of legacy mapping_key.json
-
-# [...]
-
-```
-
-#### Automatic Migration
-If you are upgrading to agent v2.0.0 with an existing config, you can use the provided automatic migrator program:
-```shell
-# Build
-$ cargo build --release
-# Run the migrator, making sure that the key store with previous keys is reachable
-$ target/release/agent-migrate-config -c <existing_config_file>.toml > my_new_config.toml
-```
-
-#### `Could not open {mapping|program|...} key file`
-This error can appear if some of your program/mapping/publish key
-files are not reachable under their `key_store.*` setting values.
-
-Ensure that your current working directory is correct for reaching the
-key store path inside your config. You may also migrate manually by
-changing `key_store.*_key_path` and `key_store.publish_keypair_path`
-options by hand, as described in the config example above.
+Pyth agent will print logs in plaintext in terminal and JSON format in non-terminal environments (e.g. when writing to a file).
 
 ## Run
 `cargo run --release -- --config <your_config.toml>` will build and run the agent in a single step.
 
 ## Publishing API
 A running agent will expose a WebSocket serving the JRPC publishing API documented [here](https://docs.pyth.network/documentation/publish-data/pyth-client-websocket-api). See `config/config.toml` for related settings.
+
+## Best practices
+If your publisher is publishing updates to more than 50 price feeds, it is recommended that you do the following to reduce the connection overhead to the agent:
+- Batch your messages together and send them as a single request to the agent (as an array of messages). The agent will respond to the batch messages
+  with a single response containing an array of individual responses (in the same order). If batching is not possible, you can disable the `instant_flush` option
+  in the configuration file to let agent send the responses every `flush_interval` seconds.
+- Do not use subscribe to the price schedule. Instead, define a schedule on the client side and send the messages based on your own schedule. Ideally
+  you should send price updates as soon as you have them to increase the latency of the data on the Pyth Network.
 
 # Development
 ## Unit Testing
