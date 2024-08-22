@@ -14,8 +14,15 @@ listen_address = "127.0.0.1:8910"
 # received from the Price state.
 # notify_price_sched_tx_buffer = 10000
 
+# Whether flush messages and responses to the client immediately. Once disabled the
+# messages will be flushed every `flush_interval_duration`. Disabling it is useful if
+# there are many messages to be sent between the client and the server to avoid overloading
+# the connection.
+# instant_flush = true
+
 # Flush interval for responses and notifications. This is the maximum time the
-# server will wait before flushing the messages to the client.
+# server will wait before flushing the messages to the client. It will have no
+# effect if `instant_flush` is set to true.
 # flush_interval_duration = "50ms"
 
 # Configuration for the primary network this agent will publish data to. In most cases this should be a Pythnet endpoint.
