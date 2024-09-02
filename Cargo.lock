@@ -3405,6 +3405,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bincode",
+ "bytemuck",
  "chrono",
  "chrono-tz",
  "clap 4.5.4",
@@ -3423,6 +3424,7 @@ dependencies = [
  "portpicker",
  "prometheus-client",
  "proptest",
+ "pyth-price-publisher",
  "pyth-sdk",
  "pyth-sdk-solana",
  "rand 0.8.5",
@@ -3445,6 +3447,15 @@ dependencies = [
  "typed-html",
  "warp",
  "winnow 0.6.5",
+]
+
+[[package]]
+name = "pyth-price-publisher"
+version = "0.1.0"
+source = "git+https://github.com/pyth-network/pyth-crosschain?branch=add-publisher-program#e487dfd7523422169011fd8344863d389ea04427"
+dependencies = [
+ "bytemuck",
+ "thiserror",
 ]
 
 [[package]]

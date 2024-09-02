@@ -73,7 +73,7 @@ where
                     config.clone(),
                     network,
                     state.clone(),
-                    key_store.program_key,
+                    key_store.oracle_program_key,
                 )
                 .await
                 {

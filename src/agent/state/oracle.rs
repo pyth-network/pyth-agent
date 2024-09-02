@@ -61,6 +61,7 @@ pub struct ProductEntry {
 pub struct PricePublishingMetadata {
     pub schedule:         MarketSchedule,
     pub publish_interval: Option<Duration>,
+    pub feed_index:       u32,
 }
 
 /// This shim is used to abstract over SolanaPriceAccount and PythnetPriceAccount so we
@@ -294,6 +295,8 @@ where
                     PricePublishingMetadata {
                         schedule:         prod_entry.schedule.clone(),
                         publish_interval: prod_entry.publish_interval,
+                        // TODO: update sdk
+                        feed_index:       price_entry.drv4,
                     }
                 } else {
                     tracing::warn!(
