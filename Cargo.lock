@@ -3463,9 +3463,9 @@ dependencies = [
 
 [[package]]
 name = "pyth-sdk-solana"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f913de6eb29d8def199af3beaee645e84c5281327d58777eff3fdd9f1d37105"
+checksum = "a9301b3c3db3766fd1dd0c5769a706d886265b3f56772ac279365bdd807d3076"
 dependencies = [
  "borsh 0.10.3",
  "borsh-derive 0.10.3",
