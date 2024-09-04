@@ -1,6 +1,6 @@
 [package]
 name = "pyth-agent"
-version = "2.10.4"
+version = "2.10.5"
 edition = "2021"
 
 [[bin]]
