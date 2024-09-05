@@ -56,7 +56,7 @@ tracing-opentelemetry = "0.24.0"
 opentelemetry = "0.23.0"
 opentelemetry_sdk = { version = "0.23.0", features = ["rt-tokio"]}
 opentelemetry-otlp = { version = "0.16.0" }
-pyth-price-publisher = { git = "https://github.com/pyth-network/pyth-crosschain", branch = "add-publisher-program" }
+pyth-price-publisher = { git = "https://github.com/pyth-network/pyth-crosschain", rev = "4df7172b" }
 bytemuck = "1.13.0"
 
 [dev-dependencies]

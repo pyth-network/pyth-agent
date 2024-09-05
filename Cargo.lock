@@ -3452,7 +3452,7 @@ dependencies = [
 [[package]]
 name = "pyth-price-publisher"
 version = "0.1.0"
-source = "git+https://github.com/pyth-network/pyth-crosschain?branch=add-publisher-program#e487dfd7523422169011fd8344863d389ea04427"
+source = "git+https://github.com/pyth-network/pyth-crosschain?rev=4df7172b#4df7172b85f9d1b65b117c58652e945a219f8b82"
 dependencies = [
  "bytemuck",
  "thiserror",

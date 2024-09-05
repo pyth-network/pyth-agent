@@ -270,6 +270,7 @@ mod exporter {
                                 &publish_keypair,
                                 key_store.oracle_program_key,
                                 key_store.publish_program_key,
+                                key_store.publisher_buffer_key,
                                 config.exporter.max_batch_size,
                                 config.exporter.staleness_threshold,
                                 config.exporter.compute_unit_limit,

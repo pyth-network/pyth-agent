@@ -15,15 +15,13 @@ use {
         },
     },
     anyhow::{
-        anyhow,
-        Context,
-        Result,
+        anyhow, bail, Context, Result
     },
     bincode::Options,
-    bytemuck::cast_slice,
+    bytemuck::{bytes_of, cast_slice},
     chrono::Utc,
     futures_util::future::join_all,
-    pyth_price_publisher::accounts::publisher_prices::PublisherPrice,
+    pyth_price_publisher::accounts::buffer::BufferedPrice,
     pyth_sdk::Identifier,
     pyth_sdk_solana::state::PriceStatus,
     serde::Serialize,
@@ -451,6 +449,7 @@ pub async fn publish_batches<S>(
     publish_keypair: &Keypair,
     oracle_program_key: Pubkey,
     publish_program_key: Option<Pubkey>,
+    publisher_buffer_key: Option<Pubkey>,
     max_batch_size: usize,
     staleness_threshold: Duration,
     compute_unit_limit: u32,
@@ -489,6 +488,7 @@ where
             publish_keypair,
             oracle_program_key,
             publish_program_key,
+            publisher_buffer_key,
             batch,
             staleness_threshold,
             compute_unit_limit,
@@ -533,6 +533,7 @@ async fn publish_batch<S>(
     publish_keypair: &Keypair,
     oracle_program_key: Pubkey,
     publish_program_key: Option<Pubkey>,
+    publisher_buffer_key: Option<Pubkey>,
     batch: &[PermissionedUpdate],
     staleness_threshold: Duration,
     compute_unit_limit: u32,
@@ -576,35 +577,36 @@ where
     }
 
     if let Some(publish_program_key) = publish_program_key {
-        let (instruction, unsupported_updates) = create_instruction_with_publish_program(
+        let instruction = create_instruction_with_publish_program(
             publish_keypair.pubkey(),
             publish_program_key,
+            publisher_buffer_key.context("must specify publisher_buffer_key if publish_program_key is specified")?,
             updates,
         )?;
-        updates = unsupported_updates;
         instructions.push(instruction);
-    }
-    for update in updates {
-        let instruction = if let Some(accumulator_program_key) = accumulator_key {
-            create_instruction_with_accumulator(
-                publish_keypair.pubkey(),
-                oracle_program_key,
-                Pubkey::from(update.feed_id.to_bytes()),
-                &update.info,
-                network_state.current_slot,
-                accumulator_program_key,
-            )?
-        } else {
-            create_instruction_without_accumulator(
-                publish_keypair.pubkey(),
-                oracle_program_key,
-                Pubkey::from(update.feed_id.to_bytes()),
-                &update.info,
-                network_state.current_slot,
-            )?
-        };
+    } else {
+        for update in updates {
+            let instruction = if let Some(accumulator_program_key) = accumulator_key {
+                create_instruction_with_accumulator(
+                    publish_keypair.pubkey(),
+                    oracle_program_key,
+                    Pubkey::from(update.feed_id.to_bytes()),
+                    &update.info,
+                    network_state.current_slot,
+                    accumulator_program_key,
+                )?
+            } else {
+                create_instruction_without_accumulator(
+                    publish_keypair.pubkey(),
+                    oracle_program_key,
+                    Pubkey::from(update.feed_id.to_bytes()),
+                    &update.info,
+                    network_state.current_slot,
+                )?
+            };
 
-        instructions.push(instruction);
+            instructions.push(instruction);
+        }
     }
 
     // Pay priority fees, if configured
@@ -800,28 +802,31 @@ fn create_instruction_without_accumulator(
 fn create_instruction_with_publish_program(
     publish_pubkey: Pubkey,
     publish_program_key: Pubkey,
+    publisher_buffer_key: Pubkey,
     prices: Vec<PermissionedUpdate>,
-) -> Result<(Instruction, Vec<PermissionedUpdate>)> {
-    let mut unsupported_updates = Vec::new();
-    let (buffer_key, _buffer_bump) = Pubkey::find_program_address(
-        &["BUFFER".as_bytes(), &publish_pubkey.to_bytes()],
+) -> Result<Instruction> {
+    use pyth_price_publisher::instruction::{Instruction as PublishInstruction, SubmitPricesArgsHeader, PUBLISHER_CONFIG_SEED};
+    let (publisher_config_key, publisher_config_bump) = Pubkey::find_program_address(
+        &[PUBLISHER_CONFIG_SEED.as_bytes(), &publish_pubkey.to_bytes()],
         &publish_program_key,
     );
 
     let mut values = Vec::new();
     for update in prices {
         if update.feed_index == 0 {
-            unsupported_updates.push(update);
-        } else {
-            values.push(PublisherPrice::new(
-                update.feed_index,
-                (update.info.status as u8).into(),
-                update.info.price,
-                update.info.conf,
-            )?);
+            bail!("no feed index for feed {:?}", update.feed_id);
         }
+        values.push(BufferedPrice::new(
+            update.feed_index,
+            (update.info.status as u8).into(),
+            update.info.price,
+            update.info.conf,
+        )?);
     }
-    let mut data = vec![1];
+    let mut data = vec![PublishInstruction::SubmitPrices as u8];
+    data.extend_from_slice(bytes_of(&SubmitPricesArgsHeader {
+        publisher_config_bump,
+    }));
     data.extend(cast_slice(&values));
 
     let instruction = Instruction {
@@ -833,14 +838,19 @@ fn create_instruction_with_publish_program(
                 is_writable: true,
             },
             AccountMeta {
-                pubkey:      buffer_key,
+                pubkey:      publisher_config_key,
+                is_signer:   false,
+                is_writable: false,
+            },
+            AccountMeta {
+                pubkey:      publisher_buffer_key,
                 is_signer:   false,
                 is_writable: true,
             },
         ],
         data,
     };
-    Ok((instruction, unsupported_updates))
+    Ok(instruction)
 }
 
 fn create_instruction_with_accumulator(
