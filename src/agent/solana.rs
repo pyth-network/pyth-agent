@@ -103,13 +103,6 @@ pub mod key_store {
             default
         )]
         pub publish_program_key:  Option<Pubkey>,
-        /// The public key of the publisher's buffer for the Publish program
-        #[serde(
-            serialize_with = "opt_pubkey_string_ser",
-            deserialize_with = "opt_pubkey_string_de",
-            default
-        )]
-        pub publisher_buffer_key: Option<Pubkey>,
         /// The public key of the root mapping account
         #[serde(
             serialize_with = "pubkey_string_ser",
@@ -129,18 +122,15 @@ pub mod key_store {
         /// The keypair used to publish price updates. When None,
         /// publishing will not start until a new keypair is supplied
         /// via the remote loading endpoint
-        pub publish_keypair:      Option<Keypair>,
+        pub publish_keypair:     Option<Keypair>,
         /// Public key of the Oracle program
-        pub oracle_program_key:   Pubkey,
+        pub oracle_program_key:  Pubkey,
         /// Public key of the Publish program
-        pub publish_program_key:  Option<Pubkey>,
-        /// Public key of the publisher's buffer for the publish program
-        pub publisher_buffer_key: Option<Pubkey>,
-
+        pub publish_program_key: Option<Pubkey>,
         /// Public key of the root mapping account
-        pub mapping_key:     Pubkey,
+        pub mapping_key:         Pubkey,
         /// Public key of the accumulator program (if provided)
-        pub accumulator_key: Option<Pubkey>,
+        pub accumulator_key:     Option<Pubkey>,
     }
 
     impl KeyStore {
@@ -161,7 +151,6 @@ pub mod key_store {
                 publish_keypair,
                 oracle_program_key: config.oracle_program_key,
                 publish_program_key: config.publish_program_key,
-                publisher_buffer_key: config.publisher_buffer_key,
                 mapping_key: config.mapping_key,
                 accumulator_key: config.accumulator_key,
             })

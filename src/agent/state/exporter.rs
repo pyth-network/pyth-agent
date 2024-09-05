@@ -15,10 +15,16 @@ use {
         },
     },
     anyhow::{
-        anyhow, bail, Context, Result
+        anyhow,
+        bail,
+        Context,
+        Result,
     },
     bincode::Options,
-    bytemuck::{bytes_of, cast_slice},
+    bytemuck::{
+        bytes_of,
+        cast_slice,
+    },
     chrono::Utc,
     futures_util::future::join_all,
     pyth_price_publisher::accounts::buffer::BufferedPrice,
@@ -81,6 +87,8 @@ pub struct ExporterState {
     /// Currently known permissioned prices of this publisher along with their market hours
     our_prices: RwLock<HashMap<Pubkey, PricePublishingMetadata>>,
 
+    publisher_buffer_key: RwLock<Option<Pubkey>>,
+
     /// Recent compute unit price in micro lamports (set if dynamic compute unit pricing is enabled)
     recent_compute_unit_price_micro_lamports: RwLock<Option<u64>>,
 }
@@ -106,6 +114,7 @@ where
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
     ) -> Result<Vec<PermissionedUpdate>>;
+    async fn get_publisher_buffer_key(&self) -> Option<Pubkey>;
     async fn get_recent_compute_unit_price_micro_lamports(&self) -> Option<u64>;
     async fn update_recent_compute_unit_price(
         &self,
@@ -114,11 +123,12 @@ where
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
     ) -> Result<()>;
-    async fn update_permissions(
+    async fn update_on_chain_state(
         &self,
         network: Network,
         publish_keypair: Option<&Keypair>,
         publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
+        publisher_buffer_key: Option<Pubkey>,
     ) -> Result<()>;
 }
 
@@ -267,6 +277,10 @@ where
             .collect::<Vec<_>>())
     }
 
+    async fn get_publisher_buffer_key(&self) -> Option<Pubkey> {
+        *self.into().publisher_buffer_key.read().await
+    }
+
     async fn get_recent_compute_unit_price_micro_lamports(&self) -> Option<u64> {
         *self
             .into()
@@ -313,11 +327,12 @@ where
     }
 
     #[instrument(skip(self, publish_keypair, publisher_permissions))]
-    async fn update_permissions(
+    async fn update_on_chain_state(
         &self,
         network: Network,
         publish_keypair: Option<&Keypair>,
         publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
+        publisher_buffer_key: Option<Pubkey>,
     ) -> Result<()> {
         let publish_keypair = get_publish_keypair(self, network, publish_keypair).await?;
         *self.into().our_prices.write().await = publisher_permissions
@@ -330,6 +345,7 @@ where
                 );
                 HashMap::new()
             });
+        *self.into().publisher_buffer_key.write().await = publisher_buffer_key;
 
         Ok(())
     }
@@ -580,7 +596,8 @@ where
         let instruction = create_instruction_with_publish_program(
             publish_keypair.pubkey(),
             publish_program_key,
-            publisher_buffer_key.context("must specify publisher_buffer_key if publish_program_key is specified")?,
+            publisher_buffer_key
+                .context("must specify publisher_buffer_key if publish_program_key is specified")?,
             updates,
         )?;
         instructions.push(instruction);
@@ -805,7 +822,11 @@ fn create_instruction_with_publish_program(
     publisher_buffer_key: Pubkey,
     prices: Vec<PermissionedUpdate>,
 ) -> Result<Instruction> {
-    use pyth_price_publisher::instruction::{Instruction as PublishInstruction, SubmitPricesArgsHeader, PUBLISHER_CONFIG_SEED};
+    use pyth_price_publisher::instruction::{
+        Instruction as PublishInstruction,
+        SubmitPricesArgsHeader,
+        PUBLISHER_CONFIG_SEED,
+    };
     let (publisher_config_key, publisher_config_bump) = Pubkey::find_program_address(
         &[PUBLISHER_CONFIG_SEED.as_bytes(), &publish_pubkey.to_bytes()],
         &publish_program_key,
