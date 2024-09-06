@@ -87,7 +87,7 @@ key_store.mapping_key = "RelevantOracleMappingAddress"
 # Wait at least this long before publishing an unchanged price
 # state; unchanged price state means only timestamp has changed
 # with other state identical to last published state.
-# exporter.unchanged_publish_threshold = "5s"
+# exporter.unchanged_publish_threshold = "3s"
 
 # Maximum size of a batch
 # exporter.max_batch_size = 12
