@@ -18,7 +18,7 @@ use {
         Context,
         Result,
     },
-    pyth_price_publisher::instruction::PUBLISHER_CONFIG_SEED,
+    pyth_price_store::instruction::PUBLISHER_CONFIG_SEED,
     pyth_sdk_solana::state::{
         load_mapping_account,
         load_product_account,
@@ -407,7 +407,7 @@ async fn fetch_publisher_buffer_key(
         &publish_program_key,
     );
     let data = rpc_client.get_account_data(&publisher_config_key).await?;
-    let config = pyth_price_publisher::accounts::publisher_config::read(&data)?;
+    let config = pyth_price_store::accounts::publisher_config::read(&data)?;
     Ok(config.buffer_account.into())
 }
 

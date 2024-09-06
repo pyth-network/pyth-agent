@@ -3424,7 +3424,7 @@ dependencies = [
  "portpicker",
  "prometheus-client",
  "proptest",
- "pyth-price-publisher",
+ "pyth-price-store",
  "pyth-sdk",
  "pyth-sdk-solana",
  "rand 0.8.5",
@@ -3450,9 +3450,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "pyth-price-publisher"
+name = "pyth-price-store"
 version = "0.1.0"
-source = "git+https://github.com/pyth-network/pyth-crosschain?rev=4df7172b#4df7172b85f9d1b65b117c58652e945a219f8b82"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bbb76932606741e8b690d51d3e78df620df4a13474a2ca5f53ded5f70522cdc"
 dependencies = [
  "bytemuck",
  "thiserror",

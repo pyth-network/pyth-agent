@@ -27,7 +27,7 @@ use {
     },
     chrono::Utc,
     futures_util::future::join_all,
-    pyth_price_publisher::accounts::buffer::BufferedPrice,
+    pyth_price_store::accounts::buffer::BufferedPrice,
     pyth_sdk::Identifier,
     pyth_sdk_solana::state::PriceStatus,
     serde::Serialize,
@@ -822,7 +822,7 @@ fn create_instruction_with_publish_program(
     publisher_buffer_key: Pubkey,
     prices: Vec<PermissionedUpdate>,
 ) -> Result<Instruction> {
-    use pyth_price_publisher::instruction::{
+    use pyth_price_store::instruction::{
         Instruction as PublishInstruction,
         SubmitPricesArgsHeader,
         PUBLISHER_CONFIG_SEED,
