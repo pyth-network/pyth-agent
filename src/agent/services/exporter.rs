@@ -46,6 +46,7 @@ pub struct Config {
     /// Wait at least this long before publishing an unchanged price
     /// state; unchanged price state means only timestamp has changed
     /// with other state identical to last published state.
+    #[serde(with = "humantime_serde")]
     pub unchanged_publish_threshold:                     Duration,
     /// Maximum size of a batch
     pub max_batch_size:                                  usize,
