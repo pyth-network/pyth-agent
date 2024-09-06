@@ -81,7 +81,7 @@ impl Default for Config {
             refresh_network_state_interval_duration:         Duration::from_millis(200),
             publish_interval_duration:                       Duration::from_secs(1),
             staleness_threshold:                             Duration::from_secs(5),
-            unchanged_publish_threshold:                     Duration::from_secs(5),
+            unchanged_publish_threshold:                     Duration::from_secs(3),
             max_batch_size:                                  12,
             inflight_transactions_channel_capacity:          10000,
             transaction_monitor:                             Default::default(),
