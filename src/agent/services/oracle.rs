@@ -62,6 +62,7 @@ where
         state.clone(),
         key_store.mapping_key,
         key_store.publish_keypair,
+        key_store.publish_program_key,
         config.oracle.max_lookup_batch_size,
     )));
 
@@ -73,7 +74,7 @@ where
                     config.clone(),
                     network,
                     state.clone(),
-                    key_store.program_key,
+                    key_store.oracle_program_key,
                 )
                 .await
                 {
@@ -159,6 +160,7 @@ async fn poller<S>(
     state: Arc<S>,
     mapping_key: Pubkey,
     publish_keypair: Option<Keypair>,
+    publish_program_key: Option<Pubkey>,
     max_lookup_batch_size: usize,
 ) where
     S: Oracle,
@@ -183,6 +185,7 @@ async fn poller<S>(
                 network,
                 mapping_key,
                 publish_keypair.as_ref(),
+                publish_program_key,
                 &client,
                 max_lookup_batch_size,
             )

@@ -18,6 +18,7 @@ use {
         Context,
         Result,
     },
+    pyth_price_store::instruction::PUBLISHER_CONFIG_SEED,
     pyth_sdk_solana::state::{
         load_mapping_account,
         load_product_account,
@@ -37,6 +38,7 @@ use {
         commitment_config::CommitmentLevel,
         pubkey::Pubkey,
         signature::Keypair,
+        signer::Signer,
     },
     std::{
         collections::{
@@ -61,6 +63,7 @@ pub struct ProductEntry {
 pub struct PricePublishingMetadata {
     pub schedule:         MarketSchedule,
     pub publish_interval: Option<Duration>,
+    pub feed_index:       u32,
 }
 
 /// This shim is used to abstract over SolanaPriceAccount and PythnetPriceAccount so we
@@ -134,6 +137,7 @@ pub struct Data {
     pub price_accounts:        HashMap<Pubkey, PriceEntry>,
     /// publisher => {their permissioned price accounts => price publishing metadata}
     pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
+    pub publisher_buffer_key:  Option<Pubkey>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -192,6 +196,7 @@ pub trait Oracle {
         network: Network,
         mapping_key: Pubkey,
         publish_keypair: Option<&Keypair>,
+        publish_program_key: Option<Pubkey>,
         rpc_client: &RpcClient,
         max_lookup_batch_size: usize,
     ) -> Result<()>;
@@ -266,6 +271,7 @@ where
         network: Network,
         mapping_key: Pubkey,
         publish_keypair: Option<&Keypair>,
+        publish_program_key: Option<Pubkey>,
         rpc_client: &RpcClient,
         max_lookup_batch_size: usize,
     ) -> Result<()> {
@@ -294,6 +300,8 @@ where
                     PricePublishingMetadata {
                         schedule:         prod_entry.schedule.clone(),
                         publish_interval: prod_entry.publish_interval,
+                        // TODO: update sdk
+                        feed_index:       price_entry.drv4,
                     }
                 } else {
                     tracing::warn!(
@@ -308,22 +316,44 @@ where
             }
         }
 
+        let mut publisher_buffer_key = None;
+        if let (Some(publish_program_key), Some(publish_keypair)) =
+            (publish_program_key, publish_keypair)
+        {
+            match fetch_publisher_buffer_key(
+                rpc_client,
+                publish_program_key,
+                publish_keypair.pubkey(),
+            )
+            .await
+            {
+                Ok(r) => {
+                    publisher_buffer_key = Some(r);
+                }
+                Err(err) => {
+                    tracing::warn!("failed to fetch publisher buffer key: {:?}", err);
+                }
+            }
+        }
+
         let new_data = Data {
             mapping_accounts,
             product_accounts,
             price_accounts,
             publisher_permissions,
+            publisher_buffer_key,
         };
 
         let mut data = self.into().data.write().await;
         log_data_diff(&data, &new_data);
         *data = new_data;
 
-        Exporter::update_permissions(
+        Exporter::update_on_chain_state(
             self,
             network,
             publish_keypair,
             data.publisher_permissions.clone(),
+            data.publisher_buffer_key,
         )
         .await?;
 
@@ -362,6 +392,23 @@ where
         }
         Ok(())
     }
+}
+
+async fn fetch_publisher_buffer_key(
+    rpc_client: &RpcClient,
+    publish_program_key: Pubkey,
+    publisher_pubkey: Pubkey,
+) -> Result<Pubkey> {
+    let (publisher_config_key, _bump) = Pubkey::find_program_address(
+        &[
+            PUBLISHER_CONFIG_SEED.as_bytes(),
+            &publisher_pubkey.to_bytes(),
+        ],
+        &publish_program_key,
+    );
+    let data = rpc_client.get_account_data(&publisher_config_key).await?;
+    let config = pyth_price_store::accounts::publisher_config::read(&data)?;
+    Ok(config.buffer_account.into())
 }
 
 #[instrument(skip(rpc_client))]

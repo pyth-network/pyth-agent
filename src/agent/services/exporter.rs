@@ -262,6 +262,7 @@ mod exporter {
                             config.exporter.staleness_threshold,
                             config.exporter.unchanged_publish_threshold,
                         ).await {
+                            let publisher_buffer_key = Exporter::get_publisher_buffer_key(&*state).await;
                             if let Err(err) = publish_batches(
                                 state.clone(),
                                 client.clone(),
@@ -269,7 +270,9 @@ mod exporter {
                                 &network_state_rx,
                                 key_store.accumulator_key,
                                 &publish_keypair,
-                                key_store.program_key,
+                                key_store.oracle_program_key,
+                                key_store.publish_program_key,
+                                publisher_buffer_key,
                                 config.exporter.max_batch_size,
                                 config.exporter.staleness_threshold,
                                 config.exporter.compute_unit_limit,
