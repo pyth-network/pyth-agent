@@ -463,8 +463,8 @@ pub async fn publish_batches<S>(
     network_state_rx: &watch::Receiver<NetworkState>,
     accumulator_key: Option<Pubkey>,
     publish_keypair: &Keypair,
-    oracle_program_key: Pubkey,
-    publish_program_key: Option<Pubkey>,
+    pyth_oracle_program_key: Pubkey,
+    pyth_price_store_program_key: Option<Pubkey>,
     publisher_buffer_key: Option<Pubkey>,
     max_batch_size: usize,
     staleness_threshold: Duration,
@@ -502,8 +502,8 @@ where
             network_state,
             accumulator_key,
             publish_keypair,
-            oracle_program_key,
-            publish_program_key,
+            pyth_oracle_program_key,
+            pyth_price_store_program_key,
             publisher_buffer_key,
             batch,
             staleness_threshold,
@@ -547,8 +547,8 @@ async fn publish_batch<S>(
     network_state: NetworkState,
     accumulator_key: Option<Pubkey>,
     publish_keypair: &Keypair,
-    oracle_program_key: Pubkey,
-    publish_program_key: Option<Pubkey>,
+    pyth_oracle_program_key: Pubkey,
+    pyth_price_store_program_key: Option<Pubkey>,
     publisher_buffer_key: Option<Pubkey>,
     batch: &[PermissionedUpdate],
     staleness_threshold: Duration,
@@ -592,12 +592,11 @@ where
         updates.push(update);
     }
 
-    if let Some(publish_program_key) = publish_program_key {
-        let instruction = create_instruction_with_publish_program(
+    if let Some(pyth_price_store_program_key) = pyth_price_store_program_key {
+        let instruction = create_instruction_with_price_store_program(
             publish_keypair.pubkey(),
-            publish_program_key,
-            publisher_buffer_key
-                .context("must specify publisher_buffer_key if publish_program_key is specified")?,
+            pyth_price_store_program_key,
+            publisher_buffer_key.context("failed to fetch publisher buffer key")?,
             updates,
         )?;
         instructions.push(instruction);
@@ -606,7 +605,7 @@ where
             let instruction = if let Some(accumulator_program_key) = accumulator_key {
                 create_instruction_with_accumulator(
                     publish_keypair.pubkey(),
-                    oracle_program_key,
+                    pyth_oracle_program_key,
                     Pubkey::from(update.feed_id.to_bytes()),
                     &update.info,
                     network_state.current_slot,
@@ -615,7 +614,7 @@ where
             } else {
                 create_instruction_without_accumulator(
                     publish_keypair.pubkey(),
-                    oracle_program_key,
+                    pyth_oracle_program_key,
                     Pubkey::from(update.feed_id.to_bytes()),
                     &update.info,
                     network_state.current_slot,
@@ -775,13 +774,13 @@ where
 
 fn create_instruction_without_accumulator(
     publish_pubkey: Pubkey,
-    oracle_program_key: Pubkey,
+    pyth_oracle_program_key: Pubkey,
     price_id: Pubkey,
     price_info: &PriceInfo,
     current_slot: u64,
 ) -> Result<Instruction> {
     Ok(Instruction {
-        program_id: oracle_program_key,
+        program_id: pyth_oracle_program_key,
         accounts:   vec![
             AccountMeta {
                 pubkey:      publish_pubkey,
@@ -816,9 +815,9 @@ fn create_instruction_without_accumulator(
     })
 }
 
-fn create_instruction_with_publish_program(
+fn create_instruction_with_price_store_program(
     publish_pubkey: Pubkey,
-    publish_program_key: Pubkey,
+    pyth_price_store_program_key: Pubkey,
     publisher_buffer_key: Pubkey,
     prices: Vec<PermissionedUpdate>,
 ) -> Result<Instruction> {
@@ -829,7 +828,7 @@ fn create_instruction_with_publish_program(
     };
     let (publisher_config_key, publisher_config_bump) = Pubkey::find_program_address(
         &[PUBLISHER_CONFIG_SEED.as_bytes(), &publish_pubkey.to_bytes()],
-        &publish_program_key,
+        &pyth_price_store_program_key,
     );
 
     let mut values = Vec::new();
@@ -851,7 +850,7 @@ fn create_instruction_with_publish_program(
     data.extend(cast_slice(&values));
 
     let instruction = Instruction {
-        program_id: publish_program_key,
+        program_id: pyth_price_store_program_key,
         accounts: vec![
             AccountMeta {
                 pubkey:      publish_pubkey,
@@ -876,7 +875,7 @@ fn create_instruction_with_publish_program(
 
 fn create_instruction_with_accumulator(
     publish_pubkey: Pubkey,
-    oracle_program_key: Pubkey,
+    pyth_oracle_program_key: Pubkey,
     price_id: Pubkey,
     price_info: &PriceInfo,
     current_slot: u64,
@@ -889,7 +888,7 @@ fn create_instruction_with_accumulator(
 
     let (oracle_auth_pda, _) = Pubkey::find_program_address(
         &[b"upd_price_write", &accumulator_program_key.to_bytes()],
-        &oracle_program_key,
+        &pyth_oracle_program_key,
     );
 
     let (accumulator_data_pubkey, _accumulator_data_pubkey) = Pubkey::find_program_address(
@@ -902,7 +901,7 @@ fn create_instruction_with_accumulator(
     );
 
     Ok(Instruction {
-        program_id: oracle_program_key,
+        program_id: pyth_oracle_program_key,
         accounts:   vec![
             AccountMeta {
                 pubkey:      publish_pubkey,
