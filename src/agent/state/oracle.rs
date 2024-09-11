@@ -196,7 +196,7 @@ pub trait Oracle {
         network: Network,
         mapping_key: Pubkey,
         publish_keypair: Option<&Keypair>,
-        publish_program_key: Option<Pubkey>,
+        pyth_price_store_program_key: Option<Pubkey>,
         rpc_client: &RpcClient,
         max_lookup_batch_size: usize,
     ) -> Result<()>;
@@ -271,7 +271,7 @@ where
         network: Network,
         mapping_key: Pubkey,
         publish_keypair: Option<&Keypair>,
-        publish_program_key: Option<Pubkey>,
+        pyth_price_store_program_key: Option<Pubkey>,
         rpc_client: &RpcClient,
         max_lookup_batch_size: usize,
     ) -> Result<()> {
@@ -317,12 +317,12 @@ where
         }
 
         let mut publisher_buffer_key = None;
-        if let (Some(publish_program_key), Some(publish_keypair)) =
-            (publish_program_key, publish_keypair)
+        if let (Some(pyth_price_store_program_key), Some(publish_keypair)) =
+            (pyth_price_store_program_key, publish_keypair)
         {
             match fetch_publisher_buffer_key(
                 rpc_client,
-                publish_program_key,
+                pyth_price_store_program_key,
                 publish_keypair.pubkey(),
             )
             .await
@@ -396,7 +396,7 @@ where
 
 async fn fetch_publisher_buffer_key(
     rpc_client: &RpcClient,
-    publish_program_key: Pubkey,
+    pyth_price_store_program_key: Pubkey,
     publisher_pubkey: Pubkey,
 ) -> Result<Pubkey> {
     let (publisher_config_key, _bump) = Pubkey::find_program_address(
@@ -404,7 +404,7 @@ async fn fetch_publisher_buffer_key(
             PUBLISHER_CONFIG_SEED.as_bytes(),
             &publisher_pubkey.to_bytes(),
         ],
-        &publish_program_key,
+        &pyth_price_store_program_key,
     );
     let data = rpc_client.get_account_data(&publisher_config_key).await?;
     let config = pyth_price_store::accounts::publisher_config::read(&data)?;

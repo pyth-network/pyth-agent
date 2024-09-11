@@ -88,49 +88,49 @@ pub mod key_store {
         /// to a non-existent file path, the system expects a keypair
         /// to be loaded via the remote keypair loader. If the path is
         /// valid, the remote keypair loading is disabled.
-        pub publish_keypair_path: PathBuf,
+        pub publish_keypair_path:         PathBuf,
         /// The public key of the Oracle program
         #[serde(
             serialize_with = "pubkey_string_ser",
             deserialize_with = "pubkey_string_de",
             alias = "program_key" // for compatibility
         )]
-        pub oracle_program_key:   Pubkey,
-        /// The public key of the Publish program
+        pub pyth_oracle_program_key:      Pubkey,
+        /// The public key of the pyth-price-store program
         #[serde(
             serialize_with = "opt_pubkey_string_ser",
             deserialize_with = "opt_pubkey_string_de",
             default
         )]
-        pub publish_program_key:  Option<Pubkey>,
+        pub pyth_price_store_program_key: Option<Pubkey>,
         /// The public key of the root mapping account
         #[serde(
             serialize_with = "pubkey_string_ser",
             deserialize_with = "pubkey_string_de"
         )]
-        pub mapping_key:          Pubkey,
+        pub mapping_key:                  Pubkey,
         /// The public key of the accumulator program.
         #[serde(
             serialize_with = "opt_pubkey_string_ser",
             deserialize_with = "opt_pubkey_string_de",
             default
         )]
-        pub accumulator_key:      Option<Pubkey>,
+        pub accumulator_key:              Option<Pubkey>,
     }
 
     pub struct KeyStore {
         /// The keypair used to publish price updates. When None,
         /// publishing will not start until a new keypair is supplied
         /// via the remote loading endpoint
-        pub publish_keypair:     Option<Keypair>,
+        pub publish_keypair:              Option<Keypair>,
         /// Public key of the Oracle program
-        pub oracle_program_key:  Pubkey,
-        /// Public key of the Publish program
-        pub publish_program_key: Option<Pubkey>,
+        pub pyth_oracle_program_key:      Pubkey,
+        /// Public key of the pyth-price-store program
+        pub pyth_price_store_program_key: Option<Pubkey>,
         /// Public key of the root mapping account
-        pub mapping_key:         Pubkey,
+        pub mapping_key:                  Pubkey,
         /// Public key of the accumulator program (if provided)
-        pub accumulator_key:     Option<Pubkey>,
+        pub accumulator_key:              Option<Pubkey>,
     }
 
     impl KeyStore {
@@ -149,8 +149,8 @@ pub mod key_store {
 
             Ok(KeyStore {
                 publish_keypair,
-                oracle_program_key: config.oracle_program_key,
-                publish_program_key: config.publish_program_key,
+                pyth_oracle_program_key: config.pyth_oracle_program_key,
+                pyth_price_store_program_key: config.pyth_price_store_program_key,
                 mapping_key: config.mapping_key,
                 accumulator_key: config.accumulator_key,
             })
