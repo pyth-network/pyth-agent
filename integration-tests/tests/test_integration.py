@@ -435,12 +435,9 @@ class PythTest:
 
             publish_keypair_path = os.path.join(agent_keystore_path, "publish_key_pair.json")
 
-            mapping_keypair = Keypair.from_secret_key(MAPPING_KEYPAIR)
-
             agent_config += f"""
 key_store.publish_keypair_path = "{publish_keypair_path}"
 key_store.program_key = "{ORACLE_PROGRAM}"
-key_store.mapping_key = "{mapping_keypair.public_key}"
 """
 
             # Add accumulator setting if option is enabled

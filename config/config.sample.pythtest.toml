@@ -18,10 +18,6 @@ key_store.publish_keypair_path = "/path/to/keypair.json"
 key_store.program_key = "8tfDNiaEyrV6Q1U4DEXrEigs9DoDtkugzFbybENEbCDz" # conformance
 # key_store.program_key = "gSbePebfvPy7tRqimPoVecS2UsBvYv46ynrzWocc92s" # cross-chain
 
-# Oracle mapping pubkey
-key_store.mapping_key = "AFmdnt9ng1uVxqCmqwQJDAYC5cKTkw8gJKSM5PnzuF6z" # conformance
-# key_store.mapping_key = "BmA9Z6FjioHJPpjT39QazZyhDRUdZy2ezwx4GiDdE2u2" # cross-chain
-
 # Pythtest accumulator key (only for the cross-chain oracle)
 # key_store.accumulator_key = "7Vbmv1jt4vyuqBZcpYPpnVhrqVe5e6ZPb6JxDcffRHUM"
 
