@@ -84,6 +84,7 @@ where
     ) -> Result<()> {
         tracing::debug!(
             identifier = bs58::encode(price_identifier.to_bytes()).into_string(),
+            price_update = ?price_info,
             "Local store received price update."
         );
 
