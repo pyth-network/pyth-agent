@@ -359,21 +359,6 @@ class PythTest:
         LOGGER.debug(f"Publisher {address.stdout.strip()} balance: {balance.stdout.strip()}")
         time.sleep(8)
 
-    @pytest.fixture
-    def agent_keystore(self, agent_keystore_path, agent_publish_keypair):
-        self.run(
-            f"../scripts/init_key_store.sh localnet {agent_keystore_path}")
-
-        if USE_ACCUMULATOR:
-            path = os.path.join(agent_keystore_path, "accumulator_program_key.json")
-
-            with open(path, 'w') as f:
-                f.write(MESSAGE_BUFFER_PROGRAM)
-
-        if os.path.exists("keystore"):
-            os.remove("keystore")
-        os.symlink(agent_keystore_path, "keystore")
-
     @pytest_asyncio.fixture
     async def initialize_message_buffer_program(self, funding_keypair, sync_key_path, sync_accounts):
 
@@ -429,7 +414,7 @@ class PythTest:
         await provider.send(tx, [parsed_funding_keypair])
 
     @pytest.fixture
-    def agent_config(self, agent_keystore, agent_keystore_path, tmp_path):
+    def agent_config(self, agent_keystore_path, tmp_path):
         with open("agent_conf.toml") as config_file:
             agent_config = config_file.read()
 
@@ -454,32 +439,7 @@ key_store.program_key = "{ORACLE_PROGRAM}"
             return path
 
     @pytest.fixture
-    def agent_legacy_config(self, agent_keystore, agent_keystore_path, tmp_path):
-        """
-        Prepares a legacy v1.x.x config for testing agent-migrate-config
-        """
-        with open("agent_conf.toml") as config_file:
-            agent_config = config_file.read()
-
-            agent_config += f'\nkey_store.root_path = "{agent_keystore_path}"'
-
-            if USE_ACCUMULATOR:
-                # Add accumulator setting to verify that it is inlined as well
-                agent_config += f'\nkey_store.accumulator_key_path = "accumulator_program_key.json"'
-
-            LOGGER.debug(f"Built legacy agent config:\n{agent_config}")
-
-            path = os.path.join(tmp_path, "agent_conf_legacy.toml")
-
-            with open(path, 'w') as f:
-                f.write(agent_config)
-
-            return path
-
-
-
-    @pytest.fixture
-    def agent(self, sync_accounts, agent_keystore, tmp_path, initialize_message_buffer_program, agent_config):
+    def agent(self, sync_accounts, tmp_path, initialize_message_buffer_program, agent_config):
         LOGGER.debug("Building agent binary")
         self.run("cargo build --release --bin agent")
 
@@ -493,7 +453,7 @@ key_store.program_key = "{ORACLE_PROGRAM}"
             yield
 
     @pytest.fixture
-    def agent_hotload(self, sync_accounts, agent_keystore, agent_keystore_path, tmp_path, initialize_message_buffer_program, agent_config):
+    def agent_hotload(self, sync_accounts, agent_keystore_path, tmp_path, initialize_message_buffer_program, agent_config):
         """
         Spawns an agent without a publish keypair, used for keypair hotloading testing
         """
@@ -722,44 +682,6 @@ class TestUpdatePrice(PythTest):
             # Send an "update_price" request
             await client.update_price(price_account, 47, 2, "trading")
             time.sleep(1)
-
-    @pytest.mark.asyncio
-    async def test_agent_migrate_config(self,
-                                        agent_keystore,
-                                        agent_legacy_config,
-                                        agent_migrate_config_binary,
-                                        client_no_spawn: PythAgentClient,
-                                        initialize_message_buffer_program,
-                                        sync_accounts,
-                                        tmp_path,
-                                        ):
-        os.environ["RUST_BACKTRACE"] = "full"
-        os.environ["RUST_LOG"] = "debug"
-
-        # Migrator must run successfully (run() raises on error)
-        new_config = self.run(f"{agent_migrate_config_binary} -c {agent_legacy_config}").stdout.strip()
-
-        LOGGER.debug(f"Successfully migrated legacy config to:\n{new_config}")
-
-        # Overwrite legacy config with the migrated version.
-        #
-        # NOTE: assumes 'w' erases the file before access)
-        with open(agent_legacy_config, 'w') as f:
-            f.write(new_config)
-            f.flush()
-
-        self.run("cargo build --release --bin agent")
-
-        log_dir = os.path.join(tmp_path, "agent_logs")
-
-        # We start the agent manually to pass it the updated legacy config
-        with self.spawn(f"../target/release/agent --config {agent_legacy_config}", log_dir=log_dir):
-            time.sleep(3)
-            await client_no_spawn.connect()
-
-            # Continue with the simple test case, which must succeed
-            await self.test_update_price_simple(client_no_spawn)
-            await client_no_spawn.close()
 
     @pytest.mark.asyncio
     async def test_agent_respects_market_hours(self, client: PythAgentClient):
