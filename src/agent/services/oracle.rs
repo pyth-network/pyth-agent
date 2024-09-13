@@ -60,7 +60,7 @@ where
         config.clone(),
         network,
         state.clone(),
-        key_store.mapping_key,
+        key_store.pyth_oracle_program_key,
         key_store.publish_keypair,
         key_store.pyth_price_store_program_key,
         config.oracle.max_lookup_batch_size,
@@ -152,13 +152,13 @@ where
     Ok(())
 }
 
-/// On poll lookup all Pyth Mapping/Product/Price accounts and sync.
+/// On poll lookup all Pyth Product/Price accounts and sync.
 #[instrument(skip(config, publish_keypair, state))]
 async fn poller<S>(
     config: Config,
     network: Network,
     state: Arc<S>,
-    mapping_key: Pubkey,
+    oracle_program_key: Pubkey,
     publish_keypair: Option<Keypair>,
     pyth_price_store_program_key: Option<Pubkey>,
     max_lookup_batch_size: usize,
@@ -183,7 +183,7 @@ async fn poller<S>(
             Oracle::poll_updates(
                 &*state,
                 network,
-                mapping_key,
+                oracle_program_key,
                 publish_keypair.as_ref(),
                 pyth_price_store_program_key,
                 &client,
