@@ -7,10 +7,6 @@ edition = "2021"
 name = "agent"
 path = "src/bin/agent.rs"
 
-[[bin]]
-name = "agent-migrate-config"
-path = "src/bin/agent_migrate_config.rs"
-
 [dependencies]
 anyhow = "1.0.81"
 serde = { version = "1.0.197", features = ["derive"] }
