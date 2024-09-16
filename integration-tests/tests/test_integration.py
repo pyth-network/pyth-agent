@@ -414,7 +414,7 @@ class PythTest:
         await provider.send(tx, [parsed_funding_keypair])
 
     @pytest.fixture
-    def agent_config(self, agent_keystore_path, tmp_path):
+    def agent_config(self, agent_keystore_path, agent_publish_keypair, tmp_path):
         with open("agent_conf.toml") as config_file:
             agent_config = config_file.read()
 
