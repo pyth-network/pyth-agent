@@ -20,12 +20,10 @@ from pathlib import Path
 from contextlib import contextmanager
 import shutil
 from solana.keypair import Keypair
-from solders.system_program import ID as SYSTEM_PROGRAM_ID
 from solana.rpc.async_api import AsyncClient
 from solana.rpc import commitment
-from solana.transaction import AccountMeta, Transaction, TransactionInstruction
+from solana.transaction import AccountMeta, Transaction
 from anchorpy import Provider, Wallet
-from construct import Bytes, Int32sl, Int32ul, Struct
 from solana.publickey import PublicKey
 from message_buffer_client_codegen.instructions import initialize, set_allowed_programs, create_buffer
 from message_buffer_client_codegen.accounts.message_buffer import MessageBuffer
@@ -439,7 +437,7 @@ key_store.program_key = "{ORACLE_PROGRAM}"
             return path
 
     @pytest.fixture
-    def agent(self, sync_accounts, tmp_path, initialize_message_buffer_program, agent_config):
+    def agent(self, sync_accounts, agent_keystore_path, agent_publish_keypair, tmp_path, initialize_message_buffer_program, agent_config):
         LOGGER.debug("Building agent binary")
         self.run("cargo build --release --bin agent")
 
