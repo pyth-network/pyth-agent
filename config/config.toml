@@ -47,9 +47,6 @@ key_store.publish_keypair_path = "/path/to/keypair.json"
 # Public key of the oracle program
 key_store.program_key = "RelevantOracleProgramAddress"
 
-# Public key of the root mapping account
-key_store.mapping_key = "RelevantOracleMappingAddress"
-
 ### Optional fields of primary/secondary network config ###
 
 # Pubkey of accumulator message buffer program ID. Setting this

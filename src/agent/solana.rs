@@ -103,12 +103,6 @@ pub mod key_store {
             default
         )]
         pub pyth_price_store_program_key: Option<Pubkey>,
-        /// The public key of the root mapping account
-        #[serde(
-            serialize_with = "pubkey_string_ser",
-            deserialize_with = "pubkey_string_de"
-        )]
-        pub mapping_key:                  Pubkey,
         /// The public key of the accumulator program.
         #[serde(
             serialize_with = "opt_pubkey_string_ser",
@@ -127,8 +121,6 @@ pub mod key_store {
         pub pyth_oracle_program_key:      Pubkey,
         /// Public key of the pyth-price-store program
         pub pyth_price_store_program_key: Option<Pubkey>,
-        /// Public key of the root mapping account
-        pub mapping_key:                  Pubkey,
         /// Public key of the accumulator program (if provided)
         pub accumulator_key:              Option<Pubkey>,
     }
@@ -151,7 +143,6 @@ pub mod key_store {
                 publish_keypair,
                 pyth_oracle_program_key: config.pyth_oracle_program_key,
                 pyth_price_store_program_key: config.pyth_price_store_program_key,
-                mapping_key: config.mapping_key,
                 accumulator_key: config.accumulator_key,
             })
         }

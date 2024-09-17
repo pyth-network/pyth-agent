@@ -20,10 +20,8 @@ use {
     },
     pyth_price_store::instruction::PUBLISHER_CONFIG_SEED,
     pyth_sdk_solana::state::{
-        load_mapping_account,
         load_product_account,
         GenericPriceAccount,
-        MappingAccount,
         PriceComp,
         PythnetPriceAccount,
         SolanaPriceAccount,
@@ -132,7 +130,6 @@ impl std::ops::Deref for PriceEntry {
 
 #[derive(Default, Debug, Clone)]
 pub struct Data {
-    pub mapping_accounts:      HashMap<Pubkey, MappingAccount>,
     pub product_accounts:      HashMap<Pubkey, ProductEntry>,
     pub price_accounts:        HashMap<Pubkey, PriceEntry>,
     /// publisher => {their permissioned price accounts => price publishing metadata}
@@ -194,7 +191,7 @@ pub trait Oracle {
     async fn poll_updates(
         &self,
         network: Network,
-        mapping_key: Pubkey,
+        oracle_program_key: Pubkey,
         publish_keypair: Option<&Keypair>,
         pyth_price_store_program_key: Option<Pubkey>,
         rpc_client: &RpcClient,
@@ -269,20 +266,16 @@ where
     async fn poll_updates(
         &self,
         network: Network,
-        mapping_key: Pubkey,
+        oracle_program_key: Pubkey,
         publish_keypair: Option<&Keypair>,
         pyth_price_store_program_key: Option<Pubkey>,
         rpc_client: &RpcClient,
         max_lookup_batch_size: usize,
     ) -> Result<()> {
         let mut publisher_permissions = HashMap::new();
-        let mapping_accounts = fetch_mapping_accounts(rpc_client, mapping_key).await?;
-        let (product_accounts, price_accounts) = fetch_product_and_price_accounts(
-            rpc_client,
-            max_lookup_batch_size,
-            mapping_accounts.values(),
-        )
-        .await?;
+        let (product_accounts, price_accounts) =
+            fetch_product_and_price_accounts(rpc_client, oracle_program_key, max_lookup_batch_size)
+                .await?;
 
         for (price_key, price_entry) in price_accounts.iter() {
             for component in price_entry.comp {
@@ -337,7 +330,6 @@ where
         }
 
         let new_data = Data {
-            mapping_accounts,
             product_accounts,
             price_accounts,
             publisher_permissions,
@@ -412,57 +404,109 @@ async fn fetch_publisher_buffer_key(
 }
 
 #[instrument(skip(rpc_client))]
-async fn fetch_mapping_accounts(
+async fn fetch_product_and_price_accounts(
     rpc_client: &RpcClient,
-    mapping_account_key: Pubkey,
-) -> Result<HashMap<Pubkey, MappingAccount>> {
-    let mut accounts = HashMap::new();
-    let mut account_key = mapping_account_key;
-    while account_key != Pubkey::default() {
-        let account = *load_mapping_account(
-            &rpc_client
-                .get_account_data(&account_key)
-                .await
-                .with_context(|| format!("load mapping account {}", account_key))?,
-        )?;
-        accounts.insert(account_key, account);
-        account_key = account.next;
-    }
-    Ok(accounts)
-}
-
-#[instrument(skip(rpc_client, mapping_accounts))]
-async fn fetch_product_and_price_accounts<'a, A>(
-    rpc_client: &RpcClient,
+    oracle_program_key: Pubkey,
     max_lookup_batch_size: usize,
-    mapping_accounts: A,
-) -> Result<(HashMap<Pubkey, ProductEntry>, HashMap<Pubkey, PriceEntry>)>
-where
-    A: IntoIterator<Item = &'a MappingAccount>,
-{
-    let mut product_keys = vec![];
-
-    // Get all product keys
-    for mapping_account in mapping_accounts {
-        for account_key in mapping_account
-            .products
-            .iter()
-            .filter(|pubkey| **pubkey != Pubkey::default())
-        {
-            product_keys.push(*account_key);
-        }
-    }
-
+) -> Result<(HashMap<Pubkey, ProductEntry>, HashMap<Pubkey, PriceEntry>)> {
     let mut product_entries = HashMap::new();
     let mut price_entries = HashMap::new();
 
-    // Lookup products and their prices using the configured batch size
-    for product_key_batch in product_keys.as_slice().chunks(max_lookup_batch_size) {
-        let (mut batch_products, mut batch_prices) =
-            fetch_batch_of_product_and_price_accounts(rpc_client, product_key_batch).await?;
+    let oracle_accounts = rpc_client.get_program_accounts(&oracle_program_key).await?;
 
-        product_entries.extend(batch_products.drain());
-        price_entries.extend(batch_prices.drain());
+    // Go over all the product accounts and partially fill the product entires. The product
+    // entires need to have prices inside them which gets filled by going over all the
+    // price accounts.
+    for (product_key, product) in oracle_accounts.iter().filter_map(|(pubkey, account)| {
+        load_product_account(&account.data)
+            .ok()
+            .map(|product| (pubkey, product))
+    }) {
+        #[allow(deprecated)]
+        let legacy_schedule: LegacySchedule = if let Some((_wsched_key, wsched_val)) =
+            product.iter().find(|(k, _v)| *k == "weekly_schedule")
+        {
+            wsched_val.parse().unwrap_or_else(|err| {
+                tracing::warn!(
+                    product_key = product_key.to_string(),
+                    weekly_schedule = wsched_val,
+                    "Oracle: Product has weekly_schedule defined but it could not be parsed. Falling back to 24/7 publishing.",
+                );
+                tracing::debug!(err = ?err, "Parsing error context.");
+                Default::default()
+            })
+        } else {
+            Default::default() // No market hours specified, meaning 24/7 publishing
+        };
+
+        let market_schedule: Option<MarketSchedule> = if let Some((_msched_key, msched_val)) =
+            product.iter().find(|(k, _v)| *k == "schedule")
+        {
+            match msched_val.parse::<MarketSchedule>() {
+                Ok(schedule) => Some(schedule),
+                Err(err) => {
+                    tracing::warn!(
+                        product_key = product_key.to_string(),
+                        schedule = msched_val,
+                        "Oracle: Product has schedule defined but it could not be parsed. Falling back to legacy schedule.",
+                    );
+                    tracing::debug!(err = ?err, "Parsing error context.");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let publish_interval: Option<Duration> = if let Some((
+            _publish_interval_key,
+            publish_interval_val,
+        )) =
+            product.iter().find(|(k, _v)| *k == "publish_interval")
+        {
+            match publish_interval_val.parse::<f64>() {
+                Ok(interval) => Some(Duration::from_secs_f64(interval)),
+                Err(err) => {
+                    tracing::warn!(
+                        product_key = product_key.to_string(),
+                        publish_interval = publish_interval_val,
+                        "Oracle: Product has publish_interval defined but it could not be parsed. Falling back to None.",
+                    );
+                    tracing::debug!(err = ?err, "parsing error context");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        product_entries.insert(
+            *product_key,
+            ProductEntry {
+                account_data: *product,
+                schedule: market_schedule.unwrap_or_else(|| legacy_schedule.into()),
+                price_accounts: vec![],
+                publish_interval,
+            },
+        );
+    }
+
+    // Load the price accounts into price entry and also fill the product entires
+    for (price_key, price) in oracle_accounts.iter().filter_map(|(pubkey, account)| {
+        PriceEntry::load_from_account(&account.data).map(|product| (pubkey, product))
+    }) {
+        if let Some(prod) = product_entries.get_mut(&price.prod) {
+            prod.price_accounts.push(*price_key);
+            price_entries.insert(*price_key, price);
+        } else {
+            tracing::warn!(
+                missing_product = price.prod.to_string(),
+                price_key = price_key.to_string(),
+                "Could not find product entry for price, listed in its prod field, skipping",
+            );
+
+            continue;
+        }
     }
 
     Ok((product_entries, price_entries))
@@ -625,20 +669,6 @@ async fn fetch_batch_of_product_and_price_accounts(
 #[instrument(skip(data, new_data))]
 fn log_data_diff(data: &Data, new_data: &Data) {
     // Log new accounts which have been found
-    let previous_mapping_accounts = data
-        .mapping_accounts
-        .keys()
-        .cloned()
-        .collect::<HashSet<_>>();
-    tracing::info!(
-        new = ?new_data
-            .mapping_accounts
-            .keys()
-            .cloned()
-            .collect::<HashSet<_>>().difference(&previous_mapping_accounts),
-        total = data.mapping_accounts.len(),
-        "Fetched mapping accounts."
-    );
     let previous_product_accounts = data
         .product_accounts
         .keys()

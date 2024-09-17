@@ -20,12 +20,10 @@ from pathlib import Path
 from contextlib import contextmanager
 import shutil
 from solana.keypair import Keypair
-from solders.system_program import ID as SYSTEM_PROGRAM_ID
 from solana.rpc.async_api import AsyncClient
 from solana.rpc import commitment
-from solana.transaction import AccountMeta, Transaction, TransactionInstruction
+from solana.transaction import AccountMeta, Transaction
 from anchorpy import Provider, Wallet
-from construct import Bytes, Int32sl, Int32ul, Struct
 from solana.publickey import PublicKey
 from message_buffer_client_codegen.instructions import initialize, set_allowed_programs, create_buffer
 from message_buffer_client_codegen.accounts.message_buffer import MessageBuffer
@@ -359,21 +357,6 @@ class PythTest:
         LOGGER.debug(f"Publisher {address.stdout.strip()} balance: {balance.stdout.strip()}")
         time.sleep(8)
 
-    @pytest.fixture
-    def agent_keystore(self, agent_keystore_path, agent_publish_keypair):
-        self.run(
-            f"../scripts/init_key_store.sh localnet {agent_keystore_path}")
-
-        if USE_ACCUMULATOR:
-            path = os.path.join(agent_keystore_path, "accumulator_program_key.json")
-
-            with open(path, 'w') as f:
-                f.write(MESSAGE_BUFFER_PROGRAM)
-
-        if os.path.exists("keystore"):
-            os.remove("keystore")
-        os.symlink(agent_keystore_path, "keystore")
-
     @pytest_asyncio.fixture
     async def initialize_message_buffer_program(self, funding_keypair, sync_key_path, sync_accounts):
 
@@ -429,18 +412,15 @@ class PythTest:
         await provider.send(tx, [parsed_funding_keypair])
 
     @pytest.fixture
-    def agent_config(self, agent_keystore, agent_keystore_path, tmp_path):
+    def agent_config(self, agent_keystore_path, agent_publish_keypair, tmp_path):
         with open("agent_conf.toml") as config_file:
             agent_config = config_file.read()
 
             publish_keypair_path = os.path.join(agent_keystore_path, "publish_key_pair.json")
 
-            mapping_keypair = Keypair.from_secret_key(MAPPING_KEYPAIR)
-
             agent_config += f"""
 key_store.publish_keypair_path = "{publish_keypair_path}"
 key_store.program_key = "{ORACLE_PROGRAM}"
-key_store.mapping_key = "{mapping_keypair.public_key}"
 """
 
             # Add accumulator setting if option is enabled
@@ -457,32 +437,7 @@ key_store.mapping_key = "{mapping_keypair.public_key}"
             return path
 
     @pytest.fixture
-    def agent_legacy_config(self, agent_keystore, agent_keystore_path, tmp_path):
-        """
-        Prepares a legacy v1.x.x config for testing agent-migrate-config
-        """
-        with open("agent_conf.toml") as config_file:
-            agent_config = config_file.read()
-
-            agent_config += f'\nkey_store.root_path = "{agent_keystore_path}"'
-
-            if USE_ACCUMULATOR:
-                # Add accumulator setting to verify that it is inlined as well
-                agent_config += f'\nkey_store.accumulator_key_path = "accumulator_program_key.json"'
-
-            LOGGER.debug(f"Built legacy agent config:\n{agent_config}")
-
-            path = os.path.join(tmp_path, "agent_conf_legacy.toml")
-
-            with open(path, 'w') as f:
-                f.write(agent_config)
-
-            return path
-
-
-
-    @pytest.fixture
-    def agent(self, sync_accounts, agent_keystore, tmp_path, initialize_message_buffer_program, agent_config):
+    def agent(self, sync_accounts, agent_keystore_path, agent_publish_keypair, tmp_path, initialize_message_buffer_program, agent_config):
         LOGGER.debug("Building agent binary")
         self.run("cargo build --release --bin agent")
 
@@ -496,7 +451,7 @@ key_store.mapping_key = "{mapping_keypair.public_key}"
             yield
 
     @pytest.fixture
-    def agent_hotload(self, sync_accounts, agent_keystore, agent_keystore_path, tmp_path, initialize_message_buffer_program, agent_config):
+    def agent_hotload(self, sync_accounts, agent_keystore_path, tmp_path, initialize_message_buffer_program, agent_config):
         """
         Spawns an agent without a publish keypair, used for keypair hotloading testing
         """
@@ -560,11 +515,11 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Send another "update_price" request to trigger aggregation
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has been updated with the values from the first "update_price" request
         final_product_state = await client.get_product(product_account)
@@ -727,44 +682,6 @@ class TestUpdatePrice(PythTest):
             time.sleep(1)
 
     @pytest.mark.asyncio
-    async def test_agent_migrate_config(self,
-                                        agent_keystore,
-                                        agent_legacy_config,
-                                        agent_migrate_config_binary,
-                                        client_no_spawn: PythAgentClient,
-                                        initialize_message_buffer_program,
-                                        sync_accounts,
-                                        tmp_path,
-                                        ):
-        os.environ["RUST_BACKTRACE"] = "full"
-        os.environ["RUST_LOG"] = "debug"
-
-        # Migrator must run successfully (run() raises on error)
-        new_config = self.run(f"{agent_migrate_config_binary} -c {agent_legacy_config}").stdout.strip()
-
-        LOGGER.debug(f"Successfully migrated legacy config to:\n{new_config}")
-
-        # Overwrite legacy config with the migrated version.
-        #
-        # NOTE: assumes 'w' erases the file before access)
-        with open(agent_legacy_config, 'w') as f:
-            f.write(new_config)
-            f.flush()
-
-        self.run("cargo build --release --bin agent")
-
-        log_dir = os.path.join(tmp_path, "agent_logs")
-
-        # We start the agent manually to pass it the updated legacy config
-        with self.spawn(f"../target/release/agent --config {agent_legacy_config}", log_dir=log_dir):
-            time.sleep(3)
-            await client_no_spawn.connect()
-
-            # Continue with the simple test case, which must succeed
-            await self.test_update_price_simple(client_no_spawn)
-            await client_no_spawn.close()
-
-    @pytest.mark.asyncio
     async def test_agent_respects_market_hours(self, client: PythAgentClient):
         '''
         Similar to test_update_price_simple, but using AAPL_USD and
@@ -784,13 +701,13 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Send another update_price request to "trigger" aggregation
         # (aggregation would happen if market hours were to fail, but
         # we want to catch that happening if there's a problem)
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has not been updated
         final_product_state = await client.get_product(product_account)
@@ -819,13 +736,13 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Send another update_price request to "trigger" aggregation
         # (aggregation would happen if market hours were to fail, but
         # we want to catch that happening if there's a problem)
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has not been updated
         final_product_state = await client.get_product(product_account)
@@ -861,7 +778,7 @@ class TestUpdatePrice(PythTest):
         # (aggregation would happen if publish interval were to fail, but
         # we want to catch that happening if there's a problem)
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has not been updated
         final_product_state = await client.get_product(product_account)
@@ -875,7 +792,7 @@ class TestUpdatePrice(PythTest):
         # Send another update_price request to "trigger" aggregation
         # Now it is after the publish interval, so the price should be updated
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has been updated
         final_product_state = await client.get_product(product_account)

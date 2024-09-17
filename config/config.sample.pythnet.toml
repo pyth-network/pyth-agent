@@ -17,9 +17,6 @@ key_store.publish_keypair_path = "/path/to/keypair.json"
 # Oracle program pubkey
 key_store.program_key = "FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH"
 
-# Oracle mapping pubkey
-key_store.mapping_key = "AHtgzX45WTKfkPG53L6WYhGEXwQkN1BVknET3sVsLL8J"
-
 # Compute unit per price update.
 exporter.compute_unit_limit = 5000
 
