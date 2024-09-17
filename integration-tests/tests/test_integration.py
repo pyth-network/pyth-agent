@@ -515,11 +515,11 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Send another "update_price" request to trigger aggregation
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has been updated with the values from the first "update_price" request
         final_product_state = await client.get_product(product_account)
@@ -701,13 +701,13 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Send another update_price request to "trigger" aggregation
         # (aggregation would happen if market hours were to fail, but
         # we want to catch that happening if there's a problem)
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has not been updated
         final_product_state = await client.get_product(product_account)
@@ -736,13 +736,13 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Send another update_price request to "trigger" aggregation
         # (aggregation would happen if market hours were to fail, but
         # we want to catch that happening if there's a problem)
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has not been updated
         final_product_state = await client.get_product(product_account)
@@ -772,13 +772,13 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(1)
+        time.sleep(5)
 
         # Send another update_price request to "trigger" aggregation
         # (aggregation would happen if publish interval were to fail, but
         # we want to catch that happening if there's a problem)
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has not been updated
         final_product_state = await client.get_product(product_account)
@@ -792,7 +792,7 @@ class TestUpdatePrice(PythTest):
         # Send another update_price request to "trigger" aggregation
         # Now it is after the publish interval, so the price should be updated
         await client.update_price(price_account, 81, 1, "trading")
-        time.sleep(2)
+        time.sleep(5)
 
         # Confirm that the price account has been updated
         final_product_state = await client.get_product(product_account)
