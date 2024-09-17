@@ -772,7 +772,7 @@ class TestUpdatePrice(PythTest):
 
         # Send an "update_price" request
         await client.update_price(price_account, 42, 2, "trading")
-        time.sleep(5)
+        time.sleep(1)
 
         # Send another update_price request to "trigger" aggregation
         # (aggregation would happen if publish interval were to fail, but
