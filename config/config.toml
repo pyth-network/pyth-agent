@@ -47,6 +47,9 @@ key_store.publish_keypair_path = "/path/to/keypair.json"
 # Public key of the oracle program
 key_store.program_key = "RelevantOracleProgramAddress"
 
+# The price store program key
+key_store.pyth_price_store_program_key = "3m6sv6HGqEbuyLV84mD7rJn4MAC9LhUa1y1AUNVqcPfr"
+
 ### Optional fields of primary/secondary network config ###
 
 # Pubkey of accumulator message buffer program ID. Setting this
