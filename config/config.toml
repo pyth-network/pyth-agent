@@ -47,6 +47,9 @@ key_store.publish_keypair_path = "/path/to/keypair.json"
 # Public key of the oracle program
 key_store.program_key = "RelevantOracleProgramAddress"
 
+# The price store program key
+key_store.pyth_price_store_program_key = "3m6sv6HGqEbuyLV84mD7rJn4MAC9LhUa1y1AUNVqcPfr"
+
 ### Optional fields of primary/secondary network config ###
 
 # Pubkey of accumulator message buffer program ID. Setting this
@@ -86,8 +89,10 @@ key_store.program_key = "RelevantOracleProgramAddress"
 # with other state identical to last published state.
 # exporter.unchanged_publish_threshold = "3s"
 
-# Maximum size of a batch
-# exporter.max_batch_size = 12
+# Maximum size of a batch.
+# IMPORTANT: the maximum size of 47 only works when the price store program key is passed;
+# otherwise, the maximum batch size is 12
+exporter.max_batch_size = 47
 
 # Number of compute units requested per update_price instruction within the transaction.
 # exporter.compute_unit_limit = 60000

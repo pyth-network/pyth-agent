@@ -21,6 +21,12 @@ key_store.program_key = "8tfDNiaEyrV6Q1U4DEXrEigs9DoDtkugzFbybENEbCDz" # conform
 # Pythtest accumulator key (only for the cross-chain oracle)
 # key_store.accumulator_key = "7Vbmv1jt4vyuqBZcpYPpnVhrqVe5e6ZPb6JxDcffRHUM"
 
+# The price store program key (only for the cross-chain oracle)
+# key_store.pyth_price_store_program_key = "3m6sv6HGqEbuyLV84mD7rJn4MAC9LhUa1y1AUNVqcPfr"
+
+# Set the max price updates per transaction to 47 (only for the cross-chain oracle)
+# exporter.max_batch_size = 47
+
 # Duration of the interval at which to publish updates
 exporter.publish_interval_duration = "400ms"
 
