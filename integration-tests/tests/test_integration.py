@@ -420,7 +420,7 @@ class PythTest:
 
             agent_config += f"""
 key_store.publish_keypair_path = "{publish_keypair_path}"
-key_store.program_key = "{ORACLE_PROGRAM}"
+key_store.pyth_oracle_program_key = "{ORACLE_PROGRAM}"
 """
 
             # Add accumulator setting if option is enabled
