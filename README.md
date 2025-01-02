@@ -37,7 +37,19 @@ through the `RUST_LOG` environment variable using the standard
 Pyth agent will print logs in plaintext in terminal and JSON format in non-terminal environments (e.g. when writing to a file).
 
 ## Run
-`cargo run --release -- --config <your_config.toml>` will build and run the agent in a single step.
+### From Source
+The preferred way to run Pyth Agent is by compiling from source. You can run the below command to build and run the agent in a single step.
+
+```bash
+cargo run --release -- --config <your_config.toml>
+```
+
+### Container
+For convenience, a minimal container image is also published to [ECR Public](https://gallery.ecr.aws/pyth-network/agent). An example command for running this container can be found below. Make sure to update the image version to the latest release of Pyth Agent.
+
+```bash
+docker run -v /path/to/configdir:/config:z,ro public.ecr.aws/pyth-network/agent:v2.12.0-minimal
+```
 
 ## Publishing API
 A running agent will expose a WebSocket serving the JRPC publishing API documented [here](https://docs.pyth.network/documentation/publish-data/pyth-client-websocket-api). See `config/config.toml` for related settings.

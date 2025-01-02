@@ -15,6 +15,13 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    strategy:
+      matrix:
+        dockerfile:
+          - file: "Dockerfile"
+            suffix: ""
+          - file: "agent.Dockerfile"
+            suffix: "-minimal"
     steps:
       - uses: actions/checkout@v2
       - uses: aws-actions/configure-aws-credentials@8a84b07f2009032ade05a88a28750d733cc30db1
@@ -40,4 +47,5 @@ jobs:
       - uses: docker/build-push-action@v2
         with:
           push: true
-          tags: public.ecr.aws/pyth-network/agent:${{ steps.image_tag.outputs.value }}
+          tags: public.ecr.aws/pyth-network/agent:${{ steps.image_tag.outputs.value }}${{ matrix.dockerfile.suffix }}
+          file: ${{ matrix.dockerfile.file }}
