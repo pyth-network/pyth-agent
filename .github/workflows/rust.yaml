@@ -16,6 +16,6 @@ jobs:
       - name: Check-out code
         uses: actions/checkout@v2
       - name: Build image
-        run: docker build -t agent .
+        run: docker build -f integration-tests/Dockerfile -t agent .
       - name: Run tests
         run: docker run -v $PWD:/agent agent ./tests.sh
