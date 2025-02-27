@@ -44,6 +44,9 @@ use {
         PriceComp,
         PriceStatus,
     },
+    smol_str::{
+        SmolStr,
+        ToSmolStr},
     std::{
         collections::HashMap,
         sync::atomic::AtomicI64,
@@ -57,7 +60,7 @@ use {
 };
 
 // TODO: implement Display on PriceStatus and then just call PriceStatus::to_string
-fn price_status_to_str(price_status: PriceStatus) -> String {
+fn price_status_to_str(price_status: PriceStatus) -> SmolStr {
     match price_status {
         PriceStatus::Unknown => "unknown",
         PriceStatus::Trading => "trading",
@@ -65,7 +68,7 @@ fn price_status_to_str(price_status: PriceStatus) -> String {
         PriceStatus::Auction => "auction",
         PriceStatus::Ignored => "ignored",
     }
-    .to_string()
+    .into()
 }
 
 fn solana_product_account_to_pythd_api_product_account(
@@ -90,12 +93,12 @@ fn solana_product_account_to_pythd_api_product_account(
 
     // Create the product account metadata struct
     ProductAccount {
-        account: product_account_key.to_string(),
+        account: product_account_key.to_smolstr(),
         attr_dict: product_account
             .account_data
             .iter()
             .filter(|(key, val)| !key.is_empty() && !val.is_empty())
-            .map(|(key, val)| (key.to_owned(), val.to_owned()))
+            .map(|(key, val)| (key.into(), val.into()))
             .collect(),
         price_accounts,
     }
@@ -106,8 +109,8 @@ fn solana_price_account_to_pythd_api_price_account(
     price_account: &PriceEntry,
 ) -> PriceAccount {
     PriceAccount {
-        account:            price_account_key.to_string(),
-        price_type:         "price".to_string(),
+        account:            price_account_key.to_smolstr(),
+        price_type:         "price".into(),
         price_exponent:     price_account.expo as i64,
         status:             price_status_to_str(price_account.agg.status),
         price:              price_account.agg.price,
@@ -124,7 +127,7 @@ fn solana_price_account_to_pythd_api_price_account(
             .iter()
             .filter(|comp| *comp != &PriceComp::default())
             .map(|comp| PublisherAccount {
-                account: comp.publisher.to_string(),
+                account: comp.publisher.to_smolstr(),
                 status:  price_status_to_str(comp.agg.status),
                 price:   comp.agg.price,
                 conf:    comp.agg.conf,
@@ -222,15 +225,15 @@ where
                         .map(|acc| (price_account_key, acc))
                 })
                 .map(|(price_account_key, price_account)| PriceAccountMetadata {
-                    account:        price_account_key.to_string(),
-                    price_type:     "price".to_owned(),
+                    account:        price_account_key.to_smolstr(),
+                    price_type:     "price".into(),
                     price_exponent: price_account.expo as i64,
                 })
                 .collect();
 
             // Create the product account metadata struct
             result.push(ProductAccountMetadata {
-                account:   product_account_key.to_string(),
+                account:   product_account_key.to_smolstr(),
                 attr_dict: product_account.attr_dict,
                 price:     price_accounts_metadata,
             })

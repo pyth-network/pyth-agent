@@ -46,6 +46,7 @@ lazy_static = "1.4.0"
 toml_edit = "0.22.9"
 winnow = "0.6.5"
 proptest = "1.4.0"
+smol_str = {version="0.3.2", features=["serde"]}
 tracing = { version = "0.1.40", features = ["log"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 tracing-opentelemetry = "0.24.0"

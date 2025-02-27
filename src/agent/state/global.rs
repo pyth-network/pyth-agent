@@ -28,6 +28,7 @@ use {
         HashSet,
     }, sync::Arc},
     tokio::sync::RwLock,
+    smol_str::SmolStr,
 };
 
 /// AllAccountsData contains the full data for the price and product accounts, sourced
@@ -51,7 +52,7 @@ pub struct AllAccountsMetadata {
 #[derive(Debug, Clone, Default)]
 pub struct ProductAccountMetadata {
     /// Attribute dictionary
-    pub attr_dict:      BTreeMap<String, String>,
+    pub attr_dict:      BTreeMap<SmolStr, SmolStr>,
     /// Price accounts associated with this product
     pub price_accounts: Vec<Pubkey>,
 }
@@ -62,7 +63,7 @@ impl From<&ProductEntry> for ProductAccountMetadata {
             attr_dict: product_account
                 .account_data
                 .iter()
-                .map(|(key, val)| (key.to_owned(), val.to_owned()))
+                .map(|(key, val)| (key.into(), val.into()))
                 .collect(),
             price_accounts: product_account.price_accounts.clone(),
         }

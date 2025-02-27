@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 #[allow(deprecated)]
 use crate::agent::legacy_schedule::LegacySchedule;
 use {
@@ -49,6 +47,7 @@ use {
     },
     tokio::sync::RwLock,
     tracing::instrument,
+    std::sync::Arc,
 };
 
 #[derive(Debug)]

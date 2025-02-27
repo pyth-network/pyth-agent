@@ -15,6 +15,7 @@ use {
         registry::Registry,
     },
     serde::Deserialize,
+    smol_str::SmolStr,
     solana_sdk::pubkey::Pubkey,
     std::{
         net::SocketAddr,
@@ -113,8 +114,9 @@ impl ProductGlobalMetrics {
         metrics
     }
 
-    pub fn update(&self, product_key: &Pubkey, maybe_symbol: Option<String>) {
-        let symbol_string = maybe_symbol.unwrap_or(format!("unknown_{}", product_key));
+    pub fn update(&self, product_key: &Pubkey, maybe_symbol: Option<SmolStr>) {
+        let symbol_string = maybe_symbol.map(|x| x.into())
+            .unwrap_or(format!("unknown_{}", product_key));
 
         #[deny(unused_variables)]
         let Self { update_count } = self;

@@ -5,12 +5,13 @@ use {
     },
     std::collections::BTreeMap,
     std::sync::Arc,
+    smol_str::SmolStr,
 };
 
 pub mod rpc;
 
-pub type Pubkey = String;
-pub type Attrs = BTreeMap<String, String>;
+pub type Pubkey = SmolStr;
+pub type Attrs = BTreeMap<SmolStr, SmolStr>;
 
 pub type Price = i64;
 pub type Exponent = i64;
@@ -27,7 +28,7 @@ pub struct ProductAccountMetadata {
 #[derive(Serialize, Deserialize, Debug, Ord, PartialOrd, PartialEq, Eq)]
 pub struct PriceAccountMetadata {
     pub account:        Pubkey,
-    pub price_type:     String,
+    pub price_type:     SmolStr,
     pub price_exponent: Exponent,
 }
 
@@ -41,9 +42,9 @@ pub struct ProductAccount {
 #[derive(Serialize, Deserialize, Debug, Ord, PartialOrd, PartialEq, Eq)]
 pub struct PriceAccount {
     pub account:            Pubkey,
-    pub price_type:         String,
+    pub price_type:         SmolStr,
     pub price_exponent:     Exponent,
-    pub status:             String,
+    pub status:             SmolStr,
     pub price:              Price,
     pub conf:               Conf,
     pub twap:               Price,
@@ -59,7 +60,7 @@ pub struct PriceAccount {
 #[derive(Serialize, Deserialize, Debug, Ord, PartialOrd, PartialEq, Eq)]
 pub struct PublisherAccount {
     pub account: Pubkey,
-    pub status:  String,
+    pub status:  SmolStr,
     pub price:   Price,
     pub conf:    Conf,
     pub slot:    Slot,
@@ -82,7 +83,7 @@ pub type SubscriptionID = i64;
 pub struct PriceUpdate {
     pub price:      Price,
     pub conf:       Conf,
-    pub status:     String,
+    pub status:     SmolStr,
     pub valid_slot: Slot,
     pub pub_slot:   Slot,
 }
