@@ -241,6 +241,7 @@ where
         );
 
         data.price_accounts.insert(*account_key, price_entry.into());
+        drop(data);
 
         Prices::update_global_price(
             self,
@@ -333,13 +334,16 @@ where
         let mut data = self.into().data.write().await;
         log_data_diff(&data, &new_data);
         *data = new_data;
+        let data_publisher_permissions = data.publisher_permissions.clone();
+        let data_publisher_buffer_key = data.publisher_buffer_key;
+        drop(data);
 
         Exporter::update_on_chain_state(
             self,
             network,
             publish_keypair,
-            data.publisher_permissions.clone(),
-            data.publisher_buffer_key,
+            data_publisher_permissions,
+            data_publisher_buffer_key,
         )
         .await?;
 

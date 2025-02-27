@@ -13,7 +13,7 @@ use {
         },
         state::oracle::Oracle,
     },
-    anyhow::Result,
+    anyhow::{Context, Result},
     solana_account_decoder::UiAccountEncoding,
     solana_client::{
         nonblocking::{
@@ -67,6 +67,12 @@ where
     )));
 
     if config.oracle.subscriber_enabled {
+        let number_of_workers = 100;
+        let channel_size = 1000;
+        let (sender, receiver) = tokio::sync::mpsc::channel(channel_size);
+        let max_elapsed_time = Duration::from_secs(30);
+        let sleep_time = Duration::from_secs(1);
+
         handles.push(tokio::spawn(async move {
             loop {
                 let current_time = Instant::now();
@@ -75,17 +81,34 @@ where
                     network,
                     state.clone(),
                     key_store.pyth_oracle_program_key,
+                    sender.clone(),
                 )
                 .await
                 {
-                    tracing::error!(err = ?err, "Subscriber exited unexpectedly.");
-                    if current_time.elapsed() < Duration::from_secs(30) {
-                        tracing::warn!("Subscriber restarting too quickly. Sleeping for 1 second.");
-                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    tracing::error!(?err, "Subscriber exited unexpectedly");
+                    if current_time.elapsed() < max_elapsed_time {
+                        tracing::warn!(?sleep_time, "Subscriber restarting too quickly. Sleeping");
+                        tokio::time::sleep(sleep_time).await;
                     }
                 }
             }
         }));
+
+        let receiver = Arc::new(tokio::sync::Mutex::new(receiver));
+        for _ in 0..number_of_workers {
+            let receiver = receiver.clone();
+            handles.push(tokio::spawn(async move {
+                loop {
+                    let mut receiver = receiver.lock().await;
+                    if let Some(task) = receiver.recv().await {
+                        drop(receiver);
+                        if let Err(err) = task.await {
+                            tracing::error!(%err, "error running price update");
+                        }
+                    }
+                }
+            }));
+        }
     }
 
     handles
@@ -102,6 +125,7 @@ async fn subscriber<S>(
     network: Network,
     state: Arc<S>,
     program_key: Pubkey,
+    sender: tokio::sync::mpsc::Sender<tokio::task::JoinHandle<()>>,
 ) -> Result<()>
 where
     S: Oracle,
@@ -129,14 +153,17 @@ where
             Some(account) => {
                 let pubkey: Pubkey = update.value.pubkey.as_str().try_into()?;
                 let state = state.clone();
-                tokio::spawn(async move {
-                    if let Err(err) =
-                        Oracle::handle_price_account_update(&*state, network, &pubkey, &account)
-                            .await
-                    {
-                        tracing::error!(err = ?err, "Failed to handle account update.");
-                    }
-                });
+                sender
+                    .send(tokio::spawn(async move {
+                        if let Err(err) =
+                            Oracle::handle_price_account_update(&*state, network, &pubkey, &account)
+                                .await
+                        {
+                            tracing::error!(?err, "Failed to handle account update");
+                        }
+                    }))
+                    .await
+                    .context("sending handle_price_account_update task to worker")?;
             }
 
             None => {
