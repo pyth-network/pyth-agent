@@ -89,8 +89,8 @@ impl State {
             local_store:  local::Store::new(registry),
             keypairs:     keypairs::KeypairState::default(),
             prices:       api::PricesState::new(config.state.clone()),
-            oracle:       oracle::OracleState::new(),
             exporter:     exporter::ExporterState::new(),
+            oracle: oracle::OracleState::default(),
             transactions: transactions::TransactionsState::new(
                 config
                     .primary_network
@@ -109,8 +109,8 @@ impl State {
             local_store:  local::Store::new(registry),
             keypairs:     keypairs::KeypairState::default(),
             prices:       api::PricesState::new(config),
-            oracle:       oracle::OracleState::new(),
             exporter:     exporter::ExporterState::new(),
+            oracle: oracle::OracleState::default(),
             transactions: transactions::TransactionsState::new(100),
         }
     }

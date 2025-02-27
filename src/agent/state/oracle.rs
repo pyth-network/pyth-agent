@@ -173,16 +173,9 @@ impl Default for Config {
     }
 }
 
+#[derive(Default)]
 pub struct OracleState {
     data: RwLock<Data>,
-}
-
-impl OracleState {
-    pub fn new() -> Self {
-        Self {
-            data: Default::default(),
-        }
-    }
 }
 
 #[async_trait::async_trait]
