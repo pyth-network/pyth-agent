@@ -496,7 +496,8 @@ mod tests {
                             )
                             .unwrap(),
                         ],
-                    },
+                    }
+                    .into(),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
@@ -557,7 +558,8 @@ mod tests {
                             )
                             .unwrap(),
                         ],
-                    },
+                    }
+                    .into(),
                 ),
             ]),
             price_accounts:   HashMap::from([

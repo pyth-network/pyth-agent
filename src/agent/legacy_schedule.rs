@@ -387,7 +387,7 @@ mod tests {
         let ok_datetimes = [
             NaiveDate::from_ymd_opt(2023, 11, 20)
                 .unwrap()
-                .and_time(MAX_TIME_INSTANT)
+                .and_time(MAX_TIME_INSTANT.clone())
                 .and_local_timezone(Tz::Europe__Amsterdam)
                 .unwrap(),
             NaiveDateTime::parse_from_str("2023-11-21 00:00", format)?
@@ -404,7 +404,7 @@ mod tests {
             // confused for Wednesday 00:00 which is open.
             NaiveDate::from_ymd_opt(2023, 11, 21)
                 .unwrap()
-                .and_time(MAX_TIME_INSTANT)
+                .and_time(MAX_TIME_INSTANT.clone())
                 .and_local_timezone(Tz::Europe__Amsterdam)
                 .unwrap(),
         ];
