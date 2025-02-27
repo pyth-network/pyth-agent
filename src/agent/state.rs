@@ -568,7 +568,7 @@ mod tests {
                         "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU",
                     )
                     .unwrap(),
-                    SolanaPriceAccount {
+                    Arc::new(PriceEntry::from(SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            7,
                         atype:          9,
@@ -615,15 +615,15 @@ mod tests {
                         },
                         comp:           [PriceComp::default(); 32],
                         extended:       (),
-                    }
-                    .into(),
+                    }))
+                    ,
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr",
                     )
                     .unwrap(),
-                    SolanaPriceAccount {
+                    Arc::new(PriceEntry::from(SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            6,
                         atype:          4,
@@ -689,15 +689,14 @@ mod tests {
                             },
                         }]),
                         extended:       (),
-                    }
-                    .into(),
+                    })),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6",
                     )
                     .unwrap(),
-                    SolanaPriceAccount {
+                    Arc::new(PriceEntry::from(SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            7,
                         atype:          6,
@@ -785,15 +784,14 @@ mod tests {
                             },
                         ]),
                         extended:       (),
-                    }
-                    .into(),
+                    })),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD",
                     )
                     .unwrap(),
-                    SolanaPriceAccount {
+                    Arc::new(PriceEntry::from(SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            6,
                         atype:          6,
@@ -878,15 +876,14 @@ mod tests {
                             },
                         ]),
                         extended:       (),
-                    }
-                    .into(),
+                    })),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "fTNjSfj5uW9e4CAMHzUcm65ftRNBxCN1gG5GS1mYfid",
                     )
                     .unwrap(),
-                    SolanaPriceAccount {
+                    Arc::new(PriceEntry::from(SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            8,
                         atype:          4,
@@ -974,15 +971,14 @@ mod tests {
                             },
                         ]),
                         extended:       (),
-                    }
-                    .into(),
+                    })),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
                         "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ",
                     )
                     .unwrap(),
-                    SolanaPriceAccount {
+                    Arc::new(PriceEntry::from(SolanaPriceAccount {
                         magic:          0xa1b2c3d4,
                         ver:            6,
                         atype:          3,
@@ -1045,8 +1041,7 @@ mod tests {
                             },
                         }]),
                         extended:       (),
-                    }
-                    .into(),
+                    })),
                 ),
             ]),
         }
@@ -1384,7 +1379,7 @@ mod tests {
             .unwrap();
         let price = 2365;
         let conf = 98754;
-        let _ = state
+        state
             .state
             .update_local_price(&account, price, conf, "trading".to_string())
             .await
@@ -1466,7 +1461,7 @@ mod tests {
         }
         .into();
 
-        let _ = state
+        state
             .state
             .update_global_price(
                 Network::Primary,
