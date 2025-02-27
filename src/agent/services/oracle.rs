@@ -67,11 +67,11 @@ where
     )));
 
     if config.oracle.subscriber_enabled {
-        let number_of_workers = 100;
-        let channel_size = 1000;
-        let (sender, receiver) = tokio::sync::mpsc::channel(channel_size);
-        let max_elapsed_time = Duration::from_secs(30);
-        let sleep_time = Duration::from_secs(1);
+        let number_of_workers = config.oracle.handle_price_account_update_worker_poll_size;
+        let (sender, receiver) =
+            tokio::sync::mpsc::channel(config.oracle.handle_price_account_update_channel_size);
+        let min_elapsed_time = config.oracle.subscriber_finished_min_time;
+        let sleep_time = config.oracle.subscriber_finished_sleep_time;
 
         handles.push(tokio::spawn(async move {
             loop {
@@ -86,7 +86,7 @@ where
                 .await
                 {
                     tracing::error!(?err, "Subscriber exited unexpectedly");
-                    if current_time.elapsed() < max_elapsed_time {
+                    if current_time.elapsed() < min_elapsed_time {
                         tracing::warn!(?sleep_time, "Subscriber restarting too quickly. Sleeping");
                         tokio::time::sleep(sleep_time).await;
                     }

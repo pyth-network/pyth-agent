@@ -138,6 +138,22 @@ pub struct Data {
     pub publisher_buffer_key:  Option<Pubkey>,
 }
 
+fn default_handle_price_account_update_channel_size() -> usize {
+    1000
+}
+
+fn default_handle_price_account_update_worker_poll_size() -> usize {
+    50
+}
+
+fn default_subscriber_finished_min_time() -> Duration {
+    Duration::from_secs(30)
+}
+
+fn default_subscriber_finished_sleep_time() -> Duration {
+    Duration::from_secs(1)
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct Config {
@@ -159,6 +175,19 @@ pub struct Config {
     /// socket count at bay, the batches are looked up sequentially,
     /// trading off overall time it takes to fetch all symbols.
     pub max_lookup_batch_size: usize,
+
+    /// Number of workers used to wait for the handle_price_account_update
+    #[serde(default = "default_handle_price_account_update_worker_poll_size")]
+    pub handle_price_account_update_worker_poll_size: usize,
+    /// Channel size used to wait for the handle_price_account_update
+    #[serde(default = "default_handle_price_account_update_channel_size")]
+    pub handle_price_account_update_channel_size: usize,
+    /// Minimum time for a subscriber to run
+    #[serde(default = "default_subscriber_finished_min_time")]
+    pub subscriber_finished_min_time: Duration,
+    /// Time to sleep if the subscriber do not run for more than the minimum time
+    #[serde(default = "default_subscriber_finished_sleep_time")]
+    pub subscriber_finished_sleep_time: Duration,
 }
 
 impl Default for Config {
@@ -170,6 +199,12 @@ impl Default for Config {
             updates_channel_capacity: 10000,
             data_channel_capacity:    10000,
             max_lookup_batch_size:    100,
+            handle_price_account_update_worker_poll_size:
+                default_handle_price_account_update_worker_poll_size(),
+            handle_price_account_update_channel_size:
+                default_handle_price_account_update_channel_size(),
+            subscriber_finished_min_time: default_subscriber_finished_min_time(),
+            subscriber_finished_sleep_time: default_subscriber_finished_sleep_time(),
         }
     }
 }
