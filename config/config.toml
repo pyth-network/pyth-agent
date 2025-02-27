@@ -73,6 +73,15 @@ key_store.pyth_price_store_program_key = "3m6sv6HGqEbuyLV84mD7rJn4MAC9LhUa1y1AUN
 # takes to fetch all symbols.
 # oracle.max_lookup_batch_size = 100
 
+# Number of workers used to wait for the handle_price_account_update
+# oracle.handle_price_account_update_worker_poll_size = 25
+# Channel size used to wait for the handle_price_account_update
+# oracle.handle_price_account_update_channel_size = 1000
+# Minimum time for a subscriber to run
+# oracle.subscriber_finished_min_time = "30s"
+# Time to sleep if the subscriber do not run for more than the minimum time
+# oracle.subscriber_finished_sleep_time = "1s"
+
 # How often to refresh the cached network state (current slot and blockhash).
 # It is recommended to set this to slightly less than the network's block time,
 # as the slot fetched will be used as the time of the price update.

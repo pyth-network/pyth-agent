@@ -143,7 +143,7 @@ fn default_handle_price_account_update_channel_size() -> usize {
 }
 
 fn default_handle_price_account_update_worker_poll_size() -> usize {
-    50
+    25
 }
 
 fn default_subscriber_finished_min_time() -> Duration {
