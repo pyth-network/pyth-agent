@@ -22,11 +22,11 @@ use {
     },
     prometheus_client::registry::Registry,
     solana_sdk::pubkey::Pubkey,
-    std::collections::{
+    std::{collections::{
         BTreeMap,
         HashMap,
         HashSet,
-    },
+    }, sync::Arc},
     tokio::sync::RwLock,
 };
 
