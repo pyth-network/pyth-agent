@@ -64,9 +64,7 @@ pub async fn spawn(addr: impl Into<SocketAddr> + 'static) {
             let mut buf = String::new();
             let response = encode(&mut buf, &&PROMETHEUS_REGISTRY.lock().await)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })
-                .and_then(|_| -> Result<_, Box<dyn std::error::Error>> {
-                    Ok(Box::new(reply::with_status(buf, StatusCode::OK)))
-                })
+                .map(|_| Box::new(reply::with_status(buf, StatusCode::OK)))
                 .unwrap_or_else(|e| {
                     tracing::error!(err = ?e, "Metrics: Could not gather metrics from registry");
                     Box::new(reply::with_status(
