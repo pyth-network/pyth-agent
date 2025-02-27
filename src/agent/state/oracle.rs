@@ -398,15 +398,17 @@ async fn fetch_publisher_buffer_key(
     Ok(config.buffer_account.into())
 }
 
+type ProductAndPriceAccounts = (
+    HashMap<Pubkey, Arc<ProductEntry>>,
+    HashMap<Pubkey, Arc<PriceEntry>>,
+);
+
 #[instrument(skip(rpc_client))]
 async fn fetch_product_and_price_accounts(
     rpc_client: &RpcClient,
     oracle_program_key: Pubkey,
     max_lookup_batch_size: usize,
-) -> Result<(
-    HashMap<Pubkey, Arc<ProductEntry>>,
-    HashMap<Pubkey, Arc<PriceEntry>>,
-)> {
+) -> Result<ProductAndPriceAccounts> {
     let mut product_entries = HashMap::new();
     let mut price_entries = HashMap::new();
 
