@@ -247,7 +247,7 @@ mod tests {
                             ]
                             .map(|(k, v)| (k.to_string(), v.to_string())),
                         ),
-                        price_accounts: vec![
+                        price_accounts: [
                             solana_sdk::pubkey::Pubkey::from_str(
                                 "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU",
                             )
@@ -260,7 +260,7 @@ mod tests {
                                 "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6",
                             )
                             .unwrap(),
-                        ],
+                        ].into(),
                     },
                 ),
                 (
@@ -280,7 +280,7 @@ mod tests {
                             ]
                             .map(|(k, v)| (k.to_string(), v.to_string())),
                         ),
-                        price_accounts: vec![
+                        price_accounts: [
                             solana_sdk::pubkey::Pubkey::from_str(
                                 "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD",
                             )
@@ -293,7 +293,7 @@ mod tests {
                                 "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ",
                             )
                             .unwrap(),
-                        ],
+                        ].into(),
                     },
                 ),
             ]),
@@ -372,7 +372,7 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                price:     vec![
+                price: [
                     PriceAccountMetadata {
                         account:        "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD".to_string(),
                         price_type:     "price".to_string(),
@@ -388,7 +388,7 @@ mod tests {
                         price_type:     "price".to_string(),
                         price_exponent: 2,
                     },
-                ],
+                ].into(),
             },
             ProductAccountMetadata {
                 account:   "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string(),
@@ -403,7 +403,7 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                price:     vec![
+                price: [
                     PriceAccountMetadata {
                         account:        "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".to_string(),
                         price_type:     "price".to_string(),
@@ -419,7 +419,7 @@ mod tests {
                         price_type:     "price".to_string(),
                         price_exponent: -6,
                     },
-                ],
+                ].into(),
             },
         ];
 
@@ -482,7 +482,7 @@ mod tests {
                         },
                         schedule:         Default::default(),
                         publish_interval: None,
-                        price_accounts:   vec![
+                        price_accounts:   [
                             solana_sdk::pubkey::Pubkey::from_str(
                                 "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU",
                             )
@@ -495,7 +495,7 @@ mod tests {
                                 "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6",
                             )
                             .unwrap(),
-                        ],
+                        ].into(),
                     }
                     .into(),
                 ),
@@ -544,7 +544,7 @@ mod tests {
                         },
                         schedule:         Default::default(),
                         publish_interval: None,
-                        price_accounts:   vec![
+                        price_accounts:   [
                             solana_sdk::pubkey::Pubkey::from_str(
                                 "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD",
                             )
@@ -557,7 +557,7 @@ mod tests {
                                 "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ",
                             )
                             .unwrap(),
-                        ],
+                        ].into(),
                     }
                     .into(),
                 ),
@@ -1075,7 +1075,7 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                price_accounts: vec![
+                price_accounts: [
                     pyth::PriceAccount {
                         account:            "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD"
                             .to_string(),
@@ -1091,7 +1091,7 @@ mod tests {
                         prev_slot:          791279274,
                         prev_price:         98272648,
                         prev_conf:          124986284,
-                        publisher_accounts: vec![
+                        publisher_accounts: [
                             PublisherAccount {
                                 account: "F42dQ3SMssashRsA4SRfwJxFkGKV1bE3TcmpkagX8vvX".to_string(),
                                 status:  "trading".to_string(),
@@ -1106,7 +1106,7 @@ mod tests {
                                 conf:    55896,
                                 slot:    32976,
                             },
-                        ],
+                        ].into(),
                     },
                     pyth::PriceAccount {
                         account:            "fTNjSfj5uW9e4CAMHzUcm65ftRNBxCN1gG5GS1mYfid"
@@ -1123,7 +1123,7 @@ mod tests {
                         prev_slot:          893734828,
                         prev_price:         13947294,
                         prev_conf:          349274938,
-                        publisher_accounts: vec![
+                        publisher_accounts: [
                             PublisherAccount {
                                 account: "8MMroLyuyxyeDRrzMNfpymC5RvmHtQiYooXX9bgeUJdM".to_string(),
                                 status:  "unknown".to_string(),
@@ -1138,7 +1138,7 @@ mod tests {
                                 conf:    8962196,
                                 slot:    301541,
                             },
-                        ],
+                        ].into(),
                     },
                     pyth::PriceAccount {
                         account:            "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ"
@@ -1155,15 +1155,15 @@ mod tests {
                         prev_slot:          8878456286,
                         prev_price:         24746384,
                         prev_conf:          6373957,
-                        publisher_accounts: vec![PublisherAccount {
+                        publisher_accounts: [PublisherAccount {
                             account: "33B2brfdz16kizEXeQvYzJXHiS1X95L8pfetuyntEiXg".to_string(),
                             status:  "trading".to_string(),
                             price:   61478,
                             conf:    312545,
                             slot:    302156,
-                        }],
+                        }].into(),
                     },
-                ],
+                ].into(),
             },
             pyth::ProductAccount {
                 account:        "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".to_string(),
@@ -1178,7 +1178,7 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.to_string(), v.to_string())),
                 ),
-                price_accounts: vec![
+                price_accounts: [
                     pyth::PriceAccount {
                         account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU"
                             .to_string(),
@@ -1194,7 +1194,7 @@ mod tests {
                         prev_slot:          172761778,
                         prev_price:         22691000,
                         prev_conf:          398674,
-                        publisher_accounts: vec![],
+                        publisher_accounts: [].into(),
                     },
                     pyth::PriceAccount {
                         account:            "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr"
@@ -1211,13 +1211,13 @@ mod tests {
                         prev_slot:          1727612348,
                         prev_price:         746383678,
                         prev_conf:          757368,
-                        publisher_accounts: vec![PublisherAccount {
+                        publisher_accounts: [PublisherAccount {
                             account: "C9syZ2MoGUwbPyGEgiy8MxesaEEKLdJw8gnwx2jLK1cV".to_string(),
                             status:  "trading".to_string(),
                             price:   85698,
                             conf:    23645,
                             slot:    14765,
-                        }],
+                        }].into(),
                     },
                     pyth::PriceAccount {
                         account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6"
@@ -1234,7 +1234,7 @@ mod tests {
                         prev_slot:          86484638,
                         prev_price:         28463947,
                         prev_conf:          83628234,
-                        publisher_accounts: vec![
+                        publisher_accounts: [
                             PublisherAccount {
                                 account: "DaMuPaW5dhGfRJaX7TzLWXd8hDCMJ5WA2XibJ12hjBNQ".to_string(),
                                 status:  "trading".to_string(),
@@ -1249,9 +1249,9 @@ mod tests {
                                 conf:    7456,
                                 slot:    865,
                             },
-                        ],
+                        ].into(),
                     },
-                ],
+                ].into(),
             },
         ];
 
@@ -1280,7 +1280,7 @@ mod tests {
         // Check that the result of the conversion to the Pythd API format is what we expected
         let expected = ProductAccount {
             account:        account.to_string(),
-            price_accounts: vec![
+            price_accounts: [
                 pyth::PriceAccount {
                     account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".to_string(),
                     price_type:         "price".to_string(),
@@ -1295,7 +1295,7 @@ mod tests {
                     prev_slot:          172761778,
                     prev_price:         22691000,
                     prev_conf:          398674,
-                    publisher_accounts: vec![],
+                    publisher_accounts: [].into(),
                 },
                 pyth::PriceAccount {
                     account:            "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr".to_string(),
@@ -1311,13 +1311,13 @@ mod tests {
                     prev_slot:          1727612348,
                     prev_price:         746383678,
                     prev_conf:          757368,
-                    publisher_accounts: vec![PublisherAccount {
+                    publisher_accounts: [PublisherAccount {
                         account: "C9syZ2MoGUwbPyGEgiy8MxesaEEKLdJw8gnwx2jLK1cV".to_string(),
                         status:  "trading".to_string(),
                         price:   85698,
                         conf:    23645,
                         slot:    14765,
-                    }],
+                    }].into(),
                 },
                 pyth::PriceAccount {
                     account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6".to_string(),
@@ -1333,7 +1333,7 @@ mod tests {
                     prev_slot:          86484638,
                     prev_price:         28463947,
                     prev_conf:          83628234,
-                    publisher_accounts: vec![
+                    publisher_accounts: [
                         PublisherAccount {
                             account: "DaMuPaW5dhGfRJaX7TzLWXd8hDCMJ5WA2XibJ12hjBNQ".to_string(),
                             status:  "trading".to_string(),
@@ -1348,9 +1348,9 @@ mod tests {
                             conf:    7456,
                             slot:    865,
                         },
-                    ],
+                    ].into(),
                 },
-            ],
+            ].into(),
             attr_dict:      BTreeMap::from(
                 [
                     ("symbol", "Crypto.LTC/USD"),

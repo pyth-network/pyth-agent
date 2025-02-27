@@ -16,7 +16,7 @@ use {
     tokio::sync::RwLock,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct PriceInfo {
     pub status:    PriceStatus,
     pub price:     i64,

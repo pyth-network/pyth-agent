@@ -51,7 +51,7 @@ use {
     tracing::instrument,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ProductEntry {
     pub account_data:     pyth_sdk_solana::state::ProductAccount,
     pub schedule:         MarketSchedule,
@@ -130,7 +130,7 @@ impl std::ops::Deref for PriceEntry {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug)]
 pub struct Data {
     pub product_accounts: HashMap<Pubkey, Arc<ProductEntry>>,
     pub price_accounts: HashMap<Pubkey, Arc<PriceEntry>>,
@@ -485,7 +485,7 @@ async fn fetch_product_and_price_accounts(
             ProductEntry {
                 account_data: *product,
                 schedule: market_schedule.unwrap_or_else(|| legacy_schedule.into()),
-                price_accounts: vec![],
+                price_accounts: [].into(),
                 publish_interval,
             },
         );

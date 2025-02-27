@@ -47,7 +47,7 @@ const MAX_TIME_INSTANT: NaiveTime = NaiveTime::MIN
     .overflowing_sub_signed(Duration::nanoseconds(1))
     .0;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct MarketSchedule {
     pub timezone:        Tz,
     pub weekly_schedule: Vec<ScheduleDayKind>,
@@ -193,8 +193,9 @@ impl Display for HolidayDaySchedule {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Default, Clone, Debug, Eq, PartialEq)]
 pub enum ScheduleDayKind {
+    #[default]
     Open,
     Closed,
     TimeRanges(Vec<RangeInclusive<NaiveTime>>),
@@ -207,12 +208,6 @@ impl ScheduleDayKind {
             Self::Closed => false,
             Self::TimeRanges(ranges) => ranges.iter().any(|range| range.contains(&when_local)),
         }
-    }
-}
-
-impl Default for ScheduleDayKind {
-    fn default() -> Self {
-        Self::Open
     }
 }
 
