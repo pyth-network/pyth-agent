@@ -181,30 +181,30 @@ pub struct Config {
     pub handle_price_account_update_worker_poll_size: usize,
     /// Channel size used to wait for the handle_price_account_update
     #[serde(default = "default_handle_price_account_update_channel_size")]
-    pub handle_price_account_update_channel_size: usize,
+    pub handle_price_account_update_channel_size:     usize,
     /// Minimum time for a subscriber to run
     #[serde(default = "default_subscriber_finished_min_time")]
-    pub subscriber_finished_min_time: Duration,
+    pub subscriber_finished_min_time:                 Duration,
     /// Time to sleep if the subscriber do not run for more than the minimum time
     #[serde(default = "default_subscriber_finished_sleep_time")]
-    pub subscriber_finished_sleep_time: Duration,
+    pub subscriber_finished_sleep_time:               Duration,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            commitment:               CommitmentLevel::Confirmed,
-            poll_interval_duration:   Duration::from_secs(5),
-            subscriber_enabled:       true,
-            updates_channel_capacity: 10000,
-            data_channel_capacity:    10000,
-            max_lookup_batch_size:    100,
+            commitment:                                   CommitmentLevel::Confirmed,
+            poll_interval_duration:                       Duration::from_secs(5),
+            subscriber_enabled:                           true,
+            updates_channel_capacity:                     10000,
+            data_channel_capacity:                        10000,
+            max_lookup_batch_size:                        100,
             handle_price_account_update_worker_poll_size:
                 default_handle_price_account_update_worker_poll_size(),
             handle_price_account_update_channel_size:
                 default_handle_price_account_update_channel_size(),
-            subscriber_finished_min_time: default_subscriber_finished_min_time(),
-            subscriber_finished_sleep_time: default_subscriber_finished_sleep_time(),
+            subscriber_finished_min_time:                 default_subscriber_finished_min_time(),
+            subscriber_finished_sleep_time:               default_subscriber_finished_sleep_time(),
         }
     }
 }

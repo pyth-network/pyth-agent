@@ -13,7 +13,10 @@ use {
         },
         state::oracle::Oracle,
     },
-    anyhow::{Context, Result},
+    anyhow::{
+        Context,
+        Result,
+    },
     solana_account_decoder::UiAccountEncoding,
     solana_client::{
         nonblocking::{
