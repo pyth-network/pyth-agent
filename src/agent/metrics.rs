@@ -15,6 +15,7 @@ use {
         registry::Registry,
     },
     serde::Deserialize,
+    smol_str::SmolStr,
     solana_sdk::pubkey::Pubkey,
     std::{
         net::SocketAddr,
@@ -64,9 +65,7 @@ pub async fn spawn(addr: impl Into<SocketAddr> + 'static) {
             let mut buf = String::new();
             let response = encode(&mut buf, &&PROMETHEUS_REGISTRY.lock().await)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })
-                .and_then(|_| -> Result<_, Box<dyn std::error::Error>> {
-                    Ok(Box::new(reply::with_status(buf, StatusCode::OK)))
-                })
+                .map(|_| Box::new(reply::with_status(buf, StatusCode::OK)))
                 .unwrap_or_else(|e| {
                     tracing::error!(err = ?e, "Metrics: Could not gather metrics from registry");
                     Box::new(reply::with_status(
@@ -115,8 +114,10 @@ impl ProductGlobalMetrics {
         metrics
     }
 
-    pub fn update(&self, product_key: &Pubkey, maybe_symbol: Option<String>) {
-        let symbol_string = maybe_symbol.unwrap_or(format!("unknown_{}", product_key));
+    pub fn update(&self, product_key: &Pubkey, maybe_symbol: Option<SmolStr>) {
+        let symbol_string = maybe_symbol
+            .map(|x| x.into())
+            .unwrap_or(format!("unknown_{}", product_key));
 
         #[deny(unused_variables)]
         let Self { update_count } = self;

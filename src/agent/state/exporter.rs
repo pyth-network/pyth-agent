@@ -215,7 +215,7 @@ where
                 }
             })
             .filter_map(|(feed_id, info)| {
-                let key_from_id = Pubkey::from(feed_id.clone().to_bytes());
+                let key_from_id = Pubkey::from(feed_id.to_bytes());
                 if let Some(publisher_permission) = our_prices.get(&key_from_id) {
                     let now_utc = Utc::now();
                     let can_publish = publisher_permission.schedule.can_publish_at(&now_utc);
@@ -257,7 +257,7 @@ where
                     }
                 };
 
-                let key_from_id = Pubkey::from((update.feed_id).clone().to_bytes());
+                let key_from_id = Pubkey::from(update.feed_id.to_bytes());
                 let publisher_metadata = match our_prices.get(&key_from_id) {
                     Some(metadata) => metadata,
                     None => {
@@ -515,7 +515,7 @@ where
         ));
 
         for update in batch {
-            batch_state.insert(update.feed_id, update.info.clone());
+            batch_state.insert(update.feed_id, update.info);
         }
     }
 
@@ -579,11 +579,10 @@ where
     let local_store_contents = LocalStore::get_all_price_infos(&*state).await;
     for update in batch {
         let mut update = update.clone();
-        update.info = local_store_contents
+        update.info = *local_store_contents
             .get(&update.feed_id)
             .ok_or_else(|| anyhow!("price identifier not found in local store"))
-            .with_context(|| update.feed_id.to_string())?
-            .clone();
+            .with_context(|| update.feed_id.to_string())?;
 
         let stale_price = now > update.info.timestamp + staleness_threshold;
         if stale_price {

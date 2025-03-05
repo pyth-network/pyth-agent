@@ -21,11 +21,15 @@ use {
         Result,
     },
     prometheus_client::registry::Registry,
+    smol_str::SmolStr,
     solana_sdk::pubkey::Pubkey,
-    std::collections::{
-        BTreeMap,
-        HashMap,
-        HashSet,
+    std::{
+        collections::{
+            BTreeMap,
+            HashMap,
+            HashSet,
+        },
+        sync::Arc,
     },
     tokio::sync::RwLock,
 };
@@ -34,8 +38,8 @@ use {
 /// from the primary network.
 #[derive(Debug, Clone, Default)]
 pub struct AllAccountsData {
-    pub product_accounts: HashMap<Pubkey, ProductEntry>,
-    pub price_accounts:   HashMap<Pubkey, PriceEntry>,
+    pub product_accounts: HashMap<Pubkey, Arc<ProductEntry>>,
+    pub price_accounts:   HashMap<Pubkey, Arc<PriceEntry>>,
 }
 
 /// AllAccountsMetadata contains the metadata for all the price and product accounts.
@@ -51,20 +55,20 @@ pub struct AllAccountsMetadata {
 #[derive(Debug, Clone, Default)]
 pub struct ProductAccountMetadata {
     /// Attribute dictionary
-    pub attr_dict:      BTreeMap<String, String>,
+    pub attr_dict:      BTreeMap<SmolStr, SmolStr>,
     /// Price accounts associated with this product
     pub price_accounts: Vec<Pubkey>,
 }
 
-impl From<ProductEntry> for ProductAccountMetadata {
-    fn from(product_account: ProductEntry) -> Self {
+impl From<&ProductEntry> for ProductAccountMetadata {
+    fn from(product_account: &ProductEntry) -> Self {
         ProductAccountMetadata {
             attr_dict:      product_account
                 .account_data
                 .iter()
-                .map(|(key, val)| (key.to_owned(), val.to_owned()))
+                .map(|(key, val)| (key.into(), val.into()))
                 .collect(),
-            price_accounts: product_account.price_accounts,
+            price_accounts: product_account.price_accounts.clone(),
         }
     }
 }
@@ -76,8 +80,8 @@ pub struct PriceAccountMetadata {
     pub expo: i32,
 }
 
-impl From<PriceEntry> for PriceAccountMetadata {
-    fn from(price_account: PriceEntry) -> Self {
+impl From<&PriceEntry> for PriceAccountMetadata {
+    fn from(price_account: &PriceEntry) -> Self {
         PriceAccountMetadata {
             expo: price_account.expo,
         }
@@ -88,11 +92,11 @@ impl From<PriceEntry> for PriceAccountMetadata {
 pub enum Update {
     ProductAccountUpdate {
         account_key: Pubkey,
-        account:     ProductEntry,
+        account:     Arc<ProductEntry>,
     },
     PriceAccountUpdate {
         account_key: Pubkey,
-        account:     PriceEntry,
+        account:     Arc<PriceEntry>,
     },
 }
 
@@ -153,7 +157,7 @@ pub trait GlobalStore {
         &self,
         network: Network,
         price_ids: HashSet<Pubkey>,
-    ) -> Result<HashMap<Pubkey, PriceEntry>>;
+    ) -> Result<HashMap<Pubkey, Arc<PriceEntry>>>;
 }
 
 // Allow downcasting State into GlobalStore for functions that depend on the `GlobalStore` service.
@@ -190,7 +194,7 @@ where
         &self,
         network: Network,
         price_ids: HashSet<Pubkey>,
-    ) -> Result<HashMap<Pubkey, PriceEntry>> {
+    ) -> Result<HashMap<Pubkey, Arc<PriceEntry>>> {
         let account_data = match network {
             Network::Primary => &self.into().account_data_primary,
             Network::Secondary => &self.into().account_data_secondary,
@@ -229,7 +233,7 @@ where
             account_key,
             account,
         } => {
-            let attr_dict = ProductAccountMetadata::from(account.clone()).attr_dict;
+            let attr_dict = ProductAccountMetadata::from(account.as_ref()).attr_dict;
             let maybe_symbol = attr_dict.get("symbol").cloned();
             store.product_metrics.update(account_key, maybe_symbol);
 
@@ -269,7 +273,7 @@ where
                 .write()
                 .await
                 .price_accounts
-                .insert(*account_key, *account);
+                .insert(*account_key, account.clone());
         }
     }
 
@@ -292,7 +296,7 @@ where
                 .write()
                 .await
                 .product_accounts_metadata
-                .insert(*account_key, account.clone().into());
+                .insert(*account_key, account.as_ref().into());
 
             Ok(())
         }
@@ -305,7 +309,7 @@ where
                 .write()
                 .await
                 .price_accounts_metadata
-                .insert(*account_key, (*account).into());
+                .insert(*account_key, account.as_ref().into());
 
             Ok(())
         }

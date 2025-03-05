@@ -43,13 +43,14 @@ use {
             HashMap,
             HashSet,
         },
+        sync::Arc,
         time::Duration,
     },
     tokio::sync::RwLock,
     tracing::instrument,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ProductEntry {
     pub account_data:     pyth_sdk_solana::state::ProductAccount,
     pub schedule:         MarketSchedule,
@@ -128,10 +129,10 @@ impl std::ops::Deref for PriceEntry {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug)]
 pub struct Data {
-    pub product_accounts:      HashMap<Pubkey, ProductEntry>,
-    pub price_accounts:        HashMap<Pubkey, PriceEntry>,
+    pub product_accounts:      HashMap<Pubkey, Arc<ProductEntry>>,
+    pub price_accounts:        HashMap<Pubkey, Arc<PriceEntry>>,
     /// publisher => {their permissioned price accounts => price publishing metadata}
     pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     pub publisher_buffer_key:  Option<Pubkey>,
@@ -173,16 +174,9 @@ impl Default for Config {
     }
 }
 
+#[derive(Default)]
 pub struct OracleState {
     data: RwLock<Data>,
-}
-
-impl OracleState {
-    pub fn new() -> Self {
-        Self {
-            data: Default::default(),
-        }
-    }
 }
 
 #[async_trait::async_trait]
@@ -246,14 +240,14 @@ where
             "Observed on-chain price account update.",
         );
 
-        data.price_accounts.insert(*account_key, price_entry);
+        data.price_accounts.insert(*account_key, price_entry.into());
 
         Prices::update_global_price(
             self,
             network,
             &Update::PriceAccountUpdate {
                 account_key: *account_key,
-                account:     price_entry,
+                account:     Arc::new(price_entry),
             },
         )
         .await?;
@@ -376,7 +370,7 @@ where
                 network,
                 &Update::PriceAccountUpdate {
                     account_key: *price_account_key,
-                    account:     *price_account,
+                    account:     price_account.clone(),
                 },
             )
             .await
@@ -403,12 +397,17 @@ async fn fetch_publisher_buffer_key(
     Ok(config.buffer_account.into())
 }
 
+type ProductAndPriceAccounts = (
+    HashMap<Pubkey, Arc<ProductEntry>>,
+    HashMap<Pubkey, Arc<PriceEntry>>,
+);
+
 #[instrument(skip(rpc_client))]
 async fn fetch_product_and_price_accounts(
     rpc_client: &RpcClient,
     oracle_program_key: Pubkey,
     max_lookup_batch_size: usize,
-) -> Result<(HashMap<Pubkey, ProductEntry>, HashMap<Pubkey, PriceEntry>)> {
+) -> Result<ProductAndPriceAccounts> {
     let mut product_entries = HashMap::new();
     let mut price_entries = HashMap::new();
 
@@ -485,7 +484,7 @@ async fn fetch_product_and_price_accounts(
             ProductEntry {
                 account_data: *product,
                 schedule: market_schedule.unwrap_or_else(|| legacy_schedule.into()),
-                price_accounts: vec![],
+                price_accounts: [].into(),
                 publish_interval,
             },
         );
@@ -509,7 +508,16 @@ async fn fetch_product_and_price_accounts(
         }
     }
 
-    Ok((product_entries, price_entries))
+    Ok((
+        product_entries
+            .into_iter()
+            .map(|(x, y)| (x, Arc::new(y)))
+            .collect(),
+        price_entries
+            .into_iter()
+            .map(|(x, y)| (x, Arc::new(y)))
+            .collect(),
+    ))
 }
 
 #[instrument(skip(rpc_client, product_key_batch))]

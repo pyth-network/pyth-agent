@@ -327,7 +327,7 @@ mod tests {
 
         // Prepare UTC datetimes that fall before, within and after market hours
         let format = "%Y-%m-%d %H:%M";
-        let bad_datetimes_before = vec![
+        let bad_datetimes_before = [
             NaiveDateTime::parse_from_str("2023-11-20 04:30", format)?.and_utc(),
             NaiveDateTime::parse_from_str("2023-11-21 05:30", format)?.and_utc(),
             NaiveDateTime::parse_from_str("2023-11-22 06:30", format)?.and_utc(),
@@ -337,7 +337,7 @@ mod tests {
             NaiveDateTime::parse_from_str("2023-11-26 10:30", format)?.and_utc(),
         ];
 
-        let ok_datetimes = vec![
+        let ok_datetimes = [
             NaiveDateTime::parse_from_str("2023-11-20 05:30", format)?.and_utc(),
             NaiveDateTime::parse_from_str("2023-11-21 06:30", format)?.and_utc(),
             NaiveDateTime::parse_from_str("2023-11-22 07:30", format)?.and_utc(),
@@ -347,7 +347,7 @@ mod tests {
             NaiveDateTime::parse_from_str("2023-11-26 11:30", format)?.and_utc(),
         ];
 
-        let bad_datetimes_after = vec![
+        let bad_datetimes_after = [
             NaiveDateTime::parse_from_str("2023-11-20 06:30", format)?.and_utc(),
             NaiveDateTime::parse_from_str("2023-11-21 07:30", format)?.and_utc(),
             NaiveDateTime::parse_from_str("2023-11-22 08:30", format)?.and_utc(),
@@ -384,10 +384,10 @@ mod tests {
             "Europe/Amsterdam,23:00-24:00,00:00-01:00,O,C,C,C,C".parse()?;
 
         let format = "%Y-%m-%d %H:%M";
-        let ok_datetimes = vec![
+        let ok_datetimes = [
             NaiveDate::from_ymd_opt(2023, 11, 20)
                 .unwrap()
-                .and_time(MAX_TIME_INSTANT.clone())
+                .and_time(*MAX_TIME_INSTANT)
                 .and_local_timezone(Tz::Europe__Amsterdam)
                 .unwrap(),
             NaiveDateTime::parse_from_str("2023-11-21 00:00", format)?
@@ -395,7 +395,7 @@ mod tests {
                 .unwrap(),
         ];
 
-        let bad_datetimes = vec![
+        let bad_datetimes = [
             // Start of Monday Nov 20th, must not be confused for MAX_TIME_INSTANT on that day
             NaiveDateTime::parse_from_str("2023-11-20 00:00", format)?
                 .and_local_timezone(Tz::Europe__Amsterdam)
@@ -404,7 +404,7 @@ mod tests {
             // confused for Wednesday 00:00 which is open.
             NaiveDate::from_ymd_opt(2023, 11, 21)
                 .unwrap()
-                .and_time(MAX_TIME_INSTANT.clone())
+                .and_time(*MAX_TIME_INSTANT)
                 .and_local_timezone(Tz::Europe__Amsterdam)
                 .unwrap(),
         ];
