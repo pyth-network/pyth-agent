@@ -90,7 +90,7 @@ impl State {
             keypairs:     keypairs::KeypairState::default(),
             prices:       api::PricesState::new(config.state.clone()),
             exporter:     exporter::ExporterState::new(),
-            oracle: oracle::OracleState::default(),
+            oracle:       oracle::OracleState::default(),
             transactions: transactions::TransactionsState::new(
                 config
                     .primary_network
@@ -110,7 +110,7 @@ impl State {
             keypairs:     keypairs::KeypairState::default(),
             prices:       api::PricesState::new(config),
             exporter:     exporter::ExporterState::new(),
-            oracle: oracle::OracleState::default(),
+            oracle:       oracle::OracleState::default(),
             transactions: transactions::TransactionsState::new(100),
         }
     }
@@ -261,7 +261,8 @@ mod tests {
                                 "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6",
                             )
                             .unwrap(),
-                        ].into(),
+                        ]
+                        .into(),
                     },
                 ),
                 (
@@ -294,7 +295,8 @@ mod tests {
                                 "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ",
                             )
                             .unwrap(),
-                        ].into(),
+                        ]
+                        .into(),
                     },
                 ),
             ]),
@@ -373,7 +375,7 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.into(), v.into())),
                 ),
-                price: [
+                price:     [
                     PriceAccountMetadata {
                         account:        "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD".into(),
                         price_type:     "price".into(),
@@ -389,7 +391,8 @@ mod tests {
                         price_type:     "price".into(),
                         price_exponent: 2,
                     },
-                ].into(),
+                ]
+                .into(),
             },
             ProductAccountMetadata {
                 account:   "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".into(),
@@ -404,7 +407,7 @@ mod tests {
                     ]
                     .map(|(k, v)| (k.into(), v.into())),
                 ),
-                price: [
+                price:     [
                     PriceAccountMetadata {
                         account:        "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".into(),
                         price_type:     "price".into(),
@@ -420,7 +423,8 @@ mod tests {
                         price_type:     "price".into(),
                         price_exponent: -6,
                     },
-                ].into(),
+                ]
+                .into(),
             },
         ];
 
@@ -496,7 +500,8 @@ mod tests {
                                 "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6",
                             )
                             .unwrap(),
-                        ].into(),
+                        ]
+                        .into(),
                     }
                     .into(),
                 ),
@@ -558,7 +563,8 @@ mod tests {
                                 "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ",
                             )
                             .unwrap(),
-                        ].into(),
+                        ]
+                        .into(),
                     }
                     .into(),
                 ),
@@ -616,8 +622,7 @@ mod tests {
                         },
                         comp:           [PriceComp::default(); 32],
                         extended:       (),
-                    }))
-                    ,
+                    })),
                 ),
                 (
                     solana_sdk::pubkey::Pubkey::from_str(
@@ -1078,8 +1083,7 @@ mod tests {
                 ),
                 price_accounts: [
                     pyth::PriceAccount {
-                        account:            "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD"
-                            .into(),
+                        account:            "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD".into(),
                         price_type:         "price".into(),
                         price_exponent:     -9,
                         status:             "trading".into(),
@@ -1107,11 +1111,11 @@ mod tests {
                                 conf:    55896,
                                 slot:    32976,
                             },
-                        ].into(),
+                        ]
+                        .into(),
                     },
                     pyth::PriceAccount {
-                        account:            "fTNjSfj5uW9e4CAMHzUcm65ftRNBxCN1gG5GS1mYfid"
-                            .into(),
+                        account:            "fTNjSfj5uW9e4CAMHzUcm65ftRNBxCN1gG5GS1mYfid".into(),
                         price_type:         "price".into(),
                         price_exponent:     -6,
                         status:             "trading".into(),
@@ -1139,11 +1143,11 @@ mod tests {
                                 conf:    8962196,
                                 slot:    301541,
                             },
-                        ].into(),
+                        ]
+                        .into(),
                     },
                     pyth::PriceAccount {
-                        account:            "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ"
-                            .into(),
+                        account:            "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ".into(),
                         price_type:         "price".into(),
                         price_exponent:     2,
                         status:             "trading".into(),
@@ -1162,9 +1166,11 @@ mod tests {
                             price:   61478,
                             conf:    312545,
                             slot:    302156,
-                        }].into(),
+                        }]
+                        .into(),
                     },
-                ].into(),
+                ]
+                .into(),
             },
             pyth::ProductAccount {
                 account:        "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t".into(),
@@ -1181,8 +1187,7 @@ mod tests {
                 ),
                 price_accounts: [
                     pyth::PriceAccount {
-                        account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU"
-                            .into(),
+                        account:            "GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU".into(),
                         price_type:         "price".into(),
                         price_exponent:     -8,
                         status:             "unknown".into(),
@@ -1198,8 +1203,7 @@ mod tests {
                         publisher_accounts: [].into(),
                     },
                     pyth::PriceAccount {
-                        account:            "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr"
-                            .into(),
+                        account:            "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr".into(),
                         price_type:         "price".into(),
                         price_exponent:     -10,
                         status:             "unknown".into(),
@@ -1218,11 +1222,11 @@ mod tests {
                             price:   85698,
                             conf:    23645,
                             slot:    14765,
-                        }].into(),
+                        }]
+                        .into(),
                     },
                     pyth::PriceAccount {
-                        account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6"
-                            .into(),
+                        account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6".into(),
                         price_type:         "price".into(),
                         price_exponent:     -6,
                         status:             "trading".into(),
@@ -1250,9 +1254,11 @@ mod tests {
                                 conf:    7456,
                                 slot:    865,
                             },
-                        ].into(),
+                        ]
+                        .into(),
                     },
-                ].into(),
+                ]
+                .into(),
             },
         ];
 
@@ -1318,7 +1324,8 @@ mod tests {
                         price:   85698,
                         conf:    23645,
                         slot:    14765,
-                    }].into(),
+                    }]
+                    .into(),
                 },
                 pyth::PriceAccount {
                     account:            "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6".into(),
@@ -1349,9 +1356,11 @@ mod tests {
                             conf:    7456,
                             slot:    865,
                         },
-                    ].into(),
+                    ]
+                    .into(),
                 },
-            ].into(),
+            ]
+            .into(),
             attr_dict:      BTreeMap::from(
                 [
                     ("symbol", "Crypto.LTC/USD"),

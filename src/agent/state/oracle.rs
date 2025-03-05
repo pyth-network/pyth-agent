@@ -43,11 +43,11 @@ use {
             HashMap,
             HashSet,
         },
+        sync::Arc,
         time::Duration,
     },
     tokio::sync::RwLock,
     tracing::instrument,
-    std::sync::Arc,
 };
 
 #[derive(Debug)]
@@ -131,8 +131,8 @@ impl std::ops::Deref for PriceEntry {
 
 #[derive(Default, Debug)]
 pub struct Data {
-    pub product_accounts: HashMap<Pubkey, Arc<ProductEntry>>,
-    pub price_accounts: HashMap<Pubkey, Arc<PriceEntry>>,
+    pub product_accounts:      HashMap<Pubkey, Arc<ProductEntry>>,
+    pub price_accounts:        HashMap<Pubkey, Arc<PriceEntry>>,
     /// publisher => {their permissioned price accounts => price publishing metadata}
     pub publisher_permissions: HashMap<Pubkey, HashMap<Pubkey, PricePublishingMetadata>>,
     pub publisher_buffer_key:  Option<Pubkey>,
@@ -247,7 +247,7 @@ where
             network,
             &Update::PriceAccountUpdate {
                 account_key: *account_key,
-                account: Arc::new(price_entry),
+                account:     Arc::new(price_entry),
             },
         )
         .await?;
@@ -370,7 +370,7 @@ where
                 network,
                 &Update::PriceAccountUpdate {
                     account_key: *price_account_key,
-                    account: price_account.clone(),
+                    account:     price_account.clone(),
                 },
             )
             .await

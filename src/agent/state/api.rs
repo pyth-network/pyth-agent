@@ -46,7 +46,8 @@ use {
     },
     smol_str::{
         SmolStr,
-        ToSmolStr},
+        ToSmolStr,
+    },
     std::{
         collections::HashMap,
         sync::atomic::AtomicI64,

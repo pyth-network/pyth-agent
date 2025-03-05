@@ -21,14 +21,17 @@ use {
         Result,
     },
     prometheus_client::registry::Registry,
-    solana_sdk::pubkey::Pubkey,
-    std::{collections::{
-        BTreeMap,
-        HashMap,
-        HashSet,
-    }, sync::Arc},
-    tokio::sync::RwLock,
     smol_str::SmolStr,
+    solana_sdk::pubkey::Pubkey,
+    std::{
+        collections::{
+            BTreeMap,
+            HashMap,
+            HashSet,
+        },
+        sync::Arc,
+    },
+    tokio::sync::RwLock,
 };
 
 /// AllAccountsData contains the full data for the price and product accounts, sourced
@@ -36,7 +39,7 @@ use {
 #[derive(Debug, Clone, Default)]
 pub struct AllAccountsData {
     pub product_accounts: HashMap<Pubkey, Arc<ProductEntry>>,
-    pub price_accounts: HashMap<Pubkey, Arc<PriceEntry>>,
+    pub price_accounts:   HashMap<Pubkey, Arc<PriceEntry>>,
 }
 
 /// AllAccountsMetadata contains the metadata for all the price and product accounts.
@@ -60,7 +63,7 @@ pub struct ProductAccountMetadata {
 impl From<&ProductEntry> for ProductAccountMetadata {
     fn from(product_account: &ProductEntry) -> Self {
         ProductAccountMetadata {
-            attr_dict: product_account
+            attr_dict:      product_account
                 .account_data
                 .iter()
                 .map(|(key, val)| (key.into(), val.into()))
@@ -89,11 +92,11 @@ impl From<&PriceEntry> for PriceAccountMetadata {
 pub enum Update {
     ProductAccountUpdate {
         account_key: Pubkey,
-        account: Arc<ProductEntry>,
+        account:     Arc<ProductEntry>,
     },
     PriceAccountUpdate {
         account_key: Pubkey,
-        account: Arc<PriceEntry>,
+        account:     Arc<PriceEntry>,
     },
 }
 

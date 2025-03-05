@@ -3,9 +3,11 @@ use {
         Deserialize,
         Serialize,
     },
-    std::collections::BTreeMap,
-    std::sync::Arc,
     smol_str::SmolStr,
+    std::{
+        collections::BTreeMap,
+        sync::Arc,
+    },
 };
 
 pub mod rpc;
@@ -18,7 +20,7 @@ pub type Exponent = i64;
 pub type Conf = u64;
 pub type Slot = u64;
 
-#[derive(Serialize, Deserialize, Debug,  Ord, PartialOrd, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Ord, PartialOrd, PartialEq, Eq)]
 pub struct ProductAccountMetadata {
     pub account:   Pubkey,
     pub attr_dict: Attrs,

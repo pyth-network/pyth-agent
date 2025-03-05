@@ -115,7 +115,8 @@ impl ProductGlobalMetrics {
     }
 
     pub fn update(&self, product_key: &Pubkey, maybe_symbol: Option<SmolStr>) {
-        let symbol_string = maybe_symbol.map(|x| x.into())
+        let symbol_string = maybe_symbol
+            .map(|x| x.into())
             .unwrap_or(format!("unknown_{}", product_key));
 
         #[deny(unused_variables)]
