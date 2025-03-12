@@ -70,9 +70,6 @@ where
     )));
 
     if config.oracle.subscriber_enabled {
-        let number_of_workers = config.oracle.handle_price_account_update_worker_poll_size;
-        let (sender, receiver) =
-            tokio::sync::mpsc::channel(config.oracle.handle_price_account_update_channel_size);
         let min_elapsed_time = config.oracle.subscriber_finished_min_time;
         let sleep_time = config.oracle.subscriber_finished_sleep_time;
 
@@ -84,7 +81,6 @@ where
                     network,
                     state.clone(),
                     key_store.pyth_oracle_program_key,
-                    sender.clone(),
                 )
                 .await
                 {
@@ -96,22 +92,6 @@ where
                 }
             }
         }));
-
-        let receiver = Arc::new(tokio::sync::Mutex::new(receiver));
-        for _ in 0..number_of_workers {
-            let receiver = receiver.clone();
-            handles.push(tokio::spawn(async move {
-                loop {
-                    let mut receiver = receiver.lock().await;
-                    if let Some(task) = receiver.recv().await {
-                        drop(receiver);
-                        if let Err(err) = task.await {
-                            tracing::error!(%err, "error running price update");
-                        }
-                    }
-                }
-            }));
-        }
     }
 
     handles
@@ -128,7 +108,6 @@ async fn subscriber<S>(
     network: Network,
     state: Arc<S>,
     program_key: Pubkey,
-    sender: tokio::sync::mpsc::Sender<tokio::task::JoinHandle<()>>,
 ) -> Result<()>
 where
     S: Oracle,
@@ -156,17 +135,14 @@ where
             Some(account) => {
                 let pubkey: Pubkey = update.value.pubkey.as_str().try_into()?;
                 let state = state.clone();
-                sender
-                    .send(tokio::spawn(async move {
-                        if let Err(err) =
-                            Oracle::handle_price_account_update(&*state, network, &pubkey, &account)
-                                .await
-                        {
-                            tracing::error!(?err, "Failed to handle account update");
-                        }
-                    }))
-                    .await
-                    .context("sending handle_price_account_update task to worker")?;
+                tokio::spawn(async move {
+                    if let Err(err) =
+                        Oracle::handle_price_account_update(&*state, network, &pubkey, &account)
+                            .await
+                    {
+                        tracing::error!(?err, "Failed to handle account update");
+                    }
+                });
             }
 
             None => {
