@@ -13,10 +13,7 @@ use {
         },
         state::oracle::Oracle,
     },
-    anyhow::{
-        Context,
-        Result,
-    },
+    anyhow::Result,
     solana_account_decoder::UiAccountEncoding,
     solana_client::{
         nonblocking::{
@@ -36,10 +33,7 @@ use {
     },
     std::{
         sync::Arc,
-        time::{
-            Duration,
-            Instant,
-        },
+        time::Instant,
     },
     tokio::task::JoinHandle,
     tokio_stream::StreamExt,
