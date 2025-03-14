@@ -138,6 +138,14 @@ pub struct Data {
     pub publisher_buffer_key:  Option<Pubkey>,
 }
 
+fn default_subscriber_finished_min_time() -> Duration {
+    Duration::from_secs(30)
+}
+
+fn default_subscriber_finished_sleep_time() -> Duration {
+    Duration::from_secs(1)
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct Config {
@@ -159,17 +167,26 @@ pub struct Config {
     /// socket count at bay, the batches are looked up sequentially,
     /// trading off overall time it takes to fetch all symbols.
     pub max_lookup_batch_size: usize,
+
+    /// Minimum time for a subscriber to run
+    #[serde(default = "default_subscriber_finished_min_time")]
+    pub subscriber_finished_min_time:   Duration,
+    /// Time to sleep if the subscriber do not run for more than the minimum time
+    #[serde(default = "default_subscriber_finished_sleep_time")]
+    pub subscriber_finished_sleep_time: Duration,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            commitment:               CommitmentLevel::Confirmed,
-            poll_interval_duration:   Duration::from_secs(5),
-            subscriber_enabled:       true,
-            updates_channel_capacity: 10000,
-            data_channel_capacity:    10000,
-            max_lookup_batch_size:    100,
+            commitment:                     CommitmentLevel::Confirmed,
+            poll_interval_duration:         Duration::from_secs(5),
+            subscriber_enabled:             true,
+            updates_channel_capacity:       10000,
+            data_channel_capacity:          10000,
+            max_lookup_batch_size:          100,
+            subscriber_finished_min_time:   default_subscriber_finished_min_time(),
+            subscriber_finished_sleep_time: default_subscriber_finished_sleep_time(),
         }
     }
 }
@@ -241,6 +258,7 @@ where
         );
 
         data.price_accounts.insert(*account_key, price_entry.into());
+        drop(data);
 
         Prices::update_global_price(
             self,
@@ -333,13 +351,16 @@ where
         let mut data = self.into().data.write().await;
         log_data_diff(&data, &new_data);
         *data = new_data;
+        let data_publisher_permissions = data.publisher_permissions.clone();
+        let data_publisher_buffer_key = data.publisher_buffer_key;
+        drop(data);
 
         Exporter::update_on_chain_state(
             self,
             network,
             publish_keypair,
-            data.publisher_permissions.clone(),
-            data.publisher_buffer_key,
+            data_publisher_permissions,
+            data_publisher_buffer_key,
         )
         .await?;
 

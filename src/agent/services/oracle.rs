@@ -33,10 +33,7 @@ use {
     },
     std::{
         sync::Arc,
-        time::{
-            Duration,
-            Instant,
-        },
+        time::Instant,
     },
     tokio::task::JoinHandle,
     tokio_stream::StreamExt,
@@ -67,6 +64,9 @@ where
     )));
 
     if config.oracle.subscriber_enabled {
+        let min_elapsed_time = config.oracle.subscriber_finished_min_time;
+        let sleep_time = config.oracle.subscriber_finished_sleep_time;
+
         handles.push(tokio::spawn(async move {
             loop {
                 let current_time = Instant::now();
@@ -78,10 +78,10 @@ where
                 )
                 .await
                 {
-                    tracing::error!(err = ?err, "Subscriber exited unexpectedly.");
-                    if current_time.elapsed() < Duration::from_secs(30) {
-                        tracing::warn!("Subscriber restarting too quickly. Sleeping for 1 second.");
-                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    tracing::error!(?err, "Subscriber exited unexpectedly");
+                    if current_time.elapsed() < min_elapsed_time {
+                        tracing::warn!(?sleep_time, "Subscriber restarting too quickly. Sleeping");
+                        tokio::time::sleep(sleep_time).await;
                     }
                 }
             }
@@ -134,7 +134,7 @@ where
                         Oracle::handle_price_account_update(&*state, network, &pubkey, &account)
                             .await
                     {
-                        tracing::error!(err = ?err, "Failed to handle account update.");
+                        tracing::error!(?err, "Failed to handle account update");
                     }
                 });
             }
