@@ -1,6 +1,6 @@
 [package]
 name = "pyth-agent"
-version = "2.12.2"
+version = "2.12.3"
 edition = "2021"
 
 [[bin]]
@@ -24,7 +24,7 @@ chrono = "0.4.37"
 chrono-tz = "0.8.6"
 parking_lot = "0.12.1"
 pyth-sdk = "0.8.0"
-pyth-sdk-solana = "0.10.0"
+pyth-sdk-solana = "0.10.4"
 solana-account-decoder = "1.18.8"
 solana-client = "1.18.8"
 solana-sdk = "1.18.8"
