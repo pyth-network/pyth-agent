@@ -36,6 +36,7 @@ pub struct Config {
     #[serde(default)]
     pub remote_keypair_loader: services::keypairs::Config,
     pub opentelemetry:         Option<OpenTelemetryConfig>,
+    pub pyth_lazer:            Option<services::lazer_exporter::Config>,
 }
 
 impl Config {
