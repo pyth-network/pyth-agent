@@ -158,6 +158,14 @@ impl Agent {
             ));
         }
 
+        // Spawn the Lazer exporter
+        if let Some(lazer_config) = &self.config.pyth_lazer {
+            handles.extend(services::lazer_exporter(
+                lazer_config.clone(),
+                state.clone(),
+            ));
+        }
+
         // Create the Notifier task for the Pythd RPC.
         handles.push(tokio::spawn(services::notifier(state.clone())));
 
