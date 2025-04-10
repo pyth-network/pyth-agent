@@ -34,7 +34,7 @@ use {
             take,
             take_till,
         },
-        PResult,
+        ModalResult,
         Parser,
     },
 };
@@ -109,7 +109,7 @@ impl MarketSchedule {
     }
 }
 
-fn market_schedule_parser<'s>(input: &mut &'s str) -> PResult<MarketSchedule> {
+fn market_schedule_parser<'s>(input: &mut &'s str) -> ModalResult<MarketSchedule> {
     seq!(
         MarketSchedule {
             timezone: take_till(0.., ';').verify_map(|s| Tz::from_str(s).ok()),
@@ -157,13 +157,13 @@ pub struct HolidayDaySchedule {
     pub kind:  ScheduleDayKind,
 }
 
-fn two_digit_parser<'s>(input: &mut &'s str) -> PResult<u32> {
+fn two_digit_parser<'s>(input: &mut &'s str) -> ModalResult<u32> {
     take(2usize)
         .verify_map(|s| u32::from_str(s).ok())
         .parse_next(input)
 }
 
-fn holiday_day_schedule_parser<'s>(input: &mut &'s str) -> PResult<HolidayDaySchedule> {
+fn holiday_day_schedule_parser<'s>(input: &mut &'s str) -> ModalResult<HolidayDaySchedule> {
     // day and month are not validated to be correct dates
     // if they are invalid, it will be ignored since there
     // are no real dates that match the invalid input
@@ -235,7 +235,7 @@ impl Display for ScheduleDayKind {
     }
 }
 
-fn time_parser(input: &mut &str) -> PResult<NaiveTime> {
+fn time_parser(input: &mut &str) -> ModalResult<NaiveTime> {
     alt(("2400", take(4usize)))
         .verify_map(|time_str| match time_str {
             "2400" => Some(MAX_TIME_INSTANT),
@@ -244,7 +244,7 @@ fn time_parser(input: &mut &str) -> PResult<NaiveTime> {
         .parse_next(input)
 }
 
-fn time_range_parser(input: &mut &str) -> PResult<RangeInclusive<NaiveTime>> {
+fn time_range_parser(input: &mut &str) -> ModalResult<RangeInclusive<NaiveTime>> {
     seq!(
         time_parser,
         _: "-",
@@ -254,7 +254,7 @@ fn time_range_parser(input: &mut &str) -> PResult<RangeInclusive<NaiveTime>> {
     .parse_next(input)
 }
 
-fn schedule_day_kind_parser(input: &mut &str) -> PResult<ScheduleDayKind> {
+fn schedule_day_kind_parser(input: &mut &str) -> ModalResult<ScheduleDayKind> {
     alt((
         "C".map(|_| ScheduleDayKind::Closed),
         "O".map(|_| ScheduleDayKind::Open),

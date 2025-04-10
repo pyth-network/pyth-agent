@@ -291,16 +291,16 @@ where
 
         for (price_key, price_entry) in price_accounts.iter() {
             for component in price_entry.comp {
-                if component.publisher == Pubkey::default() {
+                if Pubkey::from(component.publisher.to_bytes()) == Pubkey::default() {
                     continue;
                 }
 
                 let component_pub_entry = publisher_permissions
-                    .entry(component.publisher)
+                    .entry(Pubkey::from(component.publisher.to_bytes()))
                     .or_insert(HashMap::new());
 
                 let publisher_permission = if let Some(prod_entry) =
-                    product_accounts.get(&price_entry.prod)
+                    product_accounts.get(&Pubkey::from(price_entry.prod.to_bytes()))
                 {
                     PricePublishingMetadata {
                         schedule:         prod_entry.schedule.clone(),
@@ -515,7 +515,7 @@ async fn fetch_product_and_price_accounts(
     for (price_key, price) in oracle_accounts.iter().filter_map(|(pubkey, account)| {
         PriceEntry::load_from_account(&account.data).map(|product| (pubkey, product))
     }) {
-        if let Some(prod) = product_entries.get_mut(&price.prod) {
+        if let Some(prod) = product_entries.get_mut(&price.prod.to_bytes().into()) {
             prod.price_accounts.push(*price_key);
             price_entries.insert(*price_key, price);
         } else {
@@ -642,8 +642,8 @@ async fn fetch_batch_of_product_and_price_accounts(
     let mut todo = product_entries
         .values()
         .filter_map(|p| {
-            if p.account_data.px_acc != Pubkey::default() {
-                Some(p.account_data.px_acc)
+            if p.account_data.px_acc != solana_pubkey::Pubkey::default() {
+                Some(Pubkey::from(p.account_data.px_acc.to_bytes()))
             } else {
                 None
             }
@@ -664,8 +664,8 @@ async fn fetch_batch_of_product_and_price_accounts(
                 let price = PriceEntry::load_from_account(&price_acc.data)
                     .context(format!("Could not parse price account at {}", price_key))?;
 
-                let next_price = price.next;
-                if let Some(prod) = product_entries.get_mut(&price.prod) {
+                let next_price = Pubkey::from(price.next.to_bytes());
+                if let Some(prod) = product_entries.get_mut(&Pubkey::from(price.prod.to_bytes())) {
                     prod.price_accounts.push(*price_key);
                     price_entries.insert(*price_key, price);
                 } else {
