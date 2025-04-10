@@ -105,20 +105,13 @@ struct SymbolResponse {
     pub hermes_id: Option<String>,
 }
 
-async fn fetch_symbols(
-    history_url: &Url,
-    token: &str,
-) -> Result<Vec<SymbolResponse>> {
+async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
     let mut url = history_url.clone();
     url.set_scheme("http").unwrap();
     url.set_path("/history/v1/symbols");
     let client = Client::new();
     let response = client
         .get(url)
-        .header(
-            "Authorization",
-            HeaderValue::from_str(&format!("Bearer {}", token))?,
-        )
         .send()
         .await?
         .text()
@@ -129,6 +122,7 @@ async fn fetch_symbols(
 #[instrument(skip(config, state))]
 pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandle<()>>
 {
+    // TODO: add loop to handle relayer failure/retry
     let mut handles = Vec::new();
     handles.push(tokio::spawn(lazer_exporter::lazer_exporter(config.clone(), state)));
     handles
@@ -151,7 +145,7 @@ mod lazer_exporter {
         S: Send + Sync + 'static,
     {
         // TODO: Re-fetch on an interval?
-        let lazer_symbols: HashMap<String, SymbolResponse> = match fetch_symbols(&config.history_url, &config.authorization_token).await {
+        let lazer_symbols: HashMap<String, SymbolResponse> = match fetch_symbols(&config.history_url).await {
             Ok(symbols) => symbols.into_iter().filter_map(|symbol| {
                 symbol.hermes_id.clone().map(|id| (id, symbol))
             }).collect(),
@@ -201,6 +195,7 @@ mod lazer_exporter {
                             tracing::error!("Error receiving message from at relayer {relayer_url}: {e:?}");
                         }
                         None => {
+                            // TODO: Probably still appropriate to return here, but retry in caller.
                             tracing::error!("relayer connection closed");
                             return;
                         }
