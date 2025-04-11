@@ -132,6 +132,7 @@ mod lazer_exporter {
     use std::collections::HashMap;
     use std::num::NonZeroI64;
     use std::sync::Arc;
+    use std::time::Duration;
     use futures_util::StreamExt;
     use pyth_lazer_protocol::publisher::PriceFeedDataV1;
     use pyth_lazer_protocol::router::{Price, PriceFeedId, TimestampUs};
@@ -140,6 +141,25 @@ mod lazer_exporter {
     use crate::agent::state::local::LocalStore;
 
     pub async fn lazer_exporter<S>(config: Config, state: Arc<S>)
+    where
+        S: LocalStore,
+        S: Send + Sync + 'static,
+    {
+        let mut failure_count = 0;
+        let retry_duration = Duration::from_secs(1);
+
+        loop {
+            run(&config, state.clone()).await;
+
+            failure_count += 1;
+            tracing::error!("Lazer exporter failed {} times; retrying in {:?}", failure_count, retry_duration);
+            tokio::time::sleep(retry_duration).await;
+
+            // TODO: Back off or crash altogether on persistent failure
+        }
+    }
+
+    async fn run<S>(config: &Config, state: Arc<S>)
     where
         S: LocalStore,
         S: Send + Sync + 'static,
