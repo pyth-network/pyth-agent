@@ -35,6 +35,7 @@ use {
         nonblocking::rpc_client::RpcClient,
         rpc_config::RpcSendTransactionConfig,
     },
+    solana_pubkey,
     solana_sdk::{
         compute_budget::ComputeBudgetInstruction,
         instruction::{
@@ -692,7 +693,10 @@ where
                 account
                     .comp
                     .iter()
-                    .find(|c| c.publisher == publish_keypair.pubkey())
+                    .find(|c| {
+                        c.publisher
+                            == solana_pubkey::Pubkey::from(publish_keypair.pubkey().to_bytes())
+                    })
                     .map(|c| c.latest.pub_slot.max(account.agg.pub_slot))
             })
             .min();

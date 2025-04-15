@@ -453,7 +453,7 @@ mod tests {
                             ver:    6,
                             atype:  4,
                             size:   340,
-                            px_acc: solana_sdk::pubkey::Pubkey::from_str(
+                            px_acc: solana_pubkey::Pubkey::from_str(
                                 "EKZYBqisdcsn3shN1rQRuWTzH3iqMbj1dxFtDFmrBi8o",
                             )
                             .unwrap(),
@@ -516,7 +516,7 @@ mod tests {
                             ver:    5,
                             atype:  3,
                             size:   478,
-                            px_acc: solana_sdk::pubkey::Pubkey::from_str(
+                            px_acc: solana_pubkey::Pubkey::from_str(
                                 "JTmFx5zX9mM94itfk2nQcJnQQDPjcv4UPD7SYj6xDCV",
                             )
                             .unwrap(),
@@ -601,11 +601,11 @@ mod tests {
                         drv2:           0xde,
                         drv3:           0xdeed,
                         drv4:           0xdeeed,
-                        prod:           solana_sdk::pubkey::Pubkey::from_str(
+                        prod:           solana_pubkey::Pubkey::from_str(
                             "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t",
                         )
                         .unwrap(),
-                        next:           solana_sdk::pubkey::Pubkey::from_str(
+                        next:           solana_pubkey::Pubkey::from_str(
                             "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr",
                         )
                         .unwrap(),
@@ -655,11 +655,11 @@ mod tests {
                         drv2:           0xde,
                         drv3:           0xdeed,
                         drv4:           0xdeeed,
-                        prod:           solana_sdk::pubkey::Pubkey::from_str(
+                        prod:           solana_pubkey::Pubkey::from_str(
                             "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t",
                         )
                         .unwrap(),
-                        next:           solana_sdk::pubkey::Pubkey::from_str(
+                        next:           solana_pubkey::Pubkey::from_str(
                             "2V7t5NaKY7aGkwytCWQgvUYZfEr9XMwNChhJEakTExk6",
                         )
                         .unwrap(),
@@ -675,7 +675,7 @@ mod tests {
                             pub_slot: 2736478,
                         },
                         comp:           pad_price_comps(vec![PriceComp {
-                            publisher: solana_sdk::pubkey::Pubkey::from_str(
+                            publisher: solana_pubkey::Pubkey::from_str(
                                 "C9syZ2MoGUwbPyGEgiy8MxesaEEKLdJw8gnwx2jLK1cV",
                             )
                             .unwrap(),
@@ -728,11 +728,11 @@ mod tests {
                         drv2:           0xde,
                         drv3:           0xdeed,
                         drv4:           0xdeeed,
-                        prod:           solana_sdk::pubkey::Pubkey::from_str(
+                        prod:           solana_pubkey::Pubkey::from_str(
                             "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t",
                         )
                         .unwrap(),
-                        next:           solana_sdk::pubkey::Pubkey::from_str(
+                        next:           solana_pubkey::Pubkey::from_str(
                             "GG3FTE7xhc9Diy7dn9P6BWzoCrAEE4D3p5NBYrDAm5DD",
                         )
                         .unwrap(),
@@ -749,7 +749,7 @@ mod tests {
                         },
                         comp:           pad_price_comps(vec![
                             PriceComp {
-                                publisher: solana_sdk::pubkey::Pubkey::from_str(
+                                publisher: solana_pubkey::Pubkey::from_str(
                                     "DaMuPaW5dhGfRJaX7TzLWXd8hDCMJ5WA2XibJ12hjBNQ",
                                 )
                                 .unwrap(),
@@ -769,7 +769,7 @@ mod tests {
                                 },
                             },
                             PriceComp {
-                                publisher: solana_sdk::pubkey::Pubkey::from_str(
+                                publisher: solana_pubkey::Pubkey::from_str(
                                     "FHuAg9vpDGeyhZn4W4FRcCzx6MC18r4bF9fTVJqeMijU",
                                 )
                                 .unwrap(),
@@ -823,11 +823,11 @@ mod tests {
                         drv2:           0xde,
                         drv3:           0xdeed,
                         drv4:           0xdeeed,
-                        prod:           solana_sdk::pubkey::Pubkey::from_str(
+                        prod:           solana_pubkey::Pubkey::from_str(
                             "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc",
                         )
                         .unwrap(),
-                        next:           solana_sdk::pubkey::Pubkey::default(),
+                        next:           solana_pubkey::Pubkey::default(),
                         prev_slot:      791279274,
                         prev_price:     98272648,
                         prev_conf:      124986284,
@@ -841,7 +841,7 @@ mod tests {
                         },
                         comp:           pad_price_comps(vec![
                             PriceComp {
-                                publisher: solana_sdk::pubkey::Pubkey::from_str(
+                                publisher: solana_pubkey::Pubkey::from_str(
                                     "F42dQ3SMssashRsA4SRfwJxFkGKV1bE3TcmpkagX8vvX",
                                 )
                                 .unwrap(),
@@ -861,7 +861,7 @@ mod tests {
                                 },
                             },
                             PriceComp {
-                                publisher: solana_sdk::pubkey::Pubkey::from_str(
+                                publisher: solana_pubkey::Pubkey::from_str(
                                     "AmmvowPnL2z1CVGR2fQNjgAmmJvRfpCKqpQMpTg9QsoG",
                                 )
                                 .unwrap(),
@@ -915,11 +915,11 @@ mod tests {
                         drv2:           0xde,
                         drv3:           0xdeed,
                         drv4:           0xdeeed,
-                        prod:           solana_sdk::pubkey::Pubkey::from_str(
+                        prod:           solana_pubkey::Pubkey::from_str(
                             "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc",
                         )
                         .unwrap(),
-                        next:           solana_sdk::pubkey::Pubkey::from_str(
+                        next:           solana_pubkey::Pubkey::from_str(
                             "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ",
                         )
                         .unwrap(),
@@ -936,7 +936,7 @@ mod tests {
                         },
                         comp:           pad_price_comps(vec![
                             PriceComp {
-                                publisher: solana_sdk::pubkey::Pubkey::from_str(
+                                publisher: solana_pubkey::Pubkey::from_str(
                                     "8MMroLyuyxyeDRrzMNfpymC5RvmHtQiYooXX9bgeUJdM",
                                 )
                                 .unwrap(),
@@ -956,7 +956,7 @@ mod tests {
                                 },
                             },
                             PriceComp {
-                                publisher: solana_sdk::pubkey::Pubkey::from_str(
+                                publisher: solana_pubkey::Pubkey::from_str(
                                     "GKNcUmNacSJo4S2Kq3DuYRYRGw3sNUfJ4tyqd198t6vQ",
                                 )
                                 .unwrap(),
@@ -1010,11 +1010,11 @@ mod tests {
                         drv2:           0xde,
                         drv3:           0xdeed,
                         drv4:           0xdeeed,
-                        prod:           solana_sdk::pubkey::Pubkey::from_str(
+                        prod:           solana_pubkey::Pubkey::from_str(
                             "BjHoZWRxo9dgbR1NQhPyTiUs6xFiX6mGS4TMYvy3b2yc",
                         )
                         .unwrap(),
-                        next:           solana_sdk::pubkey::Pubkey::default(),
+                        next:           solana_pubkey::Pubkey::default(),
                         prev_slot:      8878456286,
                         prev_price:     24746384,
                         prev_conf:      6373957,
@@ -1027,7 +1027,7 @@ mod tests {
                             pub_slot: 6863892,
                         },
                         comp:           pad_price_comps(vec![PriceComp {
-                            publisher: solana_sdk::pubkey::Pubkey::from_str(
+                            publisher: solana_pubkey::Pubkey::from_str(
                                 "33B2brfdz16kizEXeQvYzJXHiS1X95L8pfetuyntEiXg",
                             )
                             .unwrap(),
@@ -1447,11 +1447,11 @@ mod tests {
             drv2:           0xde,
             drv3:           0xdeed,
             drv4:           0xdeeed,
-            prod:           solana_sdk::pubkey::Pubkey::from_str(
+            prod:           solana_pubkey::Pubkey::from_str(
                 "CkMrDWtmFJZcmAUC11qNaWymbXQKvnRx4cq1QudLav7t",
             )
             .unwrap(),
-            next:           solana_sdk::pubkey::Pubkey::from_str(
+            next:           solana_pubkey::Pubkey::from_str(
                 "3VQwtcntVQN1mj1MybQw8qK7Li3KNrrgNskSQwZAPGNr",
             )
             .unwrap(),
