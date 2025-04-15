@@ -800,7 +800,7 @@ fn create_instruction_without_accumulator(
                 is_writable: false,
             },
         ],
-        data:        bincode::serde::encode_to_vec(
+        data:       bincode::serde::encode_to_vec(
             &(UpdPriceCmd {
                 version:  PYTH_ORACLE_VERSION,
                 cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
@@ -810,7 +810,9 @@ fn create_instruction_without_accumulator(
                 conf:     price_info.conf,
                 pub_slot: current_slot,
             }),
-            bincode::config::legacy().with_little_endian().with_fixed_int_encoding()
+            bincode::config::legacy()
+                .with_little_endian()
+                .with_fixed_int_encoding(),
         )?,
     })
 }
@@ -945,15 +947,17 @@ fn create_instruction_with_accumulator(
         ],
         data:       bincode::serde::encode_to_vec(
             &(UpdPriceCmd {
-                version: PYTH_ORACLE_VERSION,
-                cmd: UPDATE_PRICE_NO_FAIL_ON_ERROR,
-                status: price_info.status,
-                unused_: 0,
-                price: price_info.price,
-                conf: price_info.conf,
+                version:  PYTH_ORACLE_VERSION,
+                cmd:      UPDATE_PRICE_NO_FAIL_ON_ERROR,
+                status:   price_info.status,
+                unused_:  0,
+                price:    price_info.price,
+                conf:     price_info.conf,
                 pub_slot: current_slot,
             }),
-            bincode::config::legacy().with_little_endian().with_fixed_int_encoding()
+            bincode::config::legacy()
+                .with_little_endian()
+                .with_fixed_int_encoding(),
         )?,
     })
 }

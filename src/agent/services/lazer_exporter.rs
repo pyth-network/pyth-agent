@@ -1,31 +1,51 @@
-use std::sync::Arc;
-use std::time::Duration;
-use anyhow::Result;
-use futures_util::SinkExt;
-use futures_util::stream::{SplitSink, SplitStream, StreamExt};
-use http::HeaderValue;
-use pyth_lazer_protocol::publisher::PriceFeedDataV1;
-use reqwest::Client;
-use serde::Deserialize;
-use tokio::net::TcpStream;
-use tokio::task::JoinHandle;
-use tracing::instrument;
-use tracing;
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::{
-    connect_async_with_config,
-    tungstenite::{client::IntoClientRequest, Message},
-    MaybeTlsStream,
+use {
+    crate::agent::state,
+    anyhow::Result,
+    futures_util::{
+        stream::{
+            SplitSink,
+            SplitStream,
+            StreamExt,
+        },
+        SinkExt,
+    },
+    http::HeaderValue,
+    pyth_lazer_protocol::publisher::PriceFeedDataV1,
+    reqwest::Client,
+    serde::Deserialize,
+    std::{
+        sync::Arc,
+        time::Duration,
+    },
+    tokio::{
+        net::TcpStream,
+        task::JoinHandle,
+    },
+    tokio_tungstenite::{
+        connect_async_with_config,
+        tungstenite::{
+            client::IntoClientRequest,
+            Message,
+        },
+        MaybeTlsStream,
+        WebSocketStream,
+    },
+    tokio_util::bytes::{
+        BufMut,
+        BytesMut,
+    },
+    tracing::{
+        self,
+        instrument,
+    },
+    url::Url,
 };
-use tokio_util::bytes::{BufMut, BytesMut};
-use url::Url;
-use crate::agent::state;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
-    pub history_url: Url,
-    pub relayer_urls: Vec<Url>,
-    pub authorization_token: String,
+    pub history_url:               Url,
+    pub relayer_urls:              Vec<Url>,
+    pub authorization_token:       String,
     #[serde(with = "humantime_serde")]
     pub publish_interval_duration: Duration,
 }
@@ -84,25 +104,27 @@ async fn connect_to_relayers(
         relayer_senders.push(relayer_sender);
         relayer_receivers.push(relayer_receiver);
     }
-    let sender = RelayerSender { ws_senders: relayer_senders };
+    let sender = RelayerSender {
+        ws_senders: relayer_senders,
+    };
     tracing::info!("connected to relayers: {:?}", config.relayer_urls);
     Ok((sender, relayer_receivers))
 }
 
 #[derive(Deserialize)]
 struct SymbolResponse {
-    pub pyth_lazer_id: u32,
-    pub name: String,
-    pub symbol: String,
-    pub description: String,
-    pub asset_type: String,
-    pub exponent: i32,
-    pub cmc_id: Option<u32>,
-    pub interval: Option<String>,
+    pub pyth_lazer_id:  u32,
+    pub name:           String,
+    pub symbol:         String,
+    pub description:    String,
+    pub asset_type:     String,
+    pub exponent:       i32,
+    pub cmc_id:         Option<u32>,
+    pub interval:       Option<String>,
     pub min_publishers: u16,
-    pub min_channel: String,
-    pub state: String,
-    pub hermes_id: Option<String>,
+    pub min_channel:    String,
+    pub state:          String,
+    pub hermes_id:      Option<String>,
 }
 
 async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
@@ -110,35 +132,49 @@ async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
     url.set_scheme("http").unwrap();
     url.set_path("/history/v1/symbols");
     let client = Client::new();
-    let response = client
-        .get(url)
-        .send()
-        .await?
-        .text()
-        .await?;
+    let response = client.get(url).send().await?.text().await?;
     Ok(serde_json::from_str(&response)?)
 }
 
 #[instrument(skip(config, state))]
-pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandle<()>>
-{
+pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandle<()>> {
     // TODO: add loop to handle relayer failure/retry
     let mut handles = Vec::new();
-    handles.push(tokio::spawn(lazer_exporter::lazer_exporter(config.clone(), state)));
+    handles.push(tokio::spawn(lazer_exporter::lazer_exporter(
+        config.clone(),
+        state,
+    )));
     handles
 }
 
 mod lazer_exporter {
-    use std::collections::HashMap;
-    use std::num::NonZeroI64;
-    use std::sync::Arc;
-    use std::time::Duration;
-    use futures_util::StreamExt;
-    use pyth_lazer_protocol::publisher::PriceFeedDataV1;
-    use pyth_lazer_protocol::router::{Price, PriceFeedId, TimestampUs};
-    use tokio_stream::StreamMap;
-    use crate::agent::services::lazer_exporter::{Config, connect_to_relayers, fetch_symbols, SymbolResponse};
-    use crate::agent::state::local::LocalStore;
+    use {
+        crate::agent::{
+            services::lazer_exporter::{
+                connect_to_relayers,
+                fetch_symbols,
+                Config,
+                SymbolResponse,
+            },
+            state::local::LocalStore,
+        },
+        futures_util::StreamExt,
+        pyth_lazer_protocol::{
+            publisher::PriceFeedDataV1,
+            router::{
+                Price,
+                PriceFeedId,
+                TimestampUs,
+            },
+        },
+        std::{
+            collections::HashMap,
+            num::NonZeroI64,
+            sync::Arc,
+            time::Duration,
+        },
+        tokio_stream::StreamMap,
+    };
 
     pub async fn lazer_exporter<S>(config: Config, state: Arc<S>)
     where
@@ -152,7 +188,11 @@ mod lazer_exporter {
             run(&config, state.clone()).await;
 
             failure_count += 1;
-            tracing::error!("Lazer exporter failed {} times; retrying in {:?}", failure_count, retry_duration);
+            tracing::error!(
+                "Lazer exporter failed {} times; retrying in {:?}",
+                failure_count,
+                retry_duration
+            );
             tokio::time::sleep(retry_duration).await;
 
             // TODO: Back off or crash altogether on persistent failure
@@ -165,20 +205,23 @@ mod lazer_exporter {
         S: Send + Sync + 'static,
     {
         // TODO: Re-fetch on an interval?
-        let lazer_symbols: HashMap<String, SymbolResponse> = match fetch_symbols(&config.history_url).await {
-            Ok(symbols) => symbols.into_iter().filter_map(|symbol| {
-                symbol.hermes_id.clone().map(|id| (id, symbol))
-            }).collect(),
-            Err(e) => {
-                tracing::error!("Failed to fetch Lazer symbols: {e:?}");
-                return;
-            }
-        };
+        let lazer_symbols: HashMap<String, SymbolResponse> =
+            match fetch_symbols(&config.history_url).await {
+                Ok(symbols) => symbols
+                    .into_iter()
+                    .filter_map(|symbol| symbol.hermes_id.clone().map(|id| (id, symbol)))
+                    .collect(),
+                Err(e) => {
+                    tracing::error!("Failed to fetch Lazer symbols: {e:?}");
+                    return;
+                }
+            };
 
         // Establish relayer connections
         // Relayer will drop the connection if no data received in 5s
         let (mut relayer_sender, relayer_receivers) = connect_to_relayers(&config)
-            .await.expect("failed to connect to relayers");
+            .await
+            .expect("failed to connect to relayers");
         let mut stream_map = StreamMap::new();
         for (i, receiver) in relayer_receivers.into_iter().enumerate() {
             stream_map.insert(config.relayer_urls[i].clone(), receiver);

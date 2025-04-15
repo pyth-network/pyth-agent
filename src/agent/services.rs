@@ -1,13 +1,13 @@
 pub mod exporter;
 pub mod keypairs;
+pub mod lazer_exporter;
 pub mod notifier;
 pub mod oracle;
-pub mod lazer_exporter;
 
 pub use {
     exporter::exporter,
-    lazer_exporter::lazer_exporter,
     keypairs::keypairs,
+    lazer_exporter::lazer_exporter,
     notifier::notifier,
     oracle::oracle,
 };
