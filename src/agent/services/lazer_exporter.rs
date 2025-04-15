@@ -46,8 +46,12 @@ pub struct Config {
     pub history_url:               Url,
     pub relayer_urls:              Vec<Url>,
     pub authorization_token:       String,
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "humantime_serde", default = "default_publish_interval")]
     pub publish_interval_duration: Duration,
+}
+
+fn default_publish_interval() -> Duration {
+    Duration::from_millis(10)
 }
 
 struct RelayerSender {
@@ -111,20 +115,22 @@ async fn connect_to_relayers(
     Ok((sender, relayer_receivers))
 }
 
+// TODO: This is copied from history-service; move to Lazer protocol sdk.
 #[derive(Deserialize)]
 struct SymbolResponse {
-    pub pyth_lazer_id:  u32,
-    pub name:           String,
-    pub symbol:         String,
-    pub description:    String,
-    pub asset_type:     String,
-    pub exponent:       i32,
-    pub cmc_id:         Option<u32>,
-    pub interval:       Option<String>,
-    pub min_publishers: u16,
-    pub min_channel:    String,
-    pub state:          String,
-    pub hermes_id:      Option<String>,
+    pub pyth_lazer_id:   u32,
+    pub _name:           String,
+    pub _symbol:         String,
+    pub _description:    String,
+    pub _asset_type:     String,
+    pub _exponent:       i16,
+    pub _cmc_id:         Option<u32>,
+    pub _interval:       Option<String>,
+    pub _min_publishers: u16,
+    pub _min_channel:    String,
+    pub _state:          String,
+    pub _schedule:       String,
+    pub hermes_id:       Option<String>,
 }
 
 async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
@@ -138,7 +144,6 @@ async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
 
 #[instrument(skip(config, state))]
 pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandle<()>> {
-    // TODO: add loop to handle relayer failure/retry
     let mut handles = Vec::new();
     handles.push(tokio::spawn(lazer_exporter::lazer_exporter(
         config.clone(),
@@ -158,6 +163,7 @@ mod lazer_exporter {
             },
             state::local::LocalStore,
         },
+        anyhow::bail,
         futures_util::StreamExt,
         pyth_lazer_protocol::{
             publisher::PriceFeedDataV1,
@@ -185,21 +191,26 @@ mod lazer_exporter {
         let retry_duration = Duration::from_secs(1);
 
         loop {
-            run(&config, state.clone()).await;
-
-            failure_count += 1;
-            tracing::error!(
-                "Lazer exporter failed {} times; retrying in {:?}",
-                failure_count,
-                retry_duration
-            );
-            tokio::time::sleep(retry_duration).await;
-
-            // TODO: Back off or crash altogether on persistent failure
+            match run(&config, state.clone()).await {
+                Ok(()) => {
+                    tracing::info!("lazer_exporter graceful shutdown");
+                    return;
+                }
+                Err(e) => {
+                    failure_count += 1;
+                    tracing::error!(
+                        "lazer_exporter failed with error: {:?}, failure_count: {}; retrying in {:?}",
+                        e,
+                        failure_count,
+                        retry_duration
+                    );
+                    tokio::time::sleep(retry_duration).await;
+                }
+            }
         }
     }
 
-    async fn run<S>(config: &Config, state: Arc<S>)
+    async fn run<S>(config: &Config, state: Arc<S>) -> anyhow::Result<()>
     where
         S: LocalStore,
         S: Send + Sync + 'static,
@@ -213,15 +224,13 @@ mod lazer_exporter {
                     .collect(),
                 Err(e) => {
                     tracing::error!("Failed to fetch Lazer symbols: {e:?}");
-                    return;
+                    bail!("Failed to fetch Lazer symbols: {e:?}");
                 }
             };
 
         // Establish relayer connections
         // Relayer will drop the connection if no data received in 5s
-        let (mut relayer_sender, relayer_receivers) = connect_to_relayers(&config)
-            .await
-            .expect("failed to connect to relayers");
+        let (mut relayer_sender, relayer_receivers) = connect_to_relayers(&config).await?;
         let mut stream_map = StreamMap::new();
         for (i, receiver) in relayer_receivers.into_iter().enumerate() {
             stream_map.insert(config.relayer_urls[i].clone(), receiver);
@@ -232,6 +241,7 @@ mod lazer_exporter {
         loop {
             tokio::select! {
                 _ = publish_interval.tick() => {
+                    // TODO: This read locks and clones local::Store::prices, which may not meet performance needs.
                     for (identifier, price_info) in state.get_all_price_infos().await {
                         if let Some(symbol) = lazer_symbols.get(&identifier.to_string()) {
                             if let Err(e) = relayer_sender.send_price_update(&PriceFeedDataV1 {
@@ -243,7 +253,7 @@ mod lazer_exporter {
                                 source_timestamp_us: TimestampUs(price_info.timestamp.and_utc().timestamp_micros() as u64),
                             }).await {
                                 tracing::error!("Error sending price update to relayer: {e:?}");
-                                return;
+                                bail!("Failed to send price update to relayer: {e:?}");
                             }
                         }
                     }
@@ -260,7 +270,7 @@ mod lazer_exporter {
                         None => {
                             // TODO: Probably still appropriate to return here, but retry in caller.
                             tracing::error!("relayer connection closed");
-                            return;
+                            bail!("relayer connection closed");
                         }
                     }
                 }
