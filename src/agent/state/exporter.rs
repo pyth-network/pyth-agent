@@ -693,7 +693,9 @@ where
                 account
                     .comp
                     .iter()
-                    .find(|c| c.publisher == solana_pubkey::Pubkey::from(publish_keypair.pubkey().to_bytes()))
+                    .find(|c| {
+                        c.publisher == solana_pubkey::Pubkey::from(publish_keypair.pubkey().to_bytes())
+                    })
                     .map(|c| c.latest.pub_slot.max(account.agg.pub_slot))
             })
             .min();
