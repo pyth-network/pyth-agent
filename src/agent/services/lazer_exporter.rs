@@ -138,8 +138,9 @@ async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
     url.set_scheme("http").unwrap();
     url.set_path("/history/v1/symbols");
     let client = Client::new();
-    let response = client.get(url).send().await?.text().await?;
-    Ok(serde_json::from_str(&response)?)
+    let response = client.get(url).send().await?.error_for_status()?;
+    let data = response.json().await?;
+    Ok(data)
 }
 
 #[instrument(skip(config, state))]
