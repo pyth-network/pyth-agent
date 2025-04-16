@@ -15,8 +15,8 @@ wss_url = "wss://api.pythtest.pyth.network"
 key_store.publish_keypair_path = "/path/to/keypair.json"
 
 # Oracle program pubkey
-key_store.program_key = "8tfDNiaEyrV6Q1U4DEXrEigs9DoDtkugzFbybENEbCDz" # conformance
-# key_store.program_key = "gSbePebfvPy7tRqimPoVecS2UsBvYv46ynrzWocc92s" # cross-chain
+key_store.pyth_oracle_program_key = "8tfDNiaEyrV6Q1U4DEXrEigs9DoDtkugzFbybENEbCDz" # conformance
+# key_store.pyth_oracle_program_key = "gSbePebfvPy7tRqimPoVecS2UsBvYv46ynrzWocc92s" # cross-chain
 
 # Pythtest accumulator key (only for the cross-chain oracle)
 # key_store.accumulator_key = "7Vbmv1jt4vyuqBZcpYPpnVhrqVe5e6ZPb6JxDcffRHUM"
