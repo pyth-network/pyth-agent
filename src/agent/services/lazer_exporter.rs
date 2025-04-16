@@ -1,6 +1,9 @@
 use {
     crate::agent::state,
-    anyhow::Result,
+    anyhow::{
+        anyhow,
+        Result,
+    },
     futures_util::{
         stream::{
             SplitSink,
@@ -135,7 +138,7 @@ struct SymbolResponse {
 
 async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
     let mut url = history_url.clone();
-    url.set_scheme("http").unwrap();
+    url.set_scheme("http").map_err(|_| anyhow!("invalid url"))?;
     url.set_path("/history/v1/symbols");
     let client = Client::new();
     let response = client.get(url).send().await?.error_for_status()?;
@@ -181,6 +184,7 @@ mod lazer_exporter {
             time::Duration,
         },
         tokio_stream::StreamMap,
+        tracing::warn,
     };
 
     pub async fn lazer_exporter<S>(config: Config, state: Arc<S>)
@@ -245,8 +249,14 @@ mod lazer_exporter {
                     // TODO: This read locks and clones local::Store::prices, which may not meet performance needs.
                     for (identifier, price_info) in state.get_all_price_infos().await {
                         if let Some(symbol) = lazer_symbols.get(&identifier.to_string()) {
+                            let price = if let Ok(price) = NonZeroI64::try_from(price_info.price) {
+                                Some(Price(price))
+                            } else {
+                                warn!("Zero price in local state identifier: {identifier} price_info: {price_info:?}");
+                                continue;
+                            };
                             if let Err(e) = relayer_sender.send_price_update(&PriceFeedDataV1 {
-                                price: Some(Price(NonZeroI64::try_from(price_info.price).unwrap())),
+                                price,
                                 best_ask_price: None,
                                 best_bid_price: None,
                                 price_feed_id: PriceFeedId(symbol.pyth_lazer_id),
