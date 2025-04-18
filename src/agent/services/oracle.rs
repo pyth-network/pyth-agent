@@ -168,13 +168,21 @@ async fn poller<S>(
 {
     // Setup an RpcClient for manual polling.
     let mut tick = tokio::time::interval(config.oracle.poll_interval_duration);
-    let client = Arc::new(RpcClient::new_with_timeout_and_commitment(
-        config.rpc_url,
-        config.rpc_timeout,
-        CommitmentConfig {
-            commitment: config.oracle.commitment,
-        },
-    ));
+    let clients: Arc<Vec<RpcClient>> = Arc::new(
+        config
+            .rpc_urls
+            .iter()
+            .map(|rpc_url| {
+                RpcClient::new_with_timeout_and_commitment(
+                    rpc_url.clone(),
+                    config.rpc_timeout,
+                    CommitmentConfig {
+                        commitment: config.oracle.commitment,
+                    },
+                )
+            })
+            .collect(),
+    );
 
     loop {
         if let Err(err) = async {
@@ -186,7 +194,7 @@ async fn poller<S>(
                 oracle_program_key,
                 publish_keypair.as_ref(),
                 pyth_price_store_program_key,
-                &client,
+                &clients,
                 max_lookup_batch_size,
             )
             .await?;

@@ -33,6 +33,7 @@ use {
     solana_client::{
         nonblocking::rpc_client::RpcClient,
         rpc_config::RpcSendTransactionConfig,
+        rpc_response::RpcPrioritizationFee,
     },
     solana_pubkey,
     solana_sdk::{
@@ -42,7 +43,10 @@ use {
             Instruction,
         },
         pubkey::Pubkey,
-        signature::Keypair,
+        signature::{
+            Keypair,
+            Signature,
+        },
         signer::Signer,
         sysvar::clock,
         transaction::Transaction,
@@ -119,7 +123,7 @@ where
     async fn update_recent_compute_unit_price(
         &self,
         publish_keypair: &Keypair,
-        rpc_client: &RpcClient,
+        rpc_clients: &Vec<RpcClient>,
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
     ) -> Result<()>;
@@ -300,7 +304,7 @@ where
     async fn update_recent_compute_unit_price(
         &self,
         publish_keypair: &Keypair,
-        rpc_client: &RpcClient,
+        rpc_clients: &Vec<RpcClient>,
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
     ) -> Result<()> {
@@ -321,7 +325,7 @@ where
             .recent_compute_unit_price_micro_lamports
             .write()
             .await =
-            estimate_compute_unit_price_micro_lamports(rpc_client, &price_accounts).await?;
+            estimate_compute_unit_price_micro_lamports(rpc_clients, &price_accounts).await?;
 
         Ok(())
     }
@@ -388,7 +392,7 @@ where
 }
 
 async fn estimate_compute_unit_price_micro_lamports(
-    rpc_client: &RpcClient,
+    rpc_clients: &Vec<RpcClient>,
     price_accounts: &[Pubkey],
 ) -> Result<Option<u64>> {
     let mut slot_compute_fee: BTreeMap<u64, u64> = BTreeMap::new();
@@ -397,7 +401,7 @@ async fn estimate_compute_unit_price_micro_lamports(
     let prioritization_fees_batches = futures_util::future::join_all(
         price_accounts
             .chunks(128)
-            .map(|price_accounts| rpc_client.get_recent_prioritization_fees(price_accounts)),
+            .map(|price_accounts| get_recent_prioritization_fees(rpc_clients, price_accounts)),
     )
     .await
     .into_iter()
@@ -434,6 +438,26 @@ async fn estimate_compute_unit_price_micro_lamports(
     Ok(median_priority_fee)
 }
 
+async fn get_recent_prioritization_fees(
+    rpc_clients: &Vec<RpcClient>,
+    price_accounts: &[Pubkey],
+) -> Result<Vec<RpcPrioritizationFee>> {
+    for rpc_client in rpc_clients {
+        match rpc_client
+            .get_recent_prioritization_fees(price_accounts)
+            .await
+        {
+            Ok(fees) => return Ok(fees),
+            Err(e) => tracing::warn!(
+                "getRecentPrioritizationFee failed for rpc endpoint {}: {:?}",
+                rpc_client.url(),
+                e
+            ),
+        }
+    }
+    bail!("getRecentPrioritizationFees failed for every rpc endpoint")
+}
+
 /// Publishes any price updates in the local store that we haven't sent to this network.
 ///
 /// The strategy used to do this is as follows:
@@ -450,7 +474,7 @@ async fn estimate_compute_unit_price_micro_lamports(
 ///   time to respond, no internal queues grow unboundedly. At any single point in time there are at most
 ///   (n / batch_size) requests in flight.
 #[instrument(
-    skip(state, client, network_state_rx, publish_keypair, staleness_threshold, permissioned_updates),
+    skip(state, clients, network_state_rx, publish_keypair, staleness_threshold, permissioned_updates),
     fields(
         publish_keypair     = publish_keypair.pubkey().to_string(),
         staleness_threshold = staleness_threshold.as_millis(),
@@ -458,7 +482,7 @@ async fn estimate_compute_unit_price_micro_lamports(
 )]
 pub async fn publish_batches<S>(
     state: Arc<S>,
-    client: Arc<RpcClient>,
+    clients: Arc<Vec<RpcClient>>,
     network: Network,
     network_state_rx: &watch::Receiver<NetworkState>,
     accumulator_key: Option<Pubkey>,
@@ -497,7 +521,7 @@ where
     for batch in batches {
         batch_futures.push(publish_batch(
             state.clone(),
-            client.clone(),
+            clients.clone(),
             network,
             network_state,
             accumulator_key,
@@ -531,7 +555,7 @@ where
 }
 
 #[instrument(
-    skip(state, client, network_state, publish_keypair, batch, staleness_threshold),
+    skip(state, rpc_clients, network_state, publish_keypair, batch, staleness_threshold),
     fields(
         publish_keypair     = publish_keypair.pubkey().to_string(),
         blockhash           = network_state.blockhash.to_string(),
@@ -542,7 +566,7 @@ where
 )]
 async fn publish_batch<S>(
     state: Arc<S>,
-    client: Arc<RpcClient>,
+    rpc_clients: Arc<Vec<RpcClient>>,
     network: Network,
     network_state: NetworkState,
     accumulator_key: Option<Pubkey>,
@@ -744,16 +768,7 @@ where
     );
 
     tokio::spawn(async move {
-        let signature = match client
-            .send_transaction_with_config(
-                &transaction,
-                RpcSendTransactionConfig {
-                    skip_preflight: true,
-                    ..RpcSendTransactionConfig::default()
-                },
-            )
-            .await
-        {
+        let signature = match send_transaction_with_config(rpc_clients, &transaction).await {
             Ok(signature) => signature,
             Err(err) => {
                 tracing::error!(err = ?err, "Exporter: failed to send transaction.");
@@ -772,6 +787,32 @@ where
     });
 
     Ok(())
+}
+
+async fn send_transaction_with_config(
+    rpc_clients: Arc<Vec<RpcClient>>,
+    transaction: &Transaction,
+) -> Result<Signature> {
+    for rpc_client in rpc_clients.iter() {
+        match rpc_client
+            .send_transaction_with_config(
+                transaction,
+                RpcSendTransactionConfig {
+                    skip_preflight: true,
+                    ..RpcSendTransactionConfig::default()
+                },
+            )
+            .await
+        {
+            Ok(signature) => return Ok(signature),
+            Err(e) => tracing::warn!(
+                "sendTransactionWithConfig failed for rpc endpoint {}: {:?}",
+                rpc_client.url(),
+                e
+            ),
+        }
+    }
+    bail!("sendTransactionWithConfig failed for all rpc endpoints")
 }
 
 fn create_instruction_without_accumulator(

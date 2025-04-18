@@ -8,7 +8,7 @@ use {
         state::keypairs::Keypairs,
     },
     anyhow::{
-        Context,
+        bail,
         Result,
     },
     serde::Deserialize,
@@ -61,8 +61,8 @@ impl Default for Config {
 }
 
 pub async fn keypairs<S>(
-    primary_rpc_url: String,
-    secondary_rpc_url: Option<String>,
+    primary_rpc_urls: Vec<String>,
+    secondary_rpc_urls: Option<Vec<String>>,
     config: Config,
     state: Arc<S>,
 ) -> Vec<JoinHandle<()>>
@@ -81,7 +81,7 @@ where
 
     let primary_upload_route = {
         let state = state.clone();
-        let rpc_url = primary_rpc_url.clone();
+        let rpc_urls = primary_rpc_urls.clone();
         let min_balance = config.primary_min_keypair_balance_sol;
         warp::path!("primary" / "load_keypair")
             .and(warp::post())
@@ -90,14 +90,14 @@ where
             .and(warp::path::end())
             .and_then(move |kp: Vec<u8>| {
                 let state = state.clone();
-                let rpc_url = rpc_url.clone();
+                let rpc_urls = rpc_urls.clone();
                 async move {
                     let response = handle_new_keypair(
                         state,
                         Network::Primary,
                         kp,
                         min_balance,
-                        rpc_url,
+                        rpc_urls,
                         "primary",
                     )
                     .await;
@@ -113,16 +113,16 @@ where
         .and(warp::path::end())
         .and_then(move |kp: Vec<u8>| {
             let state = state.clone();
-            let rpc_url = secondary_rpc_url.clone();
+            let rpc_urls = secondary_rpc_urls.clone();
             async move {
-                if let Some(rpc_url) = rpc_url {
+                if let Some(rpc_urls) = rpc_urls {
                     let min_balance = config.secondary_min_keypair_balance_sol;
                     let response = handle_new_keypair(
                         state,
                         Network::Secondary,
                         kp,
                         min_balance,
-                        rpc_url,
+                        rpc_urls,
                         "secondary",
                     )
                     .await;
@@ -160,7 +160,7 @@ async fn handle_new_keypair<'a, 'b: 'a, S>(
     network: Network,
     new_keypair_bytes: Vec<u8>,
     min_keypair_balance_sol: u64,
-    rpc_url: String,
+    rpc_urls: Vec<String>,
     network_name: &'b str,
 ) -> WithStatus<&'static str>
 where
@@ -168,7 +168,7 @@ where
 {
     let mut upload_ok = true;
     match Keypair::from_bytes(&new_keypair_bytes) {
-        Ok(kp) => match validate_keypair(&kp, min_keypair_balance_sol, rpc_url.clone()).await {
+        Ok(kp) => match validate_keypair(&kp, min_keypair_balance_sol, rpc_urls.clone()).await {
             Ok(()) => {
                 Keypairs::update_keypair(&*state, network, kp).await;
             }
@@ -205,14 +205,12 @@ where
 pub async fn validate_keypair(
     kp: &Keypair,
     min_keypair_balance_sol: u64,
-    rpc_url: String,
+    rpc_urls: Vec<String>,
 ) -> Result<()> {
-    let c = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
-
-    let balance_lamports = c
-        .get_balance(&kp.pubkey())
-        .await
-        .context("Could not check keypair's balance")?;
+    let balance_lamports = match get_balance(kp, rpc_urls).await {
+        Ok(balance_lamports) => balance_lamports,
+        Err(_) => bail!("Could not check keypair's balance"),
+    };
 
     let lamports_in_sol = 1_000_000_000;
 
@@ -226,4 +224,15 @@ pub async fn validate_keypair(
             min_keypair_balance_sol
         )))
     }
+}
+
+async fn get_balance(kp: &Keypair, rpc_urls: Vec<String>) -> Result<u64> {
+    for rpc_url in rpc_urls {
+        let c = RpcClient::new_with_commitment(rpc_url.clone(), CommitmentConfig::confirmed());
+        match c.get_balance(&kp.pubkey()).await {
+            Ok(balance) => return Ok(balance),
+            Err(e) => tracing::warn!("getBalance error for rpc endpoint {}: {}", rpc_url, e),
+        }
+    }
+    bail!("getBalance failed for all RPC endpoints")
 }

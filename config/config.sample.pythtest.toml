@@ -3,8 +3,9 @@ listen_address = "127.0.0.1:8910"
 
 [primary_network]
 
-# HTTP(S) endpoint of the RPC node.
-rpc_url = "https://api.pythtest.pyth.network"
+# HTTP(S) endpoints of the RPC node.
+# API calls will cycle through each on failure.
+rpc_urls = ["https://api.pythtest.pyth.network"]
 
 # WS(S) endpoint of the RRC node. This is used to subscribe to account changes
 # on the network. This can be omitted when oracle.subscriber_enabled is set to

@@ -183,11 +183,11 @@ impl Agent {
         // Spawn the remote keypair loader endpoint for both networks
         handles.extend(
             services::keypairs(
-                self.config.primary_network.rpc_url.clone(),
+                self.config.primary_network.rpc_urls.clone(),
                 self.config
                     .secondary_network
                     .as_ref()
-                    .map(|c| c.rpc_url.clone()),
+                    .map(|c| c.rpc_urls.clone()),
                 self.config.remote_keypair_loader.clone(),
                 state,
             )
