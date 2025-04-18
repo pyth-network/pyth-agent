@@ -29,10 +29,11 @@ listen_address = "127.0.0.1:8910"
 [primary_network]
 ### Required fields ###
 
-# HTTP(S) endpoint of the RPC node. Public RPC endpoints are usually
+# HTTP(S) endpoints of the RPC node. Public RPC endpoints are usually
 # rate-limited for Pythnet, and so a private endpoint should be used in most
 # cases. For Pythtest, the public endpoint can be used.
-rpc_url = "https://api.pythtest.pyth.network"
+# API calls will cycle through each on failure.
+rpc_urls = ["https://api.pythtest.pyth.network"]
 
 # WS(S) endpoint of the RRC node. This is used to subscribe to account changes on the network.
 # This can be omitted when oracle.subscriber_enabled is set to false.

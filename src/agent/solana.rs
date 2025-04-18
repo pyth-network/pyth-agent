@@ -25,8 +25,8 @@ pub mod network {
         Secondary,
     }
 
-    pub fn default_rpc_url() -> String {
-        "http://localhost:8899".to_string()
+    pub fn default_rpc_url() -> Vec<String> {
+        vec!["http://localhost:8899".to_string()]
     }
 
     pub fn default_wss_url() -> String {
@@ -40,9 +40,9 @@ pub mod network {
     /// Configuration for a network
     #[derive(Clone, Serialize, Deserialize, Debug)]
     pub struct Config {
-        /// HTTP RPC endpoint
+        /// HTTP RPC endpoint list
         #[serde(default = "default_rpc_url")]
-        pub rpc_url:     String,
+        pub rpc_urls:    Vec<String>,
         /// WSS RPC endpoint
         #[serde(default = "default_wss_url")]
         pub wss_url:     String,
