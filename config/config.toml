@@ -46,7 +46,7 @@ wss_url = "wss://api.pythtest.pyth.network"
 key_store.publish_keypair_path = "/path/to/keypair.json"
 
 # Public key of the oracle program
-key_store.program_key = "RelevantOracleProgramAddress"
+key_store.pyth_oracle_program_key = "RelevantOracleProgramAddress"
 
 # The price store program key
 key_store.pyth_price_store_program_key = "3m6sv6HGqEbuyLV84mD7rJn4MAC9LhUa1y1AUNVqcPfr"

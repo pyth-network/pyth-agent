@@ -16,7 +16,7 @@ wss_url = "wss://api2.pythnet.pyth.network"
 key_store.publish_keypair_path = "/path/to/keypair.json"
 
 # Oracle program pubkey
-key_store.program_key = "FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH"
+key_store.pyth_oracle_program_key = "FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH"
 
 # The price store program key
 key_store.pyth_price_store_program_key = "3m6sv6HGqEbuyLV84mD7rJn4MAC9LhUa1y1AUNVqcPfr"
