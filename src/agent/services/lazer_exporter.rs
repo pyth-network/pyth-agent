@@ -164,7 +164,6 @@ mod lazer_exporter {
             state::local::LocalStore,
         },
         anyhow::bail,
-        chrono::Utc,
         ed25519_dalek::{
             Keypair,
             Signer,
@@ -257,12 +256,7 @@ mod lazer_exporter {
         loop {
             tokio::select! {
                 _ = publish_interval.tick() => {
-                    let now = Utc::now().timestamp_micros();
-                    let publisher_timestamp = MessageField::some(Timestamp {
-                        seconds: now / 1_000_000,
-                        nanos: (now % 1_000_000 * 1000) as i32,
-                        special_fields: Default::default(),
-                    });
+                    let publisher_timestamp = MessageField::some(Timestamp::now());
                     let mut publisher_update = PublisherUpdate {
                         updates: vec![],
                         publisher_id: Some(config.publisher_id),
