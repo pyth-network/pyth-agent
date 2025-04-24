@@ -12,14 +12,12 @@ use {
             },
         },
         state::oracle::Oracle,
+        utils::rpc_multi_client::RpcMultiClient,
     },
     anyhow::Result,
     solana_account_decoder::UiAccountEncoding,
     solana_client::{
-        nonblocking::{
-            pubsub_client::PubsubClient,
-            rpc_client::RpcClient,
-        },
+        nonblocking::pubsub_client::PubsubClient,
         rpc_config::{
             RpcAccountInfoConfig,
             RpcProgramAccountsConfig,
@@ -168,21 +166,13 @@ async fn poller<S>(
 {
     // Setup an RpcClient for manual polling.
     let mut tick = tokio::time::interval(config.oracle.poll_interval_duration);
-    let clients: Arc<Vec<RpcClient>> = Arc::new(
-        config
-            .rpc_urls
-            .iter()
-            .map(|rpc_url| {
-                RpcClient::new_with_timeout_and_commitment(
-                    rpc_url.clone(),
-                    config.rpc_timeout,
-                    CommitmentConfig {
-                        commitment: config.oracle.commitment,
-                    },
-                )
-            })
-            .collect(),
-    );
+    let rpc_multi_client = Arc::new(RpcMultiClient::new_with_timeout_and_commitment(
+        config.rpc_urls.clone(),
+        config.rpc_timeout,
+        CommitmentConfig {
+            commitment: config.oracle.commitment,
+        },
+    ));
 
     loop {
         if let Err(err) = async {
@@ -194,7 +184,7 @@ async fn poller<S>(
                 oracle_program_key,
                 publish_keypair.as_ref(),
                 pyth_price_store_program_key,
-                &clients,
+                &rpc_multi_client,
                 max_lookup_batch_size,
             )
             .await?;

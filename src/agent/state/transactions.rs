@@ -1,15 +1,11 @@
 use {
     super::State,
-    anyhow::{
-        bail,
-        Result,
-    },
-    solana_client::nonblocking::rpc_client::RpcClient,
+    crate::agent::utils::rpc_multi_client::RpcMultiClient,
+    anyhow::Result,
     solana_sdk::{
         commitment_config::CommitmentConfig,
         signature::Signature,
     },
-    solana_transaction_status::TransactionStatus,
     std::collections::VecDeque,
     tokio::sync::RwLock,
     tracing::instrument,
@@ -33,7 +29,7 @@ impl TransactionsState {
 #[async_trait::async_trait]
 pub trait Transactions {
     async fn add_transaction(&self, signature: Signature);
-    async fn poll_transactions_status(&self, rpc_clients: &Vec<RpcClient>) -> Result<()>;
+    async fn poll_transactions_status(&self, rpc_multi_client: &RpcMultiClient) -> Result<()>;
 }
 
 /// Allow downcasting State into TransactionsState for functions that depend on the `Transactions` service.
@@ -66,8 +62,8 @@ where
         }
     }
 
-    #[instrument(skip(self, rpc_clients))]
-    async fn poll_transactions_status(&self, rpc_clients: &Vec<RpcClient>) -> Result<()> {
+    #[instrument(skip(self, rpc_multi_client))]
+    async fn poll_transactions_status(&self, rpc_multi_client: &RpcMultiClient) -> Result<()> {
         let mut txs = self.into().sent_transactions.write().await;
         if txs.is_empty() {
             return Ok(());
@@ -76,7 +72,9 @@ where
         let signatures_contiguous = txs.make_contiguous();
 
         // Poll the status of each transaction, in a single RPC request
-        let statuses = get_signature_statuses(rpc_clients, signatures_contiguous).await?;
+        let statuses = rpc_multi_client
+            .get_signature_statuses(signatures_contiguous)
+            .await?;
 
         tracing::debug!(
             statuses = ?statuses,
@@ -111,24 +109,4 @@ where
 
         Ok(())
     }
-}
-
-async fn get_signature_statuses(
-    rpc_clients: &Vec<RpcClient>,
-    signatures_contiguous: &mut [Signature],
-) -> Result<Vec<Option<TransactionStatus>>> {
-    for rpc_client in rpc_clients {
-        match rpc_client
-            .get_signature_statuses(signatures_contiguous)
-            .await
-        {
-            Ok(statuses) => return Ok(statuses.value),
-            Err(e) => tracing::warn!(
-                "getSignatureStatus failed for rpc endpoint {}: {:?}",
-                rpc_client.url(),
-                e
-            ),
-        }
-    }
-    bail!("getSignatureStatuses failed for all rpc endpoints")
 }

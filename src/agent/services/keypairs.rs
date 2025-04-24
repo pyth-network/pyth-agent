@@ -6,13 +6,13 @@ use {
     crate::agent::{
         solana::network::Network,
         state::keypairs::Keypairs,
+        utils::rpc_multi_client::RpcMultiClient,
     },
     anyhow::{
         bail,
         Result,
     },
     serde::Deserialize,
-    solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
         commitment_config::CommitmentConfig,
         signature::Keypair,
@@ -23,6 +23,7 @@ use {
         sync::Arc,
     },
     tokio::task::JoinHandle,
+    url::Url,
     warp::{
         hyper::StatusCode,
         reject::Rejection,
@@ -61,8 +62,8 @@ impl Default for Config {
 }
 
 pub async fn keypairs<S>(
-    primary_rpc_urls: Vec<String>,
-    secondary_rpc_urls: Option<Vec<String>>,
+    primary_rpc_urls: Vec<Url>,
+    secondary_rpc_urls: Option<Vec<Url>>,
     config: Config,
     state: Arc<S>,
 ) -> Vec<JoinHandle<()>>
@@ -160,7 +161,7 @@ async fn handle_new_keypair<'a, 'b: 'a, S>(
     network: Network,
     new_keypair_bytes: Vec<u8>,
     min_keypair_balance_sol: u64,
-    rpc_urls: Vec<String>,
+    rpc_urls: Vec<Url>,
     network_name: &'b str,
 ) -> WithStatus<&'static str>
 where
@@ -205,9 +206,11 @@ where
 pub async fn validate_keypair(
     kp: &Keypair,
     min_keypair_balance_sol: u64,
-    rpc_urls: Vec<String>,
+    rpc_urls: Vec<Url>,
 ) -> Result<()> {
-    let balance_lamports = match get_balance(kp, rpc_urls).await {
+    let rpc_multi_client =
+        RpcMultiClient::new_with_commitment(rpc_urls, CommitmentConfig::confirmed());
+    let balance_lamports = match rpc_multi_client.get_balance(kp).await {
         Ok(balance_lamports) => balance_lamports,
         Err(_) => bail!("Could not check keypair's balance"),
     };
@@ -224,15 +227,4 @@ pub async fn validate_keypair(
             min_keypair_balance_sol
         )))
     }
-}
-
-async fn get_balance(kp: &Keypair, rpc_urls: Vec<String>) -> Result<u64> {
-    for rpc_url in rpc_urls {
-        let c = RpcClient::new_with_commitment(rpc_url.clone(), CommitmentConfig::confirmed());
-        match c.get_balance(&kp.pubkey()).await {
-            Ok(balance) => return Ok(balance),
-            Err(e) => tracing::warn!("getBalance error for rpc endpoint {}: {}", rpc_url, e),
-        }
-    }
-    bail!("getBalance failed for all RPC endpoints")
 }
