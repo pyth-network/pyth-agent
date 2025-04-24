@@ -79,7 +79,11 @@ where
                 )
                 .await
                 {
-                    tracing::error!(?err, "Subscriber exited unexpectedly");
+                    tracing::error!(
+                        ?err,
+                        "Subscriber url: {} exited unexpectedly",
+                        config.wss_urls[wss_url_index]
+                    );
                     if current_time.elapsed() < min_elapsed_time {
                         tracing::warn!(?sleep_time, "Subscriber restarting too quickly. Sleeping");
                         tokio::time::sleep(sleep_time).await;
