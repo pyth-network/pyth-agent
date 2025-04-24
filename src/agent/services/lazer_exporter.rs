@@ -47,9 +47,17 @@ pub struct Config {
     pub relayer_urls:              Vec<Url>,
     pub publisher_id:              u32,
     pub authorization_token:       String,
-    pub publisher_signing_key:     Vec<u8>,
+    publisher_keypair:             PublisherKeypair,
     #[serde(with = "humantime_serde", default = "default_publish_interval")]
     pub publish_interval_duration: Duration,
+}
+
+#[derive(Clone, Deserialize)]
+struct PublisherKeypair(Vec<u8>);
+impl std::fmt::Debug for PublisherKeypair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PublisherKeypair(redacted)")
+    }
 }
 
 fn default_publish_interval() -> Duration {
@@ -244,13 +252,13 @@ mod lazer_exporter {
 
         // Establish relayer connections
         // Relayer will drop the connection if no data received in 5s
-        let (mut relayer_sender, relayer_receivers) = connect_to_relayers(&config).await?;
+        let (mut relayer_sender, relayer_receivers) = connect_to_relayers(config).await?;
         let mut stream_map = StreamMap::new();
         for (i, receiver) in relayer_receivers.into_iter().enumerate() {
             stream_map.insert(config.relayer_urls[i].clone(), receiver);
         }
 
-        let keypair = Keypair::from_bytes(&config.publisher_signing_key)?;
+        let keypair = Keypair::from_bytes(&config.publisher_keypair.0)?;
         let mut publish_interval = tokio::time::interval(config.publish_interval_duration);
 
         loop {
