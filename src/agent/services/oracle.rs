@@ -12,14 +12,12 @@ use {
             },
         },
         state::oracle::Oracle,
+        utils::rpc_multi_client::RpcMultiClient,
     },
     anyhow::Result,
     solana_account_decoder::UiAccountEncoding,
     solana_client::{
-        nonblocking::{
-            pubsub_client::PubsubClient,
-            rpc_client::RpcClient,
-        },
+        nonblocking::pubsub_client::PubsubClient,
         rpc_config::{
             RpcAccountInfoConfig,
             RpcProgramAccountsConfig,
@@ -38,6 +36,7 @@ use {
     tokio::task::JoinHandle,
     tokio_stream::StreamExt,
     tracing::instrument,
+    url::Url,
 };
 
 #[instrument(skip(config, state))]
@@ -66,22 +65,34 @@ where
     if config.oracle.subscriber_enabled {
         let min_elapsed_time = config.oracle.subscriber_finished_min_time;
         let sleep_time = config.oracle.subscriber_finished_sleep_time;
+        let mut wss_url_index: usize = 0;
 
         handles.push(tokio::spawn(async move {
             loop {
                 let current_time = Instant::now();
                 if let Err(ref err) = subscriber(
                     config.clone(),
+                    &config.wss_urls[wss_url_index],
                     network,
                     state.clone(),
                     key_store.pyth_oracle_program_key,
                 )
                 .await
                 {
-                    tracing::error!(?err, "Subscriber exited unexpectedly");
+                    tracing::error!(
+                        ?err,
+                        "Subscriber url: {} exited unexpectedly",
+                        config.wss_urls[wss_url_index]
+                    );
                     if current_time.elapsed() < min_elapsed_time {
                         tracing::warn!(?sleep_time, "Subscriber restarting too quickly. Sleeping");
                         tokio::time::sleep(sleep_time).await;
+                    }
+
+                    // Round robin to the next WSS provider
+                    wss_url_index += 1;
+                    if wss_url_index >= config.wss_urls.len() {
+                        wss_url_index = 0;
                     }
                 }
             }
@@ -91,14 +102,15 @@ where
     handles
 }
 
-/// When an account RPC Subscription update is receiveed.
+/// When an account RPC Subscription update is received.
 ///
 /// We check if the account is one we're aware of and tracking, and if so, spawn
 /// a small background task that handles that update. We only do this for price
 /// accounts, all other accounts are handled below in the poller.
-#[instrument(skip(config, state))]
+#[instrument(skip(config, wss_url, state))]
 async fn subscriber<S>(
     config: Config,
+    wss_url: &Url,
     network: Network,
     state: Arc<S>,
     program_key: Pubkey,
@@ -108,7 +120,7 @@ where
     S: Send + Sync + 'static,
 {
     // Setup PubsubClient to listen for account changes on the Oracle program.
-    let client = PubsubClient::new(config.wss_url.as_str()).await?;
+    let client = PubsubClient::new(wss_url.as_str()).await?;
 
     let (mut notifier, _unsub) = {
         let commitment = config.oracle.commitment;
@@ -168,8 +180,8 @@ async fn poller<S>(
 {
     // Setup an RpcClient for manual polling.
     let mut tick = tokio::time::interval(config.oracle.poll_interval_duration);
-    let client = Arc::new(RpcClient::new_with_timeout_and_commitment(
-        config.rpc_url,
+    let rpc_multi_client = Arc::new(RpcMultiClient::new_with_timeout_and_commitment(
+        config.rpc_urls.clone(),
         config.rpc_timeout,
         CommitmentConfig {
             commitment: config.oracle.commitment,
@@ -186,7 +198,7 @@ async fn poller<S>(
                 oracle_program_key,
                 publish_keypair.as_ref(),
                 pyth_price_store_program_key,
-                &client,
+                &rpc_multi_client,
                 max_lookup_batch_size,
             )
             .await?;

@@ -17,6 +17,7 @@ pub mod network {
             Serialize,
         },
         std::time::Duration,
+        url::Url,
     };
 
     #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
@@ -25,12 +26,12 @@ pub mod network {
         Secondary,
     }
 
-    pub fn default_rpc_url() -> String {
-        "http://localhost:8899".to_string()
+    pub fn default_rpc_urls() -> Vec<Url> {
+        vec![Url::parse("http://localhost:8899").unwrap()]
     }
 
-    pub fn default_wss_url() -> String {
-        "http://localhost:8900".to_string()
+    pub fn default_wss_urls() -> Vec<Url> {
+        vec![Url::parse("http://localhost:8900").unwrap()]
     }
 
     pub fn default_rpc_timeout() -> Duration {
@@ -40,12 +41,12 @@ pub mod network {
     /// Configuration for a network
     #[derive(Clone, Serialize, Deserialize, Debug)]
     pub struct Config {
-        /// HTTP RPC endpoint
-        #[serde(default = "default_rpc_url")]
-        pub rpc_url:     String,
+        /// HTTP RPC endpoint list
+        #[serde(default = "default_rpc_urls")]
+        pub rpc_urls:    Vec<Url>,
         /// WSS RPC endpoint
-        #[serde(default = "default_wss_url")]
-        pub wss_url:     String,
+        #[serde(default = "default_wss_urls")]
+        pub wss_urls:    Vec<Url>,
         /// Timeout for the requests to the RPC
         #[serde(with = "humantime_serde", default = "default_rpc_timeout")]
         pub rpc_timeout: Duration,

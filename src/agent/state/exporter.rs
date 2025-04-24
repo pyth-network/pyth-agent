@@ -13,6 +13,7 @@ use {
             keypairs::Keypairs,
             local::LocalStore,
         },
+        utils::rpc_multi_client::RpcMultiClient,
     },
     anyhow::{
         anyhow,
@@ -30,10 +31,6 @@ use {
     pyth_sdk::Identifier,
     pyth_sdk_solana::state::PriceStatus,
     serde::Serialize,
-    solana_client::{
-        nonblocking::rpc_client::RpcClient,
-        rpc_config::RpcSendTransactionConfig,
-    },
     solana_pubkey,
     solana_sdk::{
         compute_budget::ComputeBudgetInstruction,
@@ -119,7 +116,7 @@ where
     async fn update_recent_compute_unit_price(
         &self,
         publish_keypair: &Keypair,
-        rpc_client: &RpcClient,
+        rpc_clients: &RpcMultiClient,
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
     ) -> Result<()>;
@@ -300,7 +297,7 @@ where
     async fn update_recent_compute_unit_price(
         &self,
         publish_keypair: &Keypair,
-        rpc_client: &RpcClient,
+        rpc_multi_client: &RpcMultiClient,
         staleness_threshold: Duration,
         unchanged_publish_threshold: Duration,
     ) -> Result<()> {
@@ -321,7 +318,7 @@ where
             .recent_compute_unit_price_micro_lamports
             .write()
             .await =
-            estimate_compute_unit_price_micro_lamports(rpc_client, &price_accounts).await?;
+            estimate_compute_unit_price_micro_lamports(rpc_multi_client, &price_accounts).await?;
 
         Ok(())
     }
@@ -388,7 +385,7 @@ where
 }
 
 async fn estimate_compute_unit_price_micro_lamports(
-    rpc_client: &RpcClient,
+    rpc_multi_client: &RpcMultiClient,
     price_accounts: &[Pubkey],
 ) -> Result<Option<u64>> {
     let mut slot_compute_fee: BTreeMap<u64, u64> = BTreeMap::new();
@@ -397,7 +394,7 @@ async fn estimate_compute_unit_price_micro_lamports(
     let prioritization_fees_batches = futures_util::future::join_all(
         price_accounts
             .chunks(128)
-            .map(|price_accounts| rpc_client.get_recent_prioritization_fees(price_accounts)),
+            .map(|price_accounts| rpc_multi_client.get_recent_prioritization_fees(price_accounts)),
     )
     .await
     .into_iter()
@@ -450,7 +447,7 @@ async fn estimate_compute_unit_price_micro_lamports(
 ///   time to respond, no internal queues grow unboundedly. At any single point in time there are at most
 ///   (n / batch_size) requests in flight.
 #[instrument(
-    skip(state, client, network_state_rx, publish_keypair, staleness_threshold, permissioned_updates),
+    skip(state, rpc_multi_client, network_state_rx, publish_keypair, staleness_threshold, permissioned_updates),
     fields(
         publish_keypair     = publish_keypair.pubkey().to_string(),
         staleness_threshold = staleness_threshold.as_millis(),
@@ -458,7 +455,7 @@ async fn estimate_compute_unit_price_micro_lamports(
 )]
 pub async fn publish_batches<S>(
     state: Arc<S>,
-    client: Arc<RpcClient>,
+    rpc_multi_client: Arc<RpcMultiClient>,
     network: Network,
     network_state_rx: &watch::Receiver<NetworkState>,
     accumulator_key: Option<Pubkey>,
@@ -497,7 +494,7 @@ where
     for batch in batches {
         batch_futures.push(publish_batch(
             state.clone(),
-            client.clone(),
+            rpc_multi_client.clone(),
             network,
             network_state,
             accumulator_key,
@@ -531,7 +528,7 @@ where
 }
 
 #[instrument(
-    skip(state, client, network_state, publish_keypair, batch, staleness_threshold),
+    skip(state, rpc_multi_client, network_state, publish_keypair, batch, staleness_threshold),
     fields(
         publish_keypair     = publish_keypair.pubkey().to_string(),
         blockhash           = network_state.blockhash.to_string(),
@@ -542,7 +539,7 @@ where
 )]
 async fn publish_batch<S>(
     state: Arc<S>,
-    client: Arc<RpcClient>,
+    rpc_multi_client: Arc<RpcMultiClient>,
     network: Network,
     network_state: NetworkState,
     accumulator_key: Option<Pubkey>,
@@ -744,14 +741,8 @@ where
     );
 
     tokio::spawn(async move {
-        let signature = match client
-            .send_transaction_with_config(
-                &transaction,
-                RpcSendTransactionConfig {
-                    skip_preflight: true,
-                    ..RpcSendTransactionConfig::default()
-                },
-            )
+        let signature = match rpc_multi_client
+            .send_transaction_with_config(&transaction)
             .await
         {
             Ok(signature) => signature,

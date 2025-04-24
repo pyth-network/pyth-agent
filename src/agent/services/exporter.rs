@@ -8,6 +8,7 @@ use {
             exporter::Exporter,
             transactions::Transactions,
         },
+        utils::rpc_multi_client::RpcMultiClient,
     },
     anyhow::Result,
     futures_util::future,
@@ -15,7 +16,6 @@ use {
         Deserialize,
         Serialize,
     },
-    solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::commitment_config::CommitmentConfig,
     std::{
         sync::Arc,
@@ -27,6 +27,7 @@ use {
         time::Interval,
     },
     tracing::instrument,
+    url::Url,
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -111,7 +112,7 @@ pub struct NetworkState {
 /// fetching the blockhash and slot number.
 struct NetworkStateQuerier {
     /// The RPC client
-    rpc_client: RpcClient,
+    rpc_multi_client: RpcMultiClient,
 
     /// The interval with which to query the network state
     query_interval: Interval,
@@ -122,20 +123,21 @@ struct NetworkStateQuerier {
 
 impl NetworkStateQuerier {
     #[instrument(
-        skip(rpc_endpoint, rpc_timeout, query_interval),
+        skip(rpc_urls, rpc_timeout, query_interval),
         fields(
             rpc_timeout    = rpc_timeout.as_millis(),
             query_interval = query_interval.period().as_millis(),
         )
     )]
     pub fn new(
-        rpc_endpoint: &str,
+        rpc_urls: &[Url],
         rpc_timeout: Duration,
         query_interval: Interval,
         network_state_tx: watch::Sender<NetworkState>,
     ) -> Self {
+        let rpc_multi_client = RpcMultiClient::new_with_timeout(rpc_urls.to_vec(), rpc_timeout);
         NetworkStateQuerier {
-            rpc_client: RpcClient::new_with_timeout(rpc_endpoint.to_string(), rpc_timeout),
+            rpc_multi_client,
             query_interval,
             network_state_tx,
         }
@@ -154,9 +156,9 @@ impl NetworkStateQuerier {
     async fn query_network_state(&mut self) -> Result<()> {
         // Fetch the blockhash and current slot in parallel
         let current_slot_future = self
-            .rpc_client
+            .rpc_multi_client
             .get_slot_with_commitment(CommitmentConfig::confirmed());
-        let latest_blockhash_future = self.rpc_client.get_latest_blockhash();
+        let latest_blockhash_future = self.rpc_multi_client.get_latest_blockhash();
 
         let (current_slot_result, latest_blockhash_result) =
             future::join(current_slot_future, latest_blockhash_future).await;
@@ -183,7 +185,7 @@ where
     // Create and spawn the network state querier
     let (network_state_tx, network_state_rx) = watch::channel(Default::default());
     let mut network_state_querier = NetworkStateQuerier::new(
-        &config.rpc_url,
+        &config.rpc_urls,
         config.rpc_timeout,
         tokio::time::interval(config.exporter.refresh_network_state_interval_duration),
         network_state_tx,
@@ -224,8 +226,9 @@ mod exporter {
                 publish_batches,
                 Exporter,
             },
+            utils::rpc_multi_client::RpcMultiClient,
         },
-        solana_client::nonblocking::rpc_client::RpcClient,
+        solana_sdk::commitment_config::CommitmentConfig,
         std::sync::Arc,
         tokio::sync::watch,
     };
@@ -243,10 +246,14 @@ mod exporter {
         let mut dynamic_compute_unit_price_update_interval =
             tokio::time::interval(config.exporter.publish_interval_duration);
 
-        let client = Arc::new(RpcClient::new_with_timeout(
-            config.rpc_url.to_string(),
-            config.rpc_timeout,
-        ));
+        let rpc_multi_client: Arc<RpcMultiClient> =
+            Arc::new(RpcMultiClient::new_with_timeout_and_commitment(
+                config.rpc_urls.clone(),
+                config.rpc_timeout,
+                CommitmentConfig {
+                    commitment: config.oracle.commitment,
+                },
+            ));
         let Ok(key_store) = KeyStore::new(config.key_store.clone()) else {
             tracing::warn!("Key store not available, Exporter won't start.");
             return;
@@ -265,7 +272,7 @@ mod exporter {
                             let publisher_buffer_key = Exporter::get_publisher_buffer_key(&*state).await;
                             if let Err(err) = publish_batches(
                                 state.clone(),
-                                client.clone(),
+                                rpc_multi_client.clone(),
                                 network,
                                 &network_state_rx,
                                 key_store.accumulator_key,
@@ -293,7 +300,7 @@ mod exporter {
                             if let Err(err) = Exporter::update_recent_compute_unit_price(
                                 &*state,
                                 &publish_keypair,
-                                &client,
+                                &rpc_multi_client,
                                 config.exporter.staleness_threshold,
                                 config.exporter.unchanged_publish_threshold,
                             ).await {
@@ -312,12 +319,12 @@ mod transaction_monitor {
         crate::agent::{
             solana::network,
             state::transactions::Transactions,
+            utils::rpc_multi_client::RpcMultiClient,
         },
         serde::{
             Deserialize,
             Serialize,
         },
-        solana_client::nonblocking::rpc_client::RpcClient,
         std::{
             sync::Arc,
             time::Duration,
@@ -352,13 +359,16 @@ mod transaction_monitor {
     where
         S: Transactions,
     {
-        let client = RpcClient::new_with_timeout(config.rpc_url.to_string(), config.rpc_timeout);
+        let rpc_multi_client =
+            RpcMultiClient::new_with_timeout(config.rpc_urls.clone(), config.rpc_timeout);
         let mut poll_interval =
             tokio::time::interval(config.exporter.transaction_monitor.poll_interval_duration);
 
         loop {
             poll_interval.tick().await;
-            if let Err(err) = Transactions::poll_transactions_status(&*state, &client).await {
+            if let Err(err) =
+                Transactions::poll_transactions_status(&*state, &rpc_multi_client).await
+            {
                 tracing::error!(err = ?err, "Transaction monitor failed.");
             }
         }

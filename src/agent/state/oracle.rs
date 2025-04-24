@@ -12,6 +12,7 @@ use {
             Prices,
             State,
         },
+        utils::rpc_multi_client::RpcMultiClient,
     },
     anyhow::{
         anyhow,
@@ -205,7 +206,7 @@ pub trait Oracle {
         oracle_program_key: Pubkey,
         publish_keypair: Option<&Keypair>,
         pyth_price_store_program_key: Option<Pubkey>,
-        rpc_client: &RpcClient,
+        rpc_multi_client: &RpcMultiClient,
         max_lookup_batch_size: usize,
     ) -> Result<()>;
     async fn handle_price_account_update(
@@ -274,20 +275,23 @@ where
     }
 
     /// Poll target Solana based chain for Pyth related accounts.
-    #[instrument(skip(self, publish_keypair, rpc_client))]
+    #[instrument(skip(self, publish_keypair, rpc_multi_client))]
     async fn poll_updates(
         &self,
         network: Network,
         oracle_program_key: Pubkey,
         publish_keypair: Option<&Keypair>,
         pyth_price_store_program_key: Option<Pubkey>,
-        rpc_client: &RpcClient,
+        rpc_multi_client: &RpcMultiClient,
         max_lookup_batch_size: usize,
     ) -> Result<()> {
         let mut publisher_permissions = HashMap::new();
-        let (product_accounts, price_accounts) =
-            fetch_product_and_price_accounts(rpc_client, oracle_program_key, max_lookup_batch_size)
-                .await?;
+        let (product_accounts, price_accounts) = fetch_product_and_price_accounts(
+            rpc_multi_client,
+            oracle_program_key,
+            max_lookup_batch_size,
+        )
+        .await?;
 
         for (price_key, price_entry) in price_accounts.iter() {
             for component in price_entry.comp {
@@ -326,7 +330,7 @@ where
             (pyth_price_store_program_key, publish_keypair)
         {
             match fetch_publisher_buffer_key(
-                rpc_client,
+                rpc_multi_client,
                 pyth_price_store_program_key,
                 publish_keypair.pubkey(),
             )
@@ -402,7 +406,7 @@ where
 }
 
 async fn fetch_publisher_buffer_key(
-    rpc_client: &RpcClient,
+    rpc_multi_client: &RpcMultiClient,
     pyth_price_store_program_key: Pubkey,
     publisher_pubkey: Pubkey,
 ) -> Result<Pubkey> {
@@ -413,7 +417,9 @@ async fn fetch_publisher_buffer_key(
         ],
         &pyth_price_store_program_key,
     );
-    let data = rpc_client.get_account_data(&publisher_config_key).await?;
+    let data = rpc_multi_client
+        .get_account_data(&publisher_config_key)
+        .await?;
     let config = pyth_price_store::accounts::publisher_config::read(&data)?;
     Ok(config.buffer_account.into())
 }
@@ -423,16 +429,18 @@ type ProductAndPriceAccounts = (
     HashMap<Pubkey, Arc<PriceEntry>>,
 );
 
-#[instrument(skip(rpc_client))]
+#[instrument(skip(rpc_multi_client))]
 async fn fetch_product_and_price_accounts(
-    rpc_client: &RpcClient,
+    rpc_multi_client: &RpcMultiClient,
     oracle_program_key: Pubkey,
-    max_lookup_batch_size: usize,
+    _max_lookup_batch_size: usize,
 ) -> Result<ProductAndPriceAccounts> {
     let mut product_entries = HashMap::new();
     let mut price_entries = HashMap::new();
 
-    let oracle_accounts = rpc_client.get_program_accounts(&oracle_program_key).await?;
+    let oracle_accounts = rpc_multi_client
+        .get_program_accounts(oracle_program_key)
+        .await?;
 
     // Go over all the product accounts and partially fill the product entires. The product
     // entires need to have prices inside them which gets filled by going over all the

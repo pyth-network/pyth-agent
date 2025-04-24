@@ -1,7 +1,7 @@
 use {
     super::State,
+    crate::agent::utils::rpc_multi_client::RpcMultiClient,
     anyhow::Result,
-    solana_client::nonblocking::rpc_client::RpcClient,
     solana_sdk::{
         commitment_config::CommitmentConfig,
         signature::Signature,
@@ -29,7 +29,7 @@ impl TransactionsState {
 #[async_trait::async_trait]
 pub trait Transactions {
     async fn add_transaction(&self, signature: Signature);
-    async fn poll_transactions_status(&self, rpc: &RpcClient) -> Result<()>;
+    async fn poll_transactions_status(&self, rpc_multi_client: &RpcMultiClient) -> Result<()>;
 }
 
 /// Allow downcasting State into TransactionsState for functions that depend on the `Transactions` service.
@@ -62,8 +62,8 @@ where
         }
     }
 
-    #[instrument(skip(self, rpc))]
-    async fn poll_transactions_status(&self, rpc: &RpcClient) -> Result<()> {
+    #[instrument(skip(self, rpc_multi_client))]
+    async fn poll_transactions_status(&self, rpc_multi_client: &RpcMultiClient) -> Result<()> {
         let mut txs = self.into().sent_transactions.write().await;
         if txs.is_empty() {
             return Ok(());
@@ -72,10 +72,9 @@ where
         let signatures_contiguous = txs.make_contiguous();
 
         // Poll the status of each transaction, in a single RPC request
-        let statuses = rpc
+        let statuses = rpc_multi_client
             .get_signature_statuses(signatures_contiguous)
-            .await?
-            .value;
+            .await?;
 
         tracing::debug!(
             statuses = ?statuses,
