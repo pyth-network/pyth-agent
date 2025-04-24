@@ -130,12 +130,12 @@ impl NetworkStateQuerier {
         )
     )]
     pub fn new(
-        rpc_urls: &Vec<Url>,
+        rpc_urls: &[Url],
         rpc_timeout: Duration,
         query_interval: Interval,
         network_state_tx: watch::Sender<NetworkState>,
     ) -> Self {
-        let rpc_multi_client = RpcMultiClient::new_with_timeout(rpc_urls.clone(), rpc_timeout);
+        let rpc_multi_client = RpcMultiClient::new_with_timeout(rpc_urls.to_vec(), rpc_timeout);
         NetworkStateQuerier {
             rpc_multi_client,
             query_interval,
