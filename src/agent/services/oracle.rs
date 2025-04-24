@@ -36,6 +36,7 @@ use {
     tokio::task::JoinHandle,
     tokio_stream::StreamExt,
     tracing::instrument,
+    url::Url,
 };
 
 #[instrument(skip(config, state))]
@@ -64,12 +65,14 @@ where
     if config.oracle.subscriber_enabled {
         let min_elapsed_time = config.oracle.subscriber_finished_min_time;
         let sleep_time = config.oracle.subscriber_finished_sleep_time;
+        let mut wss_url_index: usize = 0;
 
         handles.push(tokio::spawn(async move {
             loop {
                 let current_time = Instant::now();
                 if let Err(ref err) = subscriber(
                     config.clone(),
+                    &config.wss_urls[wss_url_index],
                     network,
                     state.clone(),
                     key_store.pyth_oracle_program_key,
@@ -81,6 +84,12 @@ where
                         tracing::warn!(?sleep_time, "Subscriber restarting too quickly. Sleeping");
                         tokio::time::sleep(sleep_time).await;
                     }
+
+                    // Round robin to the next WSS provider
+                    wss_url_index += 1;
+                    if wss_url_index >= config.wss_urls.len() {
+                        wss_url_index = 0;
+                    }
                 }
             }
         }));
@@ -89,14 +98,15 @@ where
     handles
 }
 
-/// When an account RPC Subscription update is receiveed.
+/// When an account RPC Subscription update is received.
 ///
 /// We check if the account is one we're aware of and tracking, and if so, spawn
 /// a small background task that handles that update. We only do this for price
 /// accounts, all other accounts are handled below in the poller.
-#[instrument(skip(config, state))]
+#[instrument(skip(config, wss_url, state))]
 async fn subscriber<S>(
     config: Config,
+    wss_url: &Url,
     network: Network,
     state: Arc<S>,
     program_key: Pubkey,
@@ -106,7 +116,7 @@ where
     S: Send + Sync + 'static,
 {
     // Setup PubsubClient to listen for account changes on the Oracle program.
-    let client = PubsubClient::new(config.wss_url.as_str()).await?;
+    let client = PubsubClient::new(wss_url.as_str()).await?;
 
     let (mut notifier, _unsub) = {
         let commitment = config.oracle.commitment;

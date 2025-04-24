@@ -30,8 +30,8 @@ pub mod network {
         vec![Url::parse("http://localhost:8899").unwrap()]
     }
 
-    pub fn default_wss_url() -> String {
-        "http://localhost:8900".to_string()
+    pub fn default_wss_urls() -> Vec<Url> {
+        vec![Url::parse("http://localhost:8900").unwrap()]
     }
 
     pub fn default_rpc_timeout() -> Duration {
@@ -45,8 +45,8 @@ pub mod network {
         #[serde(default = "default_rpc_urls")]
         pub rpc_urls:    Vec<Url>,
         /// WSS RPC endpoint
-        #[serde(default = "default_wss_url")]
-        pub wss_url:     String,
+        #[serde(default = "default_wss_urls")]
+        pub wss_urls:    Vec<Url>,
         /// Timeout for the requests to the RPC
         #[serde(with = "humantime_serde", default = "default_rpc_timeout")]
         pub rpc_timeout: Duration,
