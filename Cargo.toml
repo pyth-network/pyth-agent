@@ -22,7 +22,7 @@ futures-util = { version = "0.3.30", default-features = false, features = [
 jrpc = "0.4.1"
 serde_json = "1.0.115"
 chrono = "0.4.37"
-chrono-tz = "0.8.6"
+chrono-tz = "0.10.3"
 pyth-sdk = "0.8.0"
 pyth-sdk-solana = "0.10.4"
 solana-account-decoder = "2.2.1"
@@ -31,14 +31,14 @@ solana-pubkey = "2.2.1"
 solana-sdk = "2.2.1"
 solana-transaction-status = "2.2.1"
 bincode = { version = "2.0.1", features = ["serde"] }
-config = "0.14.0"
-thiserror = "1.0.58"
+config = "0.15.11"
+thiserror = "2.0.12"
 clap = { version = "4.5.4", features = ["derive"] }
 humantime-serde = "1.1.1"
-serde-this-or-that = "0.4.2"
-prometheus-client = "0.22.2"
+serde-this-or-that = "0.5.0"
+prometheus-client = "0.23.1"
 lazy_static = "1.4.0"
-winnow = "0.6.5"
+winnow = "0.7.7"
 proptest = "1.4.0"
 reqwest = { version = "0.12.0", features = ["json"] }
 smol_str = {version="0.3.2", features=["serde"]}

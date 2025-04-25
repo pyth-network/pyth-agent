@@ -15,7 +15,10 @@ use {
         Utc,
         Weekday,
     },
-    chrono_tz::Tz,
+    chrono_tz::{
+        ParseError,
+        Tz,
+    },
     lazy_static::lazy_static,
     std::str::FromStr,
 };
@@ -89,7 +92,7 @@ impl FromStr for LegacySchedule {
         let tz: Tz = tz_str
             .trim()
             .parse()
-            .map_err(|e: String| anyhow!(e))
+            .map_err(|e: ParseError| anyhow!(e))
             .context(format!("Could parse timezone from {:?}", tz_str))?;
 
         let mut weekday_schedules = Vec::with_capacity(7);

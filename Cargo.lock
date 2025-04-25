@@ -151,12 +151,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "allocator-api2"
-version = "0.2.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
-
-[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -887,9 +881,9 @@ dependencies = [
 
 [[package]]
 name = "chrono-tz"
-version = "0.8.6"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d59ae0466b83e838b81a54256c39d5d7c20b9d7daa10510a242d9b75abd5936e"
+checksum = "efdce149c370f133a071ca8ef6ea340b7b88748ab0810097a9e2976eaa34b4f3"
 dependencies = [
  "chrono",
  "chrono-tz-build",
@@ -898,12 +892,11 @@ dependencies = [
 
 [[package]]
 name = "chrono-tz-build"
-version = "0.2.1"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "433e39f13c9a060046954e0592a8d0a4bcb1040125cbf91cb8ee58964cfb350f"
+checksum = "8f10f8c9340e31fc120ff885fcdb54a0b48e474bbd77cab557f0c30a3e569402"
 dependencies = [
  "parse-zoneinfo",
- "phf",
  "phf_codegen",
 ]
 
@@ -997,20 +990,20 @@ dependencies = [
 
 [[package]]
 name = "config"
-version = "0.14.1"
+version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68578f196d2a33ff61b27fae256c3164f65e36382648e30666dde05b8cc9dfdf"
+checksum = "595aae20e65c3be792d05818e8c63025294ac3cb7e200f11459063a352a6ef80"
 dependencies = [
  "async-trait",
  "convert_case",
  "json5",
- "nom",
  "pathdiff",
  "ron",
  "rust-ini",
  "serde",
  "serde_json",
  "toml 0.8.21",
+ "winnow",
  "yaml-rust2",
 ]
 
@@ -1595,6 +1588,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
+name = "foldhash"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
+
+[[package]]
 name = "foreign-types"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1872,24 +1871,23 @@ name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
-dependencies = [
- "ahash",
- "allocator-api2",
-]
 
 [[package]]
 name = "hashbrown"
 version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
+dependencies = [
+ "foldhash",
+]
 
 [[package]]
 name = "hashlink"
-version = "0.8.4"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8094feaf31ff591f651a2664fb9cfd92bba7a60ce3197265e9482ebe753c8f7"
+checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
- "hashbrown 0.14.5",
+ "hashbrown 0.15.2",
 ]
 
 [[package]]
@@ -3393,9 +3391,9 @@ dependencies = [
 
 [[package]]
 name = "prometheus-client"
-version = "0.22.3"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "504ee9ff529add891127c4827eb481bd69dc0ebc72e9a682e187db4caa60c3ca"
+checksum = "cf41c1a7c32ed72abe5082fb19505b969095c12da9f5732a4bc9878757fd087c"
 dependencies = [
  "dtoa",
  "itoa",
@@ -3547,7 +3545,7 @@ dependencies = [
  "solana-pubkey",
  "solana-sdk",
  "solana-transaction-status",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
  "tokio-tungstenite 0.26.2",
@@ -3556,7 +3554,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "warp",
- "winnow 0.6.26",
+ "winnow",
 ]
 
 [[package]]
@@ -4032,12 +4030,13 @@ dependencies = [
 
 [[package]]
 name = "rust-ini"
-version = "0.20.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e0698206bcb8882bf2a9ecb4c1e7785db57ff052297085a6efd4fe42302068a"
+checksum = "4e310ef0e1b6eeb79169a1171daf9abcb87a2e17c03bee2c4bb100b55c75409f"
 dependencies = [
  "cfg-if",
  "ordered-multimap",
+ "trim-in-place",
 ]
 
 [[package]]
@@ -4359,9 +4358,9 @@ dependencies = [
 
 [[package]]
 name = "serde-this-or-that"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "634c5a3cb041e56cc2964386151c67d520f845445789da3bd46bfb1c94f5e3bb"
+checksum = "f90e7ee61f57b2b1a195326bf7ee88651d3d5e688f34bd5971110851764200bf"
 dependencies = [
  "serde",
 ]
@@ -7609,15 +7608,8 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_write",
- "winnow 0.7.7",
+ "winnow",
 ]
-
-[[package]]
-name = "toml_write"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28391a4201ba7eb1984cfeb6862c0b3ea2cfe23332298967c749dddc0d6cd976"
 
 [[package]]
 name = "tonic"
@@ -7785,6 +7777,12 @@ dependencies = [
  "tracing-log",
  "tracing-serde",
 ]
+
+[[package]]
+name = "trim-in-place"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "343e926fc669bc8cde4fa3129ab681c63671bae288b1f1081ceee6d9d37904fc"
 
 [[package]]
 name = "try-lock"
@@ -8601,15 +8599,6 @@ checksum = "271414315aff87387382ec3d271b52d7ae78726f5d44ac98b4f4030c91880486"
 
 [[package]]
 name = "winnow"
-version = "0.6.26"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e90edd2ac1aa278a5c4599b1d89cf03074b610800f866d4026dc199d7929a28"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "winnow"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6cb8234a863ea0e8cd7284fcdd4f145233eb00fee02bbdd9861aec44e6477bc5"
@@ -8668,9 +8657,9 @@ dependencies = [
 
 [[package]]
 name = "yaml-rust2"
-version = "0.8.1"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8902160c4e6f2fb145dbe9d6760a75e3c9522d8bf796ed7047c85919ac7115f8"
+checksum = "818913695e83ece1f8d2a1c52d54484b7b46d0f9c06beeb2649b9da50d9b512d"
 dependencies = [
  "arraydeque",
  "encoding_rs",
