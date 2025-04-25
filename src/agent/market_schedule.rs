@@ -109,7 +109,7 @@ impl MarketSchedule {
     }
 }
 
-fn market_schedule_parser<'s>(input: &mut &'s str) -> ModalResult<MarketSchedule> {
+fn market_schedule_parser(input: &mut &str) -> ModalResult<MarketSchedule> {
     seq!(
         MarketSchedule {
             timezone: take_till(0.., ';').verify_map(|s| Tz::from_str(s).ok()),
@@ -157,13 +157,13 @@ pub struct HolidayDaySchedule {
     pub kind:  ScheduleDayKind,
 }
 
-fn two_digit_parser<'s>(input: &mut &'s str) -> ModalResult<u32> {
+fn two_digit_parser(input: &mut &str) -> ModalResult<u32> {
     take(2usize)
         .verify_map(|s| u32::from_str(s).ok())
         .parse_next(input)
 }
 
-fn holiday_day_schedule_parser<'s>(input: &mut &'s str) -> ModalResult<HolidayDaySchedule> {
+fn holiday_day_schedule_parser(input: &mut &str) -> ModalResult<HolidayDaySchedule> {
     // day and month are not validated to be correct dates
     // if they are invalid, it will be ignored since there
     // are no real dates that match the invalid input

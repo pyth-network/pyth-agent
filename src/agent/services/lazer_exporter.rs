@@ -152,14 +152,14 @@ async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
 
 #[instrument(skip(config, state))]
 pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandle<()>> {
-    let mut handles = Vec::new();
-    handles.push(tokio::spawn(lazer_exporter::lazer_exporter(
+    let handles = vec![tokio::spawn(lazer_exporter::lazer_exporter(
         config.clone(),
         state,
-    )));
+    ))];
     handles
 }
 
+#[allow(clippy::module_inception)]
 mod lazer_exporter {
     use {
         crate::agent::{

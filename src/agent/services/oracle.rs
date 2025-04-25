@@ -132,6 +132,7 @@ where
             },
             filters:        None,
             with_context:   Some(true),
+            sort_results:   None,
         };
         client.program_subscribe(&program_key, Some(config)).await
     }?;

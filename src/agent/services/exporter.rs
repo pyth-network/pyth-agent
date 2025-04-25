@@ -210,6 +210,7 @@ where
     handles
 }
 
+#[allow(clippy::module_inception)]
 mod exporter {
     use {
         super::NetworkState,
