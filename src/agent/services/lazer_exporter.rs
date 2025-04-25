@@ -4,6 +4,7 @@ use {
         Result,
         anyhow,
     },
+    ed25519_dalek::SecretKey,
     futures_util::{
         SinkExt,
         stream::{
@@ -47,16 +48,16 @@ pub struct Config {
     pub relayer_urls:              Vec<Url>,
     pub publisher_id:              u32,
     pub authorization_token:       String,
-    publisher_keypair:             PublisherKeypair,
+    publisher_secret_key:          PublisherSecretKey,
     #[serde(with = "humantime_serde", default = "default_publish_interval")]
     pub publish_interval_duration: Duration,
 }
 
 #[derive(Clone, Deserialize)]
-struct PublisherKeypair(Vec<u8>);
-impl std::fmt::Debug for PublisherKeypair {
+struct PublisherSecretKey(SecretKey);
+impl std::fmt::Debug for PublisherSecretKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PublisherKeypair(redacted)")
+        write!(f, "PublisherSecretKey(redacted)")
     }
 }
 
@@ -173,8 +174,8 @@ mod lazer_exporter {
         },
         anyhow::bail,
         ed25519_dalek::{
-            Keypair,
             Signer,
+            SigningKey,
         },
         futures_util::StreamExt,
         protobuf::{
@@ -258,7 +259,7 @@ mod lazer_exporter {
             stream_map.insert(config.relayer_urls[i].clone(), receiver);
         }
 
-        let keypair = Keypair::from_bytes(&config.publisher_keypair.0)?;
+        let signing_key = SigningKey::from_bytes(&config.publisher_secret_key.0);
         let mut publish_interval = tokio::time::interval(config.publish_interval_duration);
 
         loop {
@@ -310,7 +311,7 @@ mod lazer_exporter {
                             continue;
                         }
                     };
-                    let signature = keypair.sign(&buf);
+                    let signature = signing_key.sign(&buf);
                     let signed_lazer_transaction = SignedLazerTransaction {
                         signature_type: Some(TransactionSignatureType::ed25519.into()),
                         signature: Some(signature.to_bytes().to_vec()),
