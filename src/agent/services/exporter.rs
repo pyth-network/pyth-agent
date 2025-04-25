@@ -223,9 +223,9 @@ mod exporter {
                 },
             },
             state::exporter::{
+                Exporter,
                 get_publish_keypair,
                 publish_batches,
-                Exporter,
             },
             utils::rpc_multi_client::RpcMultiClient,
         },

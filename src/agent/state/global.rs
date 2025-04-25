@@ -3,11 +3,11 @@
 // This enables this data to be easily queried by other components.
 use {
     super::{
+        State,
         oracle::{
             PriceEntry,
             ProductEntry,
         },
-        State,
     },
     crate::agent::{
         metrics::{
@@ -17,8 +17,8 @@ use {
         solana::network::Network,
     },
     anyhow::{
-        anyhow,
         Result,
+        anyhow,
     },
     prometheus_client::registry::Registry,
     smol_str::SmolStr,

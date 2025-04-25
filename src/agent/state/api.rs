@@ -16,6 +16,10 @@ use {
             },
             solana::network::Network,
         },
+        Config,
+        NotifyPriceSchedSubscription,
+        NotifyPriceSubscription,
+        State,
         global::{
             AllAccountsData,
             GlobalStore,
@@ -29,14 +33,10 @@ use {
             PriceEntry,
             ProductEntry,
         },
-        Config,
-        NotifyPriceSchedSubscription,
-        NotifyPriceSubscription,
-        State,
     },
     anyhow::{
-        anyhow,
         Result,
+        anyhow,
     },
     chrono::Utc,
     pyth_sdk::Identifier,
@@ -54,8 +54,8 @@ use {
         time::Duration,
     },
     tokio::sync::{
-        mpsc,
         RwLock,
+        mpsc,
     },
     tracing::instrument,
 };

@@ -4,8 +4,8 @@ use {
     lazy_static::lazy_static,
     prometheus_client::{
         encoding::{
-            text::encode,
             EncodeLabelSet,
+            text::encode,
         },
         metrics::{
             counter::Counter,
@@ -20,17 +20,17 @@ use {
     std::{
         net::SocketAddr,
         sync::{
-            atomic::AtomicU64,
             Arc,
+            atomic::AtomicU64,
         },
     },
     tokio::sync::Mutex,
     warp::{
-        hyper::StatusCode,
-        reply,
         Filter,
         Rejection,
         Reply,
+        hyper::StatusCode,
+        reply,
     },
 };
 

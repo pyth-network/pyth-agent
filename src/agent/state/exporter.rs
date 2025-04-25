@@ -1,9 +1,9 @@
 use {
     super::{
+        State,
         local::PriceInfo,
         oracle::PricePublishingMetadata,
         transactions::Transactions,
-        State,
     },
     crate::agent::{
         services::exporter::NetworkState,
@@ -16,10 +16,10 @@ use {
         utils::rpc_multi_client::RpcMultiClient,
     },
     anyhow::{
-        anyhow,
-        bail,
         Context,
         Result,
+        anyhow,
+        bail,
     },
     bytemuck::{
         bytes_of,
@@ -53,8 +53,8 @@ use {
         time::Duration,
     },
     tokio::sync::{
-        watch,
         RwLock,
+        watch,
     },
     tracing::instrument,
 };
@@ -818,8 +818,8 @@ fn create_instruction_with_price_store_program(
 ) -> Result<Instruction> {
     use pyth_price_store::instruction::{
         Instruction as PublishInstruction,
-        SubmitPricesArgsHeader,
         PUBLISHER_CONFIG_SEED,
+        SubmitPricesArgsHeader,
     };
     let (publisher_config_key, publisher_config_bump) = Pubkey::find_program_address(
         &[PUBLISHER_CONFIG_SEED.as_bytes(), &publish_pubkey.to_bytes()],

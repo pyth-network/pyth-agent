@@ -66,11 +66,11 @@ pub mod key_store {
     use {
         anyhow::Result,
         serde::{
-            de::Error,
             Deserialize,
             Deserializer,
             Serialize,
             Serializer,
+            de::Error,
         },
         solana_sdk::{
             pubkey::Pubkey,

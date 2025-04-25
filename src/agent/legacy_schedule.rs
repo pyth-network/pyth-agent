@@ -3,17 +3,17 @@
 
 use {
     anyhow::{
-        anyhow,
         Context,
         Result,
+        anyhow,
     },
     chrono::{
-        naive::NaiveTime,
         DateTime,
         Datelike,
         Duration,
         Utc,
         Weekday,
+        naive::NaiveTime,
     },
     chrono_tz::{
         ParseError,

@@ -5,8 +5,8 @@ use {
     },
     crate::agent::state,
     anyhow::{
-        anyhow,
         Result,
+        anyhow,
     },
     jrpc::{
         Request,

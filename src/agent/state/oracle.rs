@@ -8,24 +8,24 @@ use {
     crate::agent::{
         market_schedule::MarketSchedule,
         state::{
-            global::Update,
             Prices,
             State,
+            global::Update,
         },
         utils::rpc_multi_client::RpcMultiClient,
     },
     anyhow::{
-        anyhow,
         Context,
         Result,
+        anyhow,
     },
     pyth_price_store::instruction::PUBLISHER_CONFIG_SEED,
     pyth_sdk_solana::state::{
-        load_product_account,
         GenericPriceAccount,
         PriceComp,
         PythnetPriceAccount,
         SolanaPriceAccount,
+        load_product_account,
     },
     serde::{
         Deserialize,
@@ -591,10 +591,10 @@ async fn fetch_batch_of_product_and_price_accounts(
                     Ok(schedule) => Some(schedule),
                     Err(err) => {
                         tracing::warn!(
-                                product_key = product_key.to_string(),
-                                schedule = msched_val,
-                                "Oracle: Product has schedule defined but it could not be parsed. Falling back to legacy schedule.",
-                            );
+                            product_key = product_key.to_string(),
+                            schedule = msched_val,
+                            "Oracle: Product has schedule defined but it could not be parsed. Falling back to legacy schedule.",
+                        );
                         tracing::debug!(err = ?err, "Parsing error context.");
                         None
                     }
@@ -613,10 +613,10 @@ async fn fetch_batch_of_product_and_price_accounts(
                     Ok(interval) => Some(Duration::from_secs_f64(interval)),
                     Err(err) => {
                         tracing::warn!(
-                                product_key = product_key.to_string(),
-                                publish_interval = publish_interval_val,
-                                "Oracle: Product has publish_interval defined but it could not be parsed. Falling back to None.",
-                            );
+                            product_key = product_key.to_string(),
+                            publish_interval = publish_interval_val,
+                            "Oracle: Product has publish_interval defined but it could not be parsed. Falling back to None.",
+                        );
                         tracing::debug!(err = ?err, "parsing error context");
                         None
                     }
@@ -678,10 +678,10 @@ async fn fetch_batch_of_product_and_price_accounts(
                     price_entries.insert(*price_key, price);
                 } else {
                     tracing::warn!(
-                            missing_product = price.prod.to_string(),
-                            price_key = price_key.to_string(),
-                            "Could not find product entry for price, listed in its prod field, skipping",
-                        );
+                        missing_product = price.prod.to_string(),
+                        price_key = price_key.to_string(),
+                        "Could not find product entry for price, listed in its prod field, skipping",
+                    );
 
                     continue;
                 }

@@ -1,16 +1,16 @@
 use {
     crate::agent::state,
     anyhow::{
-        anyhow,
         Result,
+        anyhow,
     },
     futures_util::{
+        SinkExt,
         stream::{
             SplitSink,
             SplitStream,
             StreamExt,
         },
-        SinkExt,
     },
     http::HeaderValue,
     protobuf::Message as ProtobufMessage,
@@ -26,13 +26,13 @@ use {
         task::JoinHandle,
     },
     tokio_tungstenite::{
-        connect_async_with_config,
-        tungstenite::{
-            client::IntoClientRequest,
-            Message as TungsteniteMessage,
-        },
         MaybeTlsStream,
         WebSocketStream,
+        connect_async_with_config,
+        tungstenite::{
+            Message as TungsteniteMessage,
+            client::IntoClientRequest,
+        },
     },
     tracing::{
         self,
@@ -164,10 +164,10 @@ mod lazer_exporter {
     use {
         crate::agent::{
             services::lazer_exporter::{
-                connect_to_relayers,
-                fetch_symbols,
                 Config,
                 SymbolResponse,
+                connect_to_relayers,
+                fetch_symbols,
             },
             state::local::LocalStore,
         },
@@ -178,22 +178,22 @@ mod lazer_exporter {
         },
         futures_util::StreamExt,
         protobuf::{
-            well_known_types::timestamp::Timestamp,
             Message,
             MessageField,
+            well_known_types::timestamp::Timestamp,
         },
         pyth_lazer_publisher_sdk::{
             publisher_update::{
-                feed_update::Update,
                 FeedUpdate,
                 PriceUpdate,
                 PublisherUpdate,
+                feed_update::Update,
             },
             transaction::{
-                lazer_transaction::Payload,
                 LazerTransaction,
                 SignedLazerTransaction,
                 TransactionSignatureType,
+                lazer_transaction::Payload,
             },
         },
         std::{

@@ -5,8 +5,8 @@ use {
     super::State,
     crate::agent::metrics::PriceLocalMetrics,
     anyhow::{
-        anyhow,
         Result,
+        anyhow,
     },
     chrono::NaiveDateTime,
     prometheus_client::registry::Registry,
