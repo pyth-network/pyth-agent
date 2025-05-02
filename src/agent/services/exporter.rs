@@ -210,6 +210,7 @@ where
     handles
 }
 
+#[allow(clippy::module_inception)]
 mod exporter {
     use {
         super::NetworkState,
@@ -222,9 +223,9 @@ mod exporter {
                 },
             },
             state::exporter::{
+                Exporter,
                 get_publish_keypair,
                 publish_batches,
-                Exporter,
             },
             utils::rpc_multi_client::RpcMultiClient,
         },

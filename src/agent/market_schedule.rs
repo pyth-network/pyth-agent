@@ -7,15 +7,15 @@ use {
         MHKind,
     },
     anyhow::{
-        anyhow,
         Result,
+        anyhow,
     },
     chrono::{
-        naive::NaiveTime,
         DateTime,
         Datelike,
         Duration,
         Utc,
+        naive::NaiveTime,
     },
     chrono_tz::Tz,
     std::{
@@ -24,6 +24,8 @@ use {
         str::FromStr,
     },
     winnow::{
+        ModalResult,
+        Parser,
         combinator::{
             alt,
             separated,
@@ -34,8 +36,6 @@ use {
             take,
             take_till,
         },
-        ModalResult,
-        Parser,
     },
 };
 
@@ -109,7 +109,7 @@ impl MarketSchedule {
     }
 }
 
-fn market_schedule_parser<'s>(input: &mut &'s str) -> ModalResult<MarketSchedule> {
+fn market_schedule_parser(input: &mut &str) -> ModalResult<MarketSchedule> {
     seq!(
         MarketSchedule {
             timezone: take_till(0.., ';').verify_map(|s| Tz::from_str(s).ok()),
@@ -157,13 +157,13 @@ pub struct HolidayDaySchedule {
     pub kind:  ScheduleDayKind,
 }
 
-fn two_digit_parser<'s>(input: &mut &'s str) -> ModalResult<u32> {
+fn two_digit_parser(input: &mut &str) -> ModalResult<u32> {
     take(2usize)
         .verify_map(|s| u32::from_str(s).ok())
         .parse_next(input)
 }
 
-fn holiday_day_schedule_parser<'s>(input: &mut &'s str) -> ModalResult<HolidayDaySchedule> {
+fn holiday_day_schedule_parser(input: &mut &str) -> ModalResult<HolidayDaySchedule> {
     // day and month are not validated to be correct dates
     // if they are invalid, it will be ignored since there
     // are no real dates that match the invalid input
@@ -454,40 +454,67 @@ mod tests {
         let format = "%Y-%m-%d %H:%M";
 
         // Date no match
-        assert!(market_schedule
-            .can_publish_at(&NaiveDateTime::parse_from_str("2023-11-20 05:30", format)?.and_utc()));
+        assert!(
+            market_schedule.can_publish_at(
+                &NaiveDateTime::parse_from_str("2023-11-20 05:30", format)?.and_utc()
+            )
+        );
 
         // Date match before range
-        assert!(!market_schedule
-            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 08:59", format)?.and_utc()));
+        assert!(
+            !market_schedule.can_publish_at(
+                &NaiveDateTime::parse_from_str("2023-04-22 08:59", format)?.and_utc()
+            )
+        );
 
         // Date match at start of range
-        assert!(market_schedule
-            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 09:00", format)?.and_utc()));
+        assert!(
+            market_schedule.can_publish_at(
+                &NaiveDateTime::parse_from_str("2023-04-22 09:00", format)?.and_utc()
+            )
+        );
 
         // Date match in range
-        assert!(market_schedule
-            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 12:00", format)?.and_utc()));
+        assert!(
+            market_schedule.can_publish_at(
+                &NaiveDateTime::parse_from_str("2023-04-22 12:00", format)?.and_utc()
+            )
+        );
 
         // Date match at end of range
-        assert!(market_schedule
-            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 17:00", format)?.and_utc()));
+        assert!(
+            market_schedule.can_publish_at(
+                &NaiveDateTime::parse_from_str("2023-04-22 17:00", format)?.and_utc()
+            )
+        );
 
         // Date match after range
-        assert!(!market_schedule
-            .can_publish_at(&NaiveDateTime::parse_from_str("2023-04-22 17:01", format)?.and_utc()));
+        assert!(
+            !market_schedule.can_publish_at(
+                &NaiveDateTime::parse_from_str("2023-04-22 17:01", format)?.and_utc()
+            )
+        );
 
         // Date 2400 range
-        assert!(market_schedule
-            .can_publish_at(&NaiveDateTime::parse_from_str("2023-12-31 23:59", format)?.and_utc()));
+        assert!(
+            market_schedule.can_publish_at(
+                &NaiveDateTime::parse_from_str("2023-12-31 23:59", format)?.and_utc()
+            )
+        );
 
         // Sunday
-        assert!(market_schedule
-            .can_publish_at(&NaiveDateTime::parse_from_str("2024-04-14 12:00", format)?.and_utc()));
+        assert!(
+            market_schedule.can_publish_at(
+                &NaiveDateTime::parse_from_str("2024-04-14 12:00", format)?.and_utc()
+            )
+        );
 
         // Monday
-        assert!(market_schedule
-            .can_publish_at(&NaiveDateTime::parse_from_str("2024-04-15 12:00", format)?.and_utc()));
+        assert!(
+            market_schedule.can_publish_at(
+                &NaiveDateTime::parse_from_str("2024-04-15 12:00", format)?.and_utc()
+            )
+        );
 
         Ok(())
     }

@@ -1,23 +1,23 @@
 use {
     anyhow::{
-        anyhow,
         Context,
         Result,
+        anyhow,
     },
     clap::Parser,
     opentelemetry::KeyValue,
     opentelemetry_otlp::WithExportConfig,
     pyth_agent::agent::{
-        config::Config,
         Agent,
+        config::Config,
     },
     std::{
         io::IsTerminal,
         path::PathBuf,
     },
     tracing_subscriber::{
-        prelude::*,
         EnvFilter,
+        prelude::*,
     },
 };
 

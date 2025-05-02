@@ -9,8 +9,8 @@ use {
         utils::rpc_multi_client::RpcMultiClient,
     },
     anyhow::{
-        bail,
         Result,
+        bail,
     },
     serde::Deserialize,
     solana_sdk::{
@@ -25,13 +25,13 @@ use {
     tokio::task::JoinHandle,
     url::Url,
     warp::{
+        Filter,
         hyper::StatusCode,
         reject::Rejection,
         reply::{
             self,
             WithStatus,
         },
-        Filter,
     },
 };
 

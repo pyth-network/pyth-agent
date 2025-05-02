@@ -120,14 +120,14 @@ impl State {
 mod tests {
     use {
         super::{
+            Config,
+            Prices,
+            State,
             global::{
                 self,
                 AllAccountsData,
             },
             oracle::ProductEntry,
-            Config,
-            Prices,
-            State,
         },
         crate::agent::{
             pyth::{

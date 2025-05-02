@@ -15,31 +15,31 @@ use {
     },
     crate::agent::state,
     anyhow::{
-        anyhow,
         Result,
+        anyhow,
     },
     futures::future::OptionFuture,
     futures_util::{
+        SinkExt,
         stream::{
             SplitSink,
             SplitStream,
             StreamExt,
         },
-        SinkExt,
     },
     jrpc::{
-        parse_request,
         ErrorCode,
         Id,
         IdReq,
         Request,
         Response,
         Value,
+        parse_request,
     },
     serde::{
-        de::DeserializeOwned,
         Deserialize,
         Serialize,
+        de::DeserializeOwned,
     },
     serde_this_or_that::{
         as_i64,
@@ -57,12 +57,12 @@ use {
     },
     tracing::instrument,
     warp::{
+        Filter,
         ws::{
             Message,
             WebSocket,
             Ws,
         },
-        Filter,
     },
 };
 
