@@ -1,6 +1,6 @@
 FROM rust:slim-bookworm as builder
 
-RUN apt update && apt install -y curl libssl-dev pkg-config && apt clean all
+RUN apt update && apt install -y curl libssl-dev pkg-config build-essential && apt clean all
 
 ADD . /agent
 WORKDIR /agent
