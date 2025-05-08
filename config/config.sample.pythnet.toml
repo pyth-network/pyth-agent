@@ -10,7 +10,7 @@ rpc_urls = ["https://api2.pythnet.pyth.network"]
 
 # WS(S) endpoint of the RRC node. This is used to subscribe to account changes on the network.
 # This can be omitted when oracle.subscriber_enabled is set to false.
-wss_url = "wss://api2.pythnet.pyth.network"
+wss_urls = ["wss://api2.pythnet.pyth.network"]
 
 # Path to your publishing keypair.
 key_store.publish_keypair_path = "/path/to/keypair.json"

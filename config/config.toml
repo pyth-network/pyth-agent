@@ -37,7 +37,7 @@ rpc_urls = ["https://api.pythtest.pyth.network"]
 
 # WS(S) endpoint of the RRC node. This is used to subscribe to account changes on the network.
 # This can be omitted when oracle.subscriber_enabled is set to false.
-wss_url = "wss://api.pythtest.pyth.network"
+wss_urls = ["wss://api.pythtest.pyth.network"]
 
 # Path to the keypair used to publish price updates. If set to a
 # non-existent file path, the system expects a keypair to be loaded
