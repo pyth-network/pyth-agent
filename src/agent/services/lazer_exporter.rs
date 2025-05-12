@@ -19,6 +19,7 @@ use {
     reqwest::Client,
     serde::Deserialize,
     std::{
+        path::PathBuf,
         sync::Arc,
         time::Duration,
     },
@@ -48,7 +49,7 @@ pub struct Config {
     pub relayer_urls:              Vec<Url>,
     pub publisher_id:              u32,
     pub authorization_token:       String,
-    publisher_secret_key:          PublisherSecretKey,
+    pub publish_keypair_path:      PathBuf,
     #[serde(with = "humantime_serde", default = "default_publish_interval")]
     pub publish_interval_duration: Duration,
 }
@@ -173,7 +174,10 @@ mod lazer_exporter {
             },
             state::local::LocalStore,
         },
-        anyhow::bail,
+        anyhow::{
+            Context,
+            bail,
+        },
         ed25519_dalek::{
             Signer,
             SigningKey,
@@ -198,6 +202,7 @@ mod lazer_exporter {
                 lazer_transaction::Payload,
             },
         },
+        solana_sdk::signer::keypair,
         std::{
             collections::HashMap,
             sync::Arc,
@@ -260,7 +265,21 @@ mod lazer_exporter {
             stream_map.insert(config.relayer_urls[i].clone(), receiver);
         }
 
-        let signing_key = SigningKey::from_bytes(&config.publisher_secret_key.0);
+        // Read the keypair from the file using Solana SDK because it's the same key used by the Pythnet publisher
+        let publish_keypair = match keypair::read_keypair_file(&config.publish_keypair_path) {
+            Ok(k) => k,
+            Err(e) => {
+                tracing::warn!(
+                    error = ?e,
+                    publish_keypair_path = config.publish_keypair_path.display().to_string(),
+                    "Reading publish keypair returned an error. ",
+                );
+                bail!("Reading publish keypair returned an error. ");
+            }
+        };
+
+        let signing_key = SigningKey::from_keypair_bytes(&publish_keypair.to_bytes())
+            .context("Failed to create signing key from keypair")?;
         let mut publish_interval = tokio::time::interval(config.publish_interval_duration);
 
         loop {

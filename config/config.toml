@@ -235,7 +235,7 @@ exporter_endpoint = "http://127.0.0.1:4317"
 # authorization_token = "your-auth-token"
 
 # Path to the publisher's secret key file
-# publisher_secret_key = "/path/to/publisher-key.json"
+# publish_keypair_path = "/path/to/publisher-key.json"
 
 # Duration between price updates (defaults to 200ms if not specified)
 # publish_interval_duration = "200ms"
