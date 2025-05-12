@@ -269,7 +269,7 @@ mod lazer_exporter {
         let publish_keypair = match keypair::read_keypair_file(&config.publish_keypair_path) {
             Ok(k) => k,
             Err(e) => {
-                tracing::warn!(
+                tracing::error!(
                     error = ?e,
                     publish_keypair_path = config.publish_keypair_path.display().to_string(),
                     "Reading publish keypair returned an error. ",
