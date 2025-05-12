@@ -231,9 +231,6 @@ exporter_endpoint = "http://127.0.0.1:4317"
 # Unique identifier for this publisher
 # publisher_id = 1
 
-# Authorization token for connecting to relayers
-# authorization_token = "your-auth-token"
-
 # Path to the publisher's secret key file
 # publish_keypair_path = "/path/to/publisher-key.json"
 

@@ -48,7 +48,6 @@ pub struct Config {
     pub history_url:               Url,
     pub relayer_urls:              Vec<Url>,
     pub publisher_id:              u32,
-    pub authorization_token:       String,
     pub publish_keypair_path:      PathBuf,
     #[serde(with = "humantime_serde", default = "default_publish_interval")]
     pub publish_interval_duration: Duration,
@@ -87,7 +86,6 @@ impl RelayerSender {
 
 async fn connect_to_relayer(
     mut url: Url,
-    token: &str,
 ) -> Result<(
     SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, TungsteniteMessage>,
     SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
@@ -95,11 +93,6 @@ async fn connect_to_relayer(
     tracing::info!("connecting to the relayer at {}", url);
     url.set_path("/v1/transaction");
     let mut req = url.clone().into_client_request()?;
-    let headers = req.headers_mut();
-    headers.insert(
-        "Authorization",
-        HeaderValue::from_str(&format!("Bearer {}", token))?,
-    );
     let (ws_stream, _) = connect_async_with_config(req, None, true).await?;
     Ok(ws_stream.split())
 }
@@ -113,8 +106,7 @@ async fn connect_to_relayers(
     let mut relayer_senders = Vec::new();
     let mut relayer_receivers = Vec::new();
     for url in config.relayer_urls.clone() {
-        let (relayer_sender, relayer_receiver) =
-            connect_to_relayer(url, &config.authorization_token).await?;
+        let (relayer_sender, relayer_receiver) = connect_to_relayer(url).await?;
         relayer_senders.push(relayer_sender);
         relayer_receivers.push(relayer_receiver);
     }
