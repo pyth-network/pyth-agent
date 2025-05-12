@@ -12,7 +12,7 @@ ENV PATH="${PATH}:/root/.local/bin"
 RUN poetry config virtualenvs.in-project true
 
 # Install Solana Tool Suite
-RUN sh -c "$(curl -sSfL https://release.solana.com/v2.2.1/install)"
+RUN sh -c "$(curl -sSfL https://release.anza.xyz/v2.2.1/install)"
 ENV PATH="${PATH}:/root/.local/share/solana/install/active_release/bin"
 
 ADD . /agent
