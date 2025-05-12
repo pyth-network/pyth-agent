@@ -85,13 +85,14 @@ impl RelayerSender {
 }
 
 async fn connect_to_relayer(
-    url: &Url,
+    mut url: Url,
     token: &str,
 ) -> Result<(
     SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, TungsteniteMessage>,
     SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
 )> {
     tracing::info!("connecting to the relayer at {}", url);
+    url.set_path("/v2/publisher");
     let mut req = url.clone().into_client_request()?;
     let headers = req.headers_mut();
     headers.insert(
@@ -112,7 +113,7 @@ async fn connect_to_relayers(
     let mut relayer_receivers = Vec::new();
     for url in config.relayer_urls.clone() {
         let (relayer_sender, relayer_receiver) =
-            connect_to_relayer(&url, &config.authorization_token).await?;
+            connect_to_relayer(url, &config.authorization_token).await?;
         relayer_senders.push(relayer_sender);
         relayer_receivers.push(relayer_receiver);
     }

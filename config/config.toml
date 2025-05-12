@@ -223,10 +223,10 @@ exporter_endpoint = "http://127.0.0.1:4317"
 
 # [pyth_lazer]
 # URL for the history service
-# history_url = "https://pyth-lazer-staging.dourolabs.app/history/"
+# history_url = "https://pyth-lazer-staging.dourolabs.app"
 
 # URLs for the Lazer relayers to connect to
-# relayer_urls = ["wss://pyth-lazer-staging.dourolabs.app/v2/publisher"]
+# relayer_urls = ["wss://pyth-lazer-staging.dourolabs.app"]
 
 # Unique identifier for this publisher
 # publisher_id = 1
