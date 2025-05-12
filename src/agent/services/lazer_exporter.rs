@@ -93,7 +93,7 @@ async fn connect_to_relayer(
     SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
 )> {
     tracing::info!("connecting to the relayer at {}", url);
-    url.set_path("/v2/publisher");
+    url.set_path("/v1/transaction");
     let mut req = url.clone().into_client_request()?;
     let headers = req.headers_mut();
     headers.insert(
