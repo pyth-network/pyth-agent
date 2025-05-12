@@ -218,3 +218,24 @@ exporter_timeout_duration = "3s"
 
 # Endpoint URL for the OpenTelemetry exporter
 exporter_endpoint = "http://127.0.0.1:4317"
+
+## Configuration for Pyth Lazer ##
+
+# [pyth_lazer]
+# URL for the history service
+# history_url = "https://pyth-lazer-staging.dourolabs.app/history/"
+
+# URLs for the Lazer relayers to connect to
+# relayer_urls = ["wss://pyth-lazer-staging.dourolabs.app/v2/publisher"]
+
+# Unique identifier for this publisher
+# publisher_id = 1
+
+# Authorization token for connecting to relayers
+# authorization_token = "your-auth-token"
+
+# Path to the publisher's secret key file
+# publisher_secret_key = "/path/to/publisher-key.json"
+
+# Duration between price updates (defaults to 200ms if not specified)
+# publish_interval_duration = "200ms"

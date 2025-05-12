@@ -62,7 +62,7 @@ impl std::fmt::Debug for PublisherSecretKey {
 }
 
 fn default_publish_interval() -> Duration {
-    Duration::from_millis(10)
+    Duration::from_millis(200)
 }
 
 struct RelayerSender {
