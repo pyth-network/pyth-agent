@@ -46,7 +46,6 @@ use {
 pub struct Config {
     pub history_url:               Url,
     pub relayer_urls:              Vec<Url>,
-    pub publisher_id:              u32,
     pub authorization_token:       String,
     pub publish_keypair_path:      PathBuf,
     #[serde(with = "humantime_serde", default = "default_publish_interval")]
