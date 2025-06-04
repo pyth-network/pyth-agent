@@ -198,10 +198,12 @@ mod lazer_exporter {
                 feed_update::Update,
             },
             transaction::{
+                Ed25519SignatureData,
                 LazerTransaction,
+                SignatureData,
                 SignedLazerTransaction,
-                TransactionSignatureType,
                 lazer_transaction::Payload,
+                signature_data::Data::Ed25519,
             },
         },
         solana_sdk::signer::keypair,
@@ -299,7 +301,6 @@ mod lazer_exporter {
                     let publisher_timestamp = MessageField::some(Timestamp::now());
                     let mut publisher_update = PublisherUpdate {
                         updates: vec![],
-                        publisher_id: Some(config.publisher_id),
                         publisher_timestamp,
                         special_fields: Default::default(),
                     };
@@ -343,9 +344,16 @@ mod lazer_exporter {
                         }
                     };
                     let signature = signing_key.sign(&buf);
+                    let signature_data = SignatureData {
+                        data: Some(Ed25519(Ed25519SignatureData {
+                            signature: Some(signature.to_bytes().into()),
+                            public_key: Some(signing_key.verifying_key().to_bytes().into()),
+                            special_fields: Default::default(),
+                        })),
+                        special_fields: Default::default(),
+                    };
                     let signed_lazer_transaction = SignedLazerTransaction {
-                        signature_type: Some(TransactionSignatureType::ed25519.into()),
-                        signature: Some(signature.to_bytes().to_vec()),
+                        signature_data: MessageField::some(signature_data),
                         payload: Some(buf),
                         special_fields: Default::default(),
                     };
