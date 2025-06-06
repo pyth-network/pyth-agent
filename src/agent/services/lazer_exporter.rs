@@ -5,6 +5,10 @@ use {
         anyhow,
         bail,
     },
+    backoff::{
+        ExponentialBackoffBuilder,
+        backoff::Backoff,
+    },
     futures_util::{
         SinkExt,
         stream::{
@@ -112,7 +116,13 @@ struct RelayerSessionTask {
 impl RelayerSessionTask {
     pub async fn run(&mut self) {
         let mut failure_count = 0;
-        let retry_duration = Duration::from_secs(1);
+        let initial_interval = Duration::from_millis(100);
+        let max_interval = Duration::from_secs(5);
+        let mut backoff = ExponentialBackoffBuilder::new()
+            .with_initial_interval(initial_interval)
+            .with_max_interval(max_interval)
+            .with_max_elapsed_time(None)
+            .build();
 
         loop {
             match self.run_relayer_connection().await {
@@ -122,13 +132,14 @@ impl RelayerSessionTask {
                 }
                 Err(e) => {
                     failure_count += 1;
+                    let next_backoff = backoff.next_backoff().unwrap_or(max_interval);
                     tracing::error!(
                         "relayer session failed with error: {:?}, failure_count: {}; retrying in {:?}",
                         e,
                         failure_count,
-                        retry_duration
+                        next_backoff
                     );
-                    tokio::time::sleep(retry_duration).await;
+                    tokio::time::sleep(next_backoff).await;
                 }
             }
         }
@@ -405,15 +416,9 @@ mod lazer_exporter {
                         payload: Some(buf),
                         special_fields: Default::default(),
                     };
-                    for relayer_sender in relayer_senders.iter() {
-                        if let Err(e) = relayer_sender
-                            .send(signed_lazer_transaction.clone())
-                            .await
-                        {
-                            tracing::error!("Error sending transaction to Lazer relayer session: {e:?}");
-                            // TODO: Under what circumstances would the channel be hosed and is it worth retry?
-                        }
-                    }
+                    futures::future::join_all(relayer_senders.iter().map(|relayer_sender|
+                        relayer_sender.send(signed_lazer_transaction.clone()))
+                    ).await;
                 }
             }
         }
