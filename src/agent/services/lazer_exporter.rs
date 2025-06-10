@@ -33,10 +33,7 @@ use {
     tokio::{
         net::TcpStream,
         select,
-        sync::mpsc::{
-            self,
-            Receiver,
-        },
+        sync::broadcast,
         task::JoinHandle,
     },
     tokio_tungstenite::{
@@ -80,7 +77,7 @@ impl RelayerWsSession {
         &mut self,
         signed_lazer_transaction: &SignedLazerTransaction,
     ) -> Result<()> {
-        tracing::debug!("price_update: {:?}", signed_lazer_transaction);
+        tracing::debug!("signed_lazer_transaction: {:?}", signed_lazer_transaction);
         let buf = signed_lazer_transaction.write_to_bytes()?;
         self.ws_sender
             .send(TungsteniteMessage::from(buf.clone()))
@@ -113,7 +110,7 @@ struct RelayerSessionTask {
     // connection state
     url:      Url,
     token:    String,
-    receiver: Receiver<SignedLazerTransaction>,
+    receiver: broadcast::Receiver<SignedLazerTransaction>,
 }
 
 impl RelayerSessionTask {
@@ -168,11 +165,25 @@ impl RelayerSessionTask {
 
         loop {
             select! {
-                Some(transaction) = self.receiver.recv() => {
-                    if let Err(e) = relayer_ws_session.send_transaction(&transaction).await
-                    {
-                        tracing::error!("Error publishing transaction to Lazer relayer: {e:?}");
-                        bail!("Failed to publish transaction to Lazer relayer: {e:?}");
+                recv_result = self.receiver.recv() => {
+                    match recv_result {
+                        Ok(transaction) => {
+                            if let Err(e) = relayer_ws_session.send_transaction(&transaction).await {
+                                tracing::error!("Error publishing transaction to Lazer relayer: {e:?}");
+                                bail!("Failed to publish transaction to Lazer relayer: {e:?}");
+                            }
+                        },
+                        Err(e) => {
+                            match e {
+                                broadcast::error::RecvError::Closed => {
+                                    tracing::error!("transaction broadcast channel closed");
+                                    bail!("transaction broadcast channel closed");
+                                }
+                                broadcast::error::RecvError::Lagged(skipped_count) => {
+                                    tracing::warn!("transaction broadcast channel lagged by {skipped_count} messages");
+                                }
+                            }
+                        }
                     }
                 }
                 // Handle messages from the relayers, such as errors if we send a bad update
@@ -237,23 +248,23 @@ async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
 #[instrument(skip(config, state))]
 pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandle<()>> {
     let mut handles = vec![];
-    let mut relayer_senders = vec![];
+
+    // can safely drop first receiver for ease of iteration
+    let (relayer_sender, _) = broadcast::channel(RELAYER_CHANNEL_CAPACITY);
 
     for url in config.relayer_urls.iter() {
-        let (sender, receiver) = mpsc::channel(RELAYER_CHANNEL_CAPACITY);
         let mut task = RelayerSessionTask {
-            url: url.clone(),
-            token: config.authorization_token.to_owned(),
-            receiver,
+            url:      url.clone(),
+            token:    config.authorization_token.to_owned(),
+            receiver: relayer_sender.subscribe(),
         };
         handles.push(tokio::spawn(async move { task.run().await }));
-        relayer_senders.push(sender);
     }
 
     handles.push(tokio::spawn(lazer_exporter::lazer_exporter(
         config.clone(),
         state,
-        relayer_senders,
+        relayer_sender,
     )));
 
     handles
@@ -305,7 +316,7 @@ mod lazer_exporter {
             collections::HashMap,
             sync::Arc,
         },
-        tokio::sync::mpsc::Sender,
+        tokio::sync::broadcast::Sender,
     };
 
     fn get_signing_key(config: &Config) -> Result<SigningKey> {
@@ -329,7 +340,7 @@ mod lazer_exporter {
     pub async fn lazer_exporter<S>(
         config: Config,
         state: Arc<S>,
-        relayer_senders: Vec<Sender<SignedLazerTransaction>>,
+        relayer_sender: Sender<SignedLazerTransaction>,
     ) where
         S: LocalStore,
         S: Send + Sync + 'static,
@@ -428,9 +439,12 @@ mod lazer_exporter {
                         payload: Some(buf),
                         special_fields: Default::default(),
                     };
-                    futures::future::join_all(relayer_senders.iter().map(|relayer_sender|
-                        relayer_sender.send(signed_lazer_transaction.clone()))
-                    ).await;
+                    match relayer_sender.send(signed_lazer_transaction.clone()) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            tracing::error!("Error sending transaction to relayer receivers: {e}");
+                        }
+                    }
                 }
             }
         }
