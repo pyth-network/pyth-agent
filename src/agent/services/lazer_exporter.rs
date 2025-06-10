@@ -25,7 +25,10 @@ use {
     std::{
         path::PathBuf,
         sync::Arc,
-        time::Duration,
+        time::{
+            Duration,
+            Instant,
+        },
     },
     tokio::{
         net::TcpStream,
@@ -115,7 +118,6 @@ struct RelayerSessionTask {
 
 impl RelayerSessionTask {
     pub async fn run(&mut self) {
-        let mut failure_count = 0;
         let initial_interval = Duration::from_millis(100);
         let max_interval = Duration::from_secs(5);
         let mut backoff = ExponentialBackoffBuilder::new()
@@ -124,6 +126,10 @@ impl RelayerSessionTask {
             .with_max_elapsed_time(None)
             .build();
 
+        const FAILURE_RESET_TIME: Duration = Duration::from_secs(300);
+        let mut first_failure_time = Instant::now();
+        let mut failure_count = 0;
+
         loop {
             match self.run_relayer_connection().await {
                 Ok(()) => {
@@ -131,6 +137,12 @@ impl RelayerSessionTask {
                     return;
                 }
                 Err(e) => {
+                    if first_failure_time.elapsed() > FAILURE_RESET_TIME {
+                        failure_count = 0;
+                        first_failure_time = Instant::now();
+                        backoff.reset();
+                    }
+
                     failure_count += 1;
                     let next_backoff = backoff.next_backoff().unwrap_or(max_interval);
                     tracing::error!(
