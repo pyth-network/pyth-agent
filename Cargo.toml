@@ -1,6 +1,6 @@
 [package]
 name = "pyth-agent"
-version = "3.0.0"
+version = "3.0.1"
 edition = "2024"
 
 [[bin]]
@@ -9,6 +9,7 @@ path = "src/bin/agent.rs"
 
 [dependencies]
 anyhow = "1.0.81"
+backoff = "0.4.0"
 ed25519-dalek = "2.1.1"
 serde = { version = "1.0.197", features = ["derive", "rc"] }
 async-trait = "0.1.79"
