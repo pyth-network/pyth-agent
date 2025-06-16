@@ -3705,11 +3705,12 @@ dependencies = [
 
 [[package]]
 name = "pyth-agent"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "anyhow",
  "async-trait",
  "backoff",
+ "base64 0.22.1",
  "bincode 2.0.1",
  "bytemuck",
  "chrono",
