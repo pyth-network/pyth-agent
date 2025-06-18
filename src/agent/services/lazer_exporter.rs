@@ -368,7 +368,11 @@ mod lazer_exporter {
         S: Send + Sync + 'static,
     {
         let mut lazer_symbols = get_lazer_symbol_map(&config.history_url).await;
-        tracing::info!("Retrieved {} Lazer feeds with hermes symbols from symbols endpoint: {}", lazer_symbols.len(), &config.history_url);
+        tracing::info!(
+            "Retrieved {} Lazer feeds with hermes symbols from symbols endpoint: {}",
+            lazer_symbols.len(),
+            &config.history_url
+        );
 
         let mut publish_interval = tokio::time::interval(config.publish_interval_duration);
         let mut symbol_fetch_interval =
