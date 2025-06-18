@@ -252,7 +252,6 @@ struct SymbolResponse {
 
 async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
     let mut url = history_url.clone();
-    url.set_scheme("http").map_err(|_| anyhow!("invalid url"))?;
     url.set_path("/history/v1/symbols");
     let client = Client::new();
     let response = client.get(url).send().await?.error_for_status()?;
@@ -369,6 +368,8 @@ mod lazer_exporter {
         S: Send + Sync + 'static,
     {
         let mut lazer_symbols = get_lazer_symbol_map(&config.history_url).await;
+        tracing::info!("Retrieved {} Lazer feeds with hermes symbols from symbols endpoint: {}", lazer_symbols.len(), &config.history_url);
+
         let mut publish_interval = tokio::time::interval(config.publish_interval_duration);
         let mut symbol_fetch_interval =
             tokio::time::interval(config.symbol_fetch_interval_duration);
