@@ -157,8 +157,8 @@ impl RelayerSessionTask {
 
                     failure_count += 1;
                     let next_backoff = backoff.next_backoff().unwrap_or(max_interval);
-                    tracing::error!(
-                        "relayer session failed with error: {:?}, failure_count: {}; retrying in {:?}",
+                    tracing::warn!(
+                        "relayer session ended with error: {:?}, failure_count: {}; retrying in {:?}",
                         e,
                         failure_count,
                         next_backoff
@@ -211,7 +211,7 @@ impl RelayerSessionTask {
                             tracing::error!("Error receiving message from at relayer: {e:?}");
                         }
                         None => {
-                            tracing::error!("relayer connection closed");
+                            tracing::warn!("relayer connection closed");
                             bail!("relayer connection closed");
                         }
                     }
@@ -290,6 +290,8 @@ pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandl
             panic!("failed to get Lazer signing key")
         }
     };
+    let pubkey_base64 = BASE64_STANDARD.encode(signing_key.verifying_key().to_bytes());
+    tracing::info!("Loaded Lazer signing key; pubkey in base64: {pubkey_base64}");
 
     // can safely drop first receiver for ease of iteration
     let (relayer_sender, _) = broadcast::channel(RELAYER_CHANNEL_CAPACITY);
@@ -297,7 +299,7 @@ pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandl
     for url in config.relayer_urls.iter() {
         let mut task = RelayerSessionTask {
             url:      url.clone(),
-            token:    BASE64_STANDARD.encode(signing_key.verifying_key().to_bytes()),
+            token:    pubkey_base64.clone(),
             receiver: relayer_sender.subscribe(),
         };
         handles.push(tokio::spawn(async move { task.run().await }));
