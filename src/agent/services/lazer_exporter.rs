@@ -3,7 +3,6 @@ use {
     anyhow::{
         Context,
         Result,
-        anyhow,
         bail,
     },
     backoff::{
@@ -351,7 +350,10 @@ mod lazer_exporter {
             },
         },
         std::{
-            collections::HashMap,
+            collections::{
+                HashMap,
+                HashSet,
+            },
             sync::Arc,
         },
         tokio::sync::broadcast::Sender,
@@ -373,10 +375,19 @@ mod lazer_exporter {
             lazer_symbols.len(),
             &config.history_url
         );
+        for symbol in lazer_symbols.iter() {
+            tracing::info!(
+                "history endpoint identifier: {:?} hex: {:?} symbol response: {:?}",
+                symbol.0,
+                symbol.0.to_hex(),
+                symbol.1
+            );
+        }
 
         let mut publish_interval = tokio::time::interval(config.publish_interval_duration);
         let mut symbol_fetch_interval =
             tokio::time::interval(config.symbol_fetch_interval_duration);
+        let mut found_identifiers = HashSet::new();
 
         loop {
             tokio::select! {
@@ -394,6 +405,11 @@ mod lazer_exporter {
 
                     // TODO: This read locks and clones local::Store::prices, which may not meet performance needs.
                     for (identifier, price_info) in state.get_all_price_infos().await {
+                        if !found_identifiers.contains(&identifier) {
+                            tracing::info!("pythnet identifier: {:?} hex: {:?} price_info: {:?}", identifier, identifier.to_hex(), price_info);
+                            found_identifiers.insert(identifier);
+                        }
+
                         if let Some(symbol) = lazer_symbols.get(&identifier) {
                             let source_timestamp_micros = price_info.timestamp.and_utc().timestamp_micros();
                             let source_timestamp = MessageField::some(Timestamp {
