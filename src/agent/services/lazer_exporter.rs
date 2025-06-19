@@ -240,7 +240,6 @@ struct SymbolResponse {
 
 async fn fetch_symbols(history_url: &Url) -> Result<Vec<SymbolResponse>> {
     let mut url = history_url.clone();
-    url.set_scheme("http").map_err(|_| anyhow!("invalid url"))?;
     url.set_path("/history/v1/symbols");
     let client = Client::new();
     let response = client.get(url).send().await?.error_for_status()?;
