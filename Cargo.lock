@@ -3710,6 +3710,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "backoff",
+ "base64 0.22.1",
  "bincode 2.0.1",
  "bytemuck",
  "chrono",
