@@ -350,13 +350,14 @@ mod lazer_exporter {
             },
         },
         std::{
-            collections::{
-                HashMap,
-                HashSet,
-            },
+            collections::HashMap,
             sync::Arc,
+            time::Duration,
         },
-        tokio::sync::broadcast::Sender,
+        tokio::sync::{
+            broadcast::Sender,
+            mpsc,
+        },
         url::Url,
     };
 
@@ -369,31 +370,43 @@ mod lazer_exporter {
         S: LocalStore,
         S: Send + Sync + 'static,
     {
-        let mut lazer_symbols = get_lazer_symbol_map(&config.history_url).await;
+        // We can't publish to Lazer without symbols, so crash the process if it fails.
+        let mut lazer_symbols = match get_lazer_symbol_map(&config.history_url).await {
+            Ok(symbol_map) => {
+                if symbol_map.is_empty() {
+                    panic!("Retrieved zero Lazer symbols from {}", config.history_url);
+                }
+                symbol_map
+            }
+            Err(_) => {
+                tracing::error!(
+                    "Failed to retrieve Lazer symbols from {}",
+                    config.history_url
+                );
+                panic!(
+                    "Failed to retrieve Lazer symbols from {}",
+                    config.history_url
+                );
+            }
+        };
+
         tracing::info!(
             "Retrieved {} Lazer feeds with hermes symbols from symbols endpoint: {}",
             lazer_symbols.len(),
             &config.history_url
         );
-        for symbol in lazer_symbols.iter() {
-            tracing::info!(
-                "history endpoint identifier: {:?} hex: {:?} symbol response: {:?}",
-                symbol.0,
-                symbol.0.to_hex(),
-                symbol.1
-            );
-        }
+
+        let (symbols_sender, mut symbols_receiver) = mpsc::channel(1);
+        tokio::spawn(get_lazer_symbols_task(
+            config.history_url.clone(),
+            config.symbol_fetch_interval_duration.clone(),
+            symbols_sender,
+        ));
 
         let mut publish_interval = tokio::time::interval(config.publish_interval_duration);
-        let mut symbol_fetch_interval =
-            tokio::time::interval(config.symbol_fetch_interval_duration);
-        let mut found_identifiers = HashSet::new();
 
         loop {
             tokio::select! {
-                _ = symbol_fetch_interval.tick() => {
-                    lazer_symbols = get_lazer_symbol_map(&config.history_url).await;
-                },
                 _ = publish_interval.tick() => {
                     let publisher_timestamp = MessageField::some(Timestamp::now());
                     let mut publisher_update = PublisherUpdate {
@@ -405,11 +418,6 @@ mod lazer_exporter {
 
                     // TODO: This read locks and clones local::Store::prices, which may not meet performance needs.
                     for (identifier, price_info) in state.get_all_price_infos().await {
-                        if !found_identifiers.contains(&identifier) {
-                            tracing::info!("pythnet identifier: {:?} hex: {:?} price_info: {:?}", identifier, identifier.to_hex(), price_info);
-                            found_identifiers.insert(identifier);
-                        }
-
                         if let Some(symbol) = lazer_symbols.get(&identifier) {
                             let source_timestamp_micros = price_info.timestamp.and_utc().timestamp_micros();
                             let source_timestamp = MessageField::some(Timestamp {
@@ -465,6 +473,52 @@ mod lazer_exporter {
                             tracing::error!("Error sending transaction to relayer receivers: {e}");
                         }
                     }
+                },
+                latest_symbol_map = symbols_receiver.recv() => {
+                    match latest_symbol_map {
+                        Some(symbol_map) => {
+                            tracing::info!("Refreshing Lazer symbol map with {} symbols", symbol_map.len());
+                            lazer_symbols = symbol_map
+                        }
+                        None => {
+                            // agent can continue but will eventually have a stale symbol set unless the process is cycled.
+                            tracing::error!("Lazer symbol refresh channel closed")
+                        }
+                    }
+                },
+            }
+        }
+    }
+
+    async fn get_lazer_symbols_task(
+        history_url: Url,
+        fetch_interval_duration: Duration,
+        sender: mpsc::Sender<HashMap<pyth_sdk::Identifier, SymbolResponse>>,
+    ) {
+        let mut symbol_fetch_interval = tokio::time::interval(fetch_interval_duration);
+
+        loop {
+            tokio::select! {
+                _ = symbol_fetch_interval.tick() => {
+                    tracing::info!("Refreshing Lazer symbol map from history service...");
+                    match get_lazer_symbol_map(&history_url).await {
+                        Ok(symbol_map) => {
+                            if symbol_map.is_empty() {
+                                tracing::error!("Retrieved zero Lazer symbols from {}", history_url);
+                                continue;
+                            }
+                            match sender.send(symbol_map).await {
+                                Ok(_) => (),
+                                Err(e) => {
+                                    // agent can continue but will eventually have a stale symbol set unless the process is cycled.
+                                    tracing::error!("Error sending refreshed symbol map to exporter task: {e}");
+                                }
+                            }
+                        },
+                        Err(_) => {
+                            tracing::error!("Failed to retrieve Lazer symbols from {} in refresh task", history_url);
+                        }
+                    }
                 }
             }
         }
@@ -472,26 +526,41 @@ mod lazer_exporter {
 
     async fn get_lazer_symbol_map(
         history_url: &Url,
-    ) -> HashMap<pyth_sdk::Identifier, SymbolResponse> {
-        match fetch_symbols(history_url).await {
-            Ok(symbols) => symbols
-                .into_iter()
-                .filter_map(|symbol| {
-                    let hermes_id = symbol.hermes_id.clone()?;
-                    match pyth_sdk::Identifier::from_hex(hermes_id.clone()) {
-                        Ok(id) => Some((id, symbol)),
-                        Err(e) => {
-                            tracing::warn!("Failed to parse hermes_id {}: {e:?}", hermes_id);
-                            None
-                        }
-                    }
-                })
-                .collect(),
-            Err(e) => {
-                tracing::error!("Failed to fetch Lazer symbols: {e:?}");
-                HashMap::new()
+    ) -> anyhow::Result<HashMap<pyth_sdk::Identifier, SymbolResponse>> {
+        const NUM_RETRIES: usize = 3;
+        const RETRY_INTERVAL: Duration = Duration::from_secs(1);
+        let mut retry_count = 0;
+
+        while retry_count < NUM_RETRIES {
+            match fetch_symbols(history_url).await {
+                Ok(symbols) => {
+                    let symbol_map = symbols
+                        .into_iter()
+                        .filter_map(|symbol| {
+                            let hermes_id = symbol.hermes_id.clone()?;
+                            match pyth_sdk::Identifier::from_hex(hermes_id.clone()) {
+                                Ok(id) => Some((id, symbol)),
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to parse hermes_id {}: {e:?}",
+                                        hermes_id
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect();
+                    return Ok(symbol_map);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to fetch Lazer symbols: {e:?}");
+
+                    retry_count += 1;
+                    tokio::time::sleep(RETRY_INTERVAL).await;
+                }
             }
         }
+        anyhow::bail!("Lazer symbol map fetch failed after {NUM_RETRIES} attempts");
     }
 }
 
