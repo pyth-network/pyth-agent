@@ -119,12 +119,6 @@ impl ProductGlobalMetrics {
         let symbol_string = maybe_symbol
             .map(|x| x.into())
             .unwrap_or(format!("unknown_{}", product_key));
-        tracing::info!(
-            "pythnet symbol: {} pubkey: {} hex: {}",
-            symbol_string,
-            product_key,
-            hex::encode(product_key)
-        );
 
         #[deny(unused_variables)]
         let Self { update_count } = self;
