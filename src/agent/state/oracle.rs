@@ -549,6 +549,7 @@ async fn fetch_product_and_price_accounts(
     ))
 }
 
+#[allow(dead_code)]
 #[instrument(skip(rpc_client, product_key_batch))]
 async fn fetch_batch_of_product_and_price_accounts(
     rpc_client: &RpcClient,
