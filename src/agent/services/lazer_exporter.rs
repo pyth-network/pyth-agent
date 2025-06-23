@@ -182,7 +182,6 @@ impl RelayerSessionTask {
                 recv_result = self.receiver.recv() => {
                     match recv_result {
                         Ok(transaction) => {
-                            tracing::info!("MRDEBUG relayer session task received: {:?}", transaction);
                             if let Err(e) = relayer_ws_session.send_transaction(&transaction).await {
                                 tracing::error!("Error publishing transaction to Lazer relayer: {e:?}");
                                 bail!("Failed to publish transaction to Lazer relayer: {e:?}");
@@ -422,7 +421,6 @@ mod lazer_exporter {
 
                     // TODO: This read locks and clones local::Store::prices, which may not meet performance needs.
                     for (identifier, price_info) in state.get_all_price_infos().await {
-                        tracing::info!("MRDEBUG identifier: {:?} price_info: {price_info:?}", Pubkey::from(identifier.to_bytes()));
                         if let Some(symbol) = lazer_symbols.get(&identifier) {
                             let source_timestamp_micros = price_info.timestamp.and_utc().timestamp_micros();
                             let source_timestamp = MessageField::some(Timestamp {
@@ -473,7 +471,7 @@ mod lazer_exporter {
                         special_fields: Default::default(),
                     };
                     match relayer_sender.send(signed_lazer_transaction.clone()) {
-                        Ok(_) => tracing::info!("MRDEBUG Sending SLT: {:?}", signed_lazer_transaction),
+                        Ok(_) => (),
                         Err(e) => {
                             tracing::error!("Error sending transaction to relayer receivers: {e}");
                         }
