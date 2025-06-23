@@ -315,7 +315,6 @@ pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandl
 
 #[allow(clippy::module_inception)]
 mod lazer_exporter {
-    use solana_pubkey::Pubkey;
     use {
         crate::agent::{
             services::lazer_exporter::{
@@ -400,7 +399,7 @@ mod lazer_exporter {
         let (symbols_sender, mut symbols_receiver) = mpsc::channel(1);
         tokio::spawn(get_lazer_symbols_task(
             config.history_url.clone(),
-            config.symbol_fetch_interval_duration.clone(),
+            config.symbol_fetch_interval_duration,
             symbols_sender,
         ));
 
