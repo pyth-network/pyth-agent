@@ -157,7 +157,8 @@ impl RelayerSessionTask {
                     failure_count += 1;
                     let next_backoff = backoff.next_backoff().unwrap_or(max_interval);
                     tracing::warn!(
-                        "relayer session ended with error: {:?}, failure_count: {}; retrying in {:?}",
+                        "relayer session url: {} ended with error: {:?}, failure_count: {}; retrying in {:?}",
+                        self.url,
                         e,
                         failure_count,
                         next_backoff
