@@ -79,7 +79,7 @@ fn default_publish_interval() -> Duration {
 }
 
 fn default_symbol_fetch_interval() -> Duration {
-    Duration::from_secs(60 * 60)
+    Duration::from_secs(60)
 }
 
 struct RelayerWsSession {
