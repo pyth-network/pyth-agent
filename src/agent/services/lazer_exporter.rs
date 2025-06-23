@@ -182,6 +182,7 @@ impl RelayerSessionTask {
                 recv_result = self.receiver.recv() => {
                     match recv_result {
                         Ok(transaction) => {
+                            tracing::info!("MRDEBUG relayer session task received: {:?}", transaction);
                             if let Err(e) = relayer_ws_session.send_transaction(&transaction).await {
                                 tracing::error!("Error publishing transaction to Lazer relayer: {e:?}");
                                 bail!("Failed to publish transaction to Lazer relayer: {e:?}");
@@ -315,6 +316,7 @@ pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandl
 
 #[allow(clippy::module_inception)]
 mod lazer_exporter {
+    use solana_pubkey::Pubkey;
     use {
         crate::agent::{
             services::lazer_exporter::{
@@ -404,6 +406,8 @@ mod lazer_exporter {
         ));
 
         let mut publish_interval = tokio::time::interval(config.publish_interval_duration);
+        // consume immediate tick
+        publish_interval.tick().await;
 
         loop {
             tokio::select! {
@@ -418,6 +422,7 @@ mod lazer_exporter {
 
                     // TODO: This read locks and clones local::Store::prices, which may not meet performance needs.
                     for (identifier, price_info) in state.get_all_price_infos().await {
+                        tracing::info!("MRDEBUG identifier: {:?} price_info: {price_info:?}", Pubkey::from(identifier.to_bytes()));
                         if let Some(symbol) = lazer_symbols.get(&identifier) {
                             let source_timestamp_micros = price_info.timestamp.and_utc().timestamp_micros();
                             let source_timestamp = MessageField::some(Timestamp {
@@ -468,7 +473,7 @@ mod lazer_exporter {
                         special_fields: Default::default(),
                     };
                     match relayer_sender.send(signed_lazer_transaction.clone()) {
-                        Ok(_) => (),
+                        Ok(_) => tracing::info!("MRDEBUG Sending SLT: {:?}", signed_lazer_transaction),
                         Err(e) => {
                             tracing::error!("Error sending transaction to relayer receivers: {e}");
                         }
@@ -496,6 +501,8 @@ mod lazer_exporter {
         sender: mpsc::Sender<HashMap<pyth_sdk::Identifier, SymbolResponse>>,
     ) {
         let mut symbol_fetch_interval = tokio::time::interval(fetch_interval_duration);
+        // consume immediate tick
+        symbol_fetch_interval.tick().await;
 
         loop {
             tokio::select! {
@@ -538,6 +545,14 @@ mod lazer_exporter {
                         .into_iter()
                         .filter_map(|symbol| {
                             let hermes_id = symbol.hermes_id.clone()?;
+                            // XXX hack BTC and ETH to be for pythtest-crosschain
+                            let hermes_id = if hermes_id == "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43".to_string() {
+                                "f9c0172ba10dfa4d19088d94f5bf61d3b54d5bd7483a322a982e1373ee8ea31b".to_string()
+                            } else if hermes_id == "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace" {
+                                "ca80ba6dc32e08d06f1aa886011eed1d77c77be9eb761cc10d72b7d0a2fd57a6".to_string()
+                            } else {
+                                hermes_id
+                            };
                             match pyth_sdk::Identifier::from_hex(hermes_id.clone()) {
                                 Ok(id) => Some((id, symbol)),
                                 Err(e) => {
