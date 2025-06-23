@@ -399,11 +399,13 @@ mod lazer_exporter {
         let (symbols_sender, mut symbols_receiver) = mpsc::channel(1);
         tokio::spawn(get_lazer_symbols_task(
             config.history_url.clone(),
-            config.symbol_fetch_interval_duration.clone(),
+            config.symbol_fetch_interval_duration,
             symbols_sender,
         ));
 
         let mut publish_interval = tokio::time::interval(config.publish_interval_duration);
+        // consume immediate tick
+        publish_interval.tick().await;
 
         loop {
             tokio::select! {
@@ -496,6 +498,8 @@ mod lazer_exporter {
         sender: mpsc::Sender<HashMap<pyth_sdk::Identifier, SymbolResponse>>,
     ) {
         let mut symbol_fetch_interval = tokio::time::interval(fetch_interval_duration);
+        // consume immediate tick
+        symbol_fetch_interval.tick().await;
 
         loop {
             tokio::select! {
