@@ -68,6 +68,7 @@ pub struct Config {
     pub history_url:                    Url,
     pub relayer_urls:                   Vec<Url>,
     pub publish_keypair_path:           PathBuf,
+    pub authorization_token:            Option<String>,
     #[serde(with = "humantime_serde", default = "default_publish_interval")]
     pub publish_interval_duration:      Duration,
     #[serde(with = "humantime_serde", default = "default_symbol_fetch_interval")]
@@ -292,13 +293,22 @@ pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandl
     let pubkey_base64 = BASE64_STANDARD.encode(signing_key.verifying_key().to_bytes());
     tracing::info!("Loaded Lazer signing key; pubkey in base64: {pubkey_base64}");
 
+    let authorization_token = if let Some(authorization_token) = config.authorization_token.clone()
+    {
+        // If authorization_token is configured, use it.
+        authorization_token
+    } else {
+        // Otherwise, use the base64 pubkey.
+        pubkey_base64
+    };
+
     // can safely drop first receiver for ease of iteration
     let (relayer_sender, _) = broadcast::channel(RELAYER_CHANNEL_CAPACITY);
 
     for url in config.relayer_urls.iter() {
         let mut task = RelayerSessionTask {
             url:      url.clone(),
-            token:    pubkey_base64.clone(),
+            token:    authorization_token.clone(),
             receiver: relayer_sender.subscribe(),
         };
         handles.push(tokio::spawn(async move { task.run().await }));
@@ -725,6 +735,7 @@ mod tests {
             history_url:                    Url::parse("http://127.0.0.1:12345").unwrap(),
             relayer_urls:                   vec![Url::parse("http://127.0.0.1:12346").unwrap()],
             publish_keypair_path:           PathBuf::from(private_key_file.path()),
+            authorization_token:            None,
             publish_interval_duration:      Duration::from_secs(1),
             symbol_fetch_interval_duration: Duration::from_secs(60 * 60),
         };

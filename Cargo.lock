@@ -3721,7 +3721,7 @@ dependencies = [
 
 [[package]]
 name = "pyth-agent"
-version = "3.0.4"
+version = "3.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
