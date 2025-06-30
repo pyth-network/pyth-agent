@@ -112,7 +112,7 @@ fn solana_price_account_to_pythd_api_price_account(
     PriceAccount {
         account:            price_account_key.to_smolstr(),
         price_type:         "price".into(),
-        price_exponent:     price_account.expo as i64,
+        price_exponent:     i64::from(price_account.expo),
         status:             price_status_to_str(price_account.agg.status),
         price:              price_account.agg.price,
         conf:               price_account.agg.conf,
@@ -228,7 +228,7 @@ where
                 .map(|(price_account_key, price_account)| PriceAccountMetadata {
                     account:        price_account_key.to_smolstr(),
                     price_type:     "price".into(),
-                    price_exponent: price_account.expo as i64,
+                    price_exponent: i64::from(price_account.expo),
                 })
                 .collect();
 

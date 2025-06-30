@@ -38,6 +38,7 @@ use {
 const DEFAULT_MIN_KEYPAIR_BALANCE_SOL: u64 = 1;
 
 pub fn default_bind_address() -> SocketAddr {
+    #[allow(clippy::expect_used, reason = "hardcoded value valid")]
     "127.0.0.1:9001"
         .parse()
         .expect("INTERNAL: Could not build default remote keypair loader bind address")

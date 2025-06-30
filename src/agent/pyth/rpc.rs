@@ -170,7 +170,7 @@ async fn handle_connection<S>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "")]
 async fn handle_next<S>(
     state: &S,
     ws_tx: &mut SplitSink<WebSocket, Message>,
@@ -266,6 +266,10 @@ where
             if is_batch {
                 feed_text(ws_tx, &serde_json::to_string(&responses)?).await?;
             } else {
+                #[allow(
+                    clippy::indexing_slicing,
+                    reason = "single response guaranteed to have one item"
+                )]
                 feed_text(ws_tx, &serde_json::to_string(&responses[0])?).await?;
             }
         }
