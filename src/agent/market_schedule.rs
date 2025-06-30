@@ -1,6 +1,6 @@
 //! Holiday hours metadata parsing and evaluation logic
 
-#[allow(deprecated)]
+#[allow(deprecated, reason = "publishers depend on legacy schedule")]
 use {
     super::legacy_schedule::{
         LegacySchedule,
@@ -68,14 +68,14 @@ impl Display for MarketSchedule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{};", self.timezone)?;
         for (i, day) in self.weekly_schedule.iter().enumerate() {
-            write!(f, "{}", day)?;
+            write!(f, "{day}")?;
             if i < 6 {
                 write!(f, ",")?;
             }
         }
         write!(f, ";")?;
         for (i, holiday) in self.holidays.iter().enumerate() {
-            write!(f, "{}", holiday)?;
+            write!(f, "{holiday}")?;
             if i < self.holidays.len() - 1 {
                 write!(f, ",")?;
             }
@@ -131,7 +131,7 @@ impl FromStr for MarketSchedule {
     }
 }
 
-#[allow(deprecated)]
+#[allow(deprecated, reason = "publishers still depend on legacy schedule")]
 impl From<LegacySchedule> for MarketSchedule {
     fn from(legacy: LegacySchedule) -> Self {
         Self {
@@ -283,6 +283,7 @@ impl From<MHKind> for ScheduleDayKind {
 }
 
 #[cfg(test)]
+#[allow(clippy::panic_in_result_fn, reason = "")]
 mod tests {
     use {
         super::*,
@@ -604,7 +605,7 @@ mod tests {
 
         #[test]
         fn parse_valid_holiday_day_schedule(s in VALID_SCHEDULE_DAY_KIND_REGEX, d in VALID_MONTH_DAY_REGEX) {
-            let valid_holiday_day = format!("{}/{}", d, s);
+            let valid_holiday_day = format!("{d}/{s}");
             assert!(valid_holiday_day.parse::<HolidayDaySchedule>().is_ok());
         }
 

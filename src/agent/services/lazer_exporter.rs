@@ -282,6 +282,7 @@ fn get_signing_key(config: &Config) -> Result<SigningKey> {
 pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandle<()>> {
     let mut handles = vec![];
 
+    #[allow(clippy::panic, reason = "agent can't work without keypair")]
     let signing_key = match get_signing_key(&config) {
         Ok(signing_key) => signing_key,
         Err(e) => {
@@ -324,7 +325,7 @@ pub fn lazer_exporter(config: Config, state: Arc<state::State>) -> Vec<JoinHandl
     handles
 }
 
-#[allow(clippy::module_inception)]
+#[allow(clippy::module_inception, reason = "")]
 mod lazer_exporter {
     use {
         crate::agent::{
@@ -381,6 +382,7 @@ mod lazer_exporter {
         S: LocalStore,
         S: Send + Sync + 'static,
     {
+        #[allow(clippy::panic, reason = "lazer exporter can't work without symbols")]
         // We can't publish to Lazer without symbols, so crash the process if it fails.
         let mut lazer_symbols = match get_lazer_symbol_map(&config.history_url).await {
             Ok(symbol_map) => {
@@ -435,6 +437,7 @@ mod lazer_exporter {
                             let source_timestamp_micros = price_info.timestamp.and_utc().timestamp_micros();
                             let source_timestamp = MessageField::some(Timestamp {
                                 seconds: source_timestamp_micros / 1_000_000,
+                                #[allow(clippy::cast_possible_truncation, reason = "value is always less than one billion")]
                                 nanos: (source_timestamp_micros % 1_000_000 * 1000) as i32,
                                 special_fields: Default::default(),
                             });
@@ -710,7 +713,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file
             .as_file_mut()
-            .write(private_key_string.as_bytes())
+            .write_all(private_key_string.as_bytes())
             .unwrap();
         temp_file.flush().unwrap();
         temp_file
@@ -758,8 +761,8 @@ mod tests {
         .unwrap();
         let price = PriceInfo {
             status:    PriceStatus::Trading,
-            price:     100_000_00000000i64,
-            conf:      1_00000000u64,
+            price:     10_000_000_000_000i64,
+            conf:      100_000_000u64,
             timestamp: Default::default(),
         };
         state.update(btc_id, price).await.unwrap();
@@ -787,7 +790,7 @@ mod tests {
                 } else {
                     panic!("expected price_update")
                 };
-                assert_eq!(price_update.price, Some(100_000_00000000i64));
+                assert_eq!(price_update.price, Some(10_000_000_000_000i64));
             }
             _ => panic!("channel should have a transaction waiting"),
         }
