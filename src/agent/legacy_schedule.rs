@@ -1,5 +1,5 @@
 //! Market hours metadata parsing and evaluation logic
-#![allow(deprecated)]
+#![allow(deprecated, reason = "publishers depend on legacy schedule")]
 
 use {
     anyhow::{
@@ -46,6 +46,7 @@ pub struct LegacySchedule {
     pub sun:      MHKind,
 }
 
+#[allow(deprecated, reason = "publishers depend on legacy schedule")]
 impl LegacySchedule {
     pub fn all_closed() -> Self {
         Self {
@@ -93,7 +94,7 @@ impl FromStr for LegacySchedule {
             .trim()
             .parse()
             .map_err(|e: ParseError| anyhow!(e))
-            .context(format!("Could parse timezone from {:?}", tz_str))?;
+            .context(format!("Could parse timezone from {tz_str:?}"))?;
 
         let mut weekday_schedules = Vec::with_capacity(7);
 
@@ -112,8 +113,7 @@ impl FromStr for LegacySchedule {
             ))?;
 
             let mhkind: MHKind = mhkind_str.trim().parse().context(format!(
-                "Could not parse {} field from {:?}",
-                weekday, mhkind_str
+                "Could not parse {weekday} field from {mhkind_str:?}",
             ))?;
 
             weekday_schedules.push(mhkind);
@@ -225,6 +225,7 @@ impl FromStr for MHKind {
 }
 
 #[cfg(test)]
+#[allow(clippy::panic_in_result_fn, reason = "")]
 mod tests {
     use {
         super::*,

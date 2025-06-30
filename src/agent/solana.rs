@@ -26,10 +26,12 @@ pub mod network {
         Secondary,
     }
 
+    #[allow(clippy::unwrap_used, reason = "hardcoded value valid")]
     pub fn default_rpc_urls() -> Vec<Url> {
         vec![Url::parse("http://localhost:8899").unwrap()]
     }
 
+    #[allow(clippy::unwrap_used, reason = "hardcoded value valid")]
     pub fn default_wss_urls() -> Vec<Url> {
         vec![Url::parse("http://localhost:8900").unwrap()]
     }

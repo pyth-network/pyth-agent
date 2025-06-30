@@ -1,4 +1,4 @@
-#[allow(deprecated)]
+#[allow(deprecated, reason = "publishers depend on legacy schedule")]
 use crate::agent::legacy_schedule::LegacySchedule;
 use {
     super::{
@@ -113,6 +113,7 @@ impl PriceEntry {
             let account_ptr = &*(acc.as_ptr() as *const GenericPriceAccount<0, ()>);
             let comp_mem = std::slice::from_raw_parts(account_ptr.comp.as_ptr(), size);
             let mut comp = [PriceComp::default(); 64];
+            #[allow(clippy::indexing_slicing, reason = "slice is known to be valid")]
             comp[0..size].copy_from_slice(comp_mem);
             Some(Self {
                 account: *account_ptr,
@@ -248,7 +249,7 @@ where
         }
 
         let price_entry = PriceEntry::load_from_account(&account.data)
-            .with_context(|| format!("load price account {}", account_key))?;
+            .with_context(|| format!("load price account {account_key}"))?;
 
         tracing::debug!(
             pubkey = account_key.to_string(),
@@ -433,7 +434,7 @@ type ProductAndPriceAccounts = (
 async fn fetch_product_and_price_accounts(
     rpc_multi_client: &RpcMultiClient,
     oracle_program_key: Pubkey,
-    _max_lookup_batch_size: usize,
+    max_lookup_batch_size: usize,
 ) -> Result<ProductAndPriceAccounts> {
     let mut product_entries = HashMap::new();
     let mut price_entries = HashMap::new();
@@ -450,7 +451,7 @@ async fn fetch_product_and_price_accounts(
             .ok()
             .map(|product| (pubkey, product))
     }) {
-        #[allow(deprecated)]
+        #[allow(deprecated, reason = "publishers depend on legacy schedule")]
         let legacy_schedule: LegacySchedule = if let Some((_wsched_key, wsched_val)) =
             product.iter().find(|(k, _v)| *k == "weekly_schedule")
         {
@@ -549,7 +550,7 @@ async fn fetch_product_and_price_accounts(
     ))
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "may use in the future")]
 #[instrument(skip(rpc_client, product_key_batch))]
 async fn fetch_batch_of_product_and_price_accounts(
     rpc_client: &RpcClient,
@@ -566,9 +567,9 @@ async fn fetch_batch_of_product_and_price_accounts(
     for (product_key, product_account) in product_keys.iter().zip(product_accounts) {
         if let Some(prod_acc) = product_account {
             let product = load_product_account(prod_acc.data.as_slice())
-                .context(format!("Could not parse product account {}", product_key))?;
+                .context(format!("Could not parse product account {product_key}"))?;
 
-            #[allow(deprecated)]
+            #[allow(deprecated, reason = "publishers depend on legacy schedule")]
             let legacy_schedule: LegacySchedule = if let Some((_wsched_key, wsched_val)) =
                 product.iter().find(|(k, _v)| *k == "weekly_schedule")
             {
@@ -671,7 +672,7 @@ async fn fetch_batch_of_product_and_price_accounts(
         for (price_key, price_account) in todo.iter().zip(price_accounts) {
             if let Some(price_acc) = price_account {
                 let price = PriceEntry::load_from_account(&price_acc.data)
-                    .context(format!("Could not parse price account at {}", price_key))?;
+                    .context(format!("Could not parse price account at {price_key}"))?;
 
                 let next_price = Pubkey::from(price.next.to_bytes());
                 if let Some(prod) = product_entries.get_mut(&Pubkey::from(price.prod.to_bytes())) {

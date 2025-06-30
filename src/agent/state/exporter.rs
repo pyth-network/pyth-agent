@@ -446,7 +446,7 @@ async fn estimate_compute_unit_price_micro_lamports(
 /// - Degrade gracefully if the blockchain RPC node exhibits poor performance. If the RPC node takes a long
 ///   time to respond, no internal queues grow unboundedly. At any single point in time there are at most
 ///   (n / batch_size) requests in flight.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "")]
 #[instrument(
     skip(state, rpc_multi_client, network_state_rx, publish_keypair, staleness_threshold, permissioned_updates),
     fields(
@@ -528,7 +528,7 @@ where
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "")]
 #[instrument(
     skip(state, rpc_multi_client, network_state, publish_keypair, batch, staleness_threshold),
     fields(
@@ -624,6 +624,10 @@ where
     }
 
     // Pay priority fees, if configured
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "number of instructions won't exceed u32"
+    )]
     let total_compute_limit: u32 = compute_unit_limit * instructions.len() as u32;
 
     instructions.push(ComputeBudgetInstruction::set_compute_unit_limit(

@@ -35,6 +35,7 @@ use {
 };
 
 pub fn default_bind_address() -> SocketAddr {
+    #[allow(clippy::unwrap_used, reason = "hardcoded value valid")]
     "127.0.0.1:8888".parse().unwrap()
 }
 
@@ -63,7 +64,7 @@ pub async fn spawn(addr: impl Into<SocketAddr> + 'static) {
         .and(warp::path::end())
         .and_then(move || async move {
             let mut buf = String::new();
-            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrow, reason = "false positive")]
             let response = encode(&mut buf, &&PROMETHEUS_REGISTRY.lock().await)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })
                 .map(|_| Box::new(reply::with_status(buf, StatusCode::OK)))
@@ -118,7 +119,7 @@ impl ProductGlobalMetrics {
     pub fn update(&self, product_key: &Pubkey, maybe_symbol: Option<SmolStr>) {
         let symbol_string = maybe_symbol
             .map(|x| x.into())
-            .unwrap_or(format!("unknown_{}", product_key));
+            .unwrap_or(format!("unknown_{product_key}"));
 
         #[deny(unused_variables)]
         let Self { update_count } = self;
@@ -248,7 +249,7 @@ impl PriceGlobalMetrics {
         expo.get_or_create(&PriceGlobalLabels {
             pubkey: price_key.to_string(),
         })
-        .set(price_account.expo as i64);
+        .set(i64::from(price_account.expo));
 
         conf.get_or_create(&PriceGlobalLabels {
             pubkey: price_key.to_string(),

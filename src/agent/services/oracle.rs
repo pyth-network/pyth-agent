@@ -67,6 +67,10 @@ where
         let sleep_time = config.oracle.subscriber_finished_sleep_time;
         let mut wss_url_index: usize = 0;
 
+        #[allow(
+            clippy::indexing_slicing,
+            reason = "index will always be valid unless wss_urls is empty"
+        )]
         handles.push(tokio::spawn(async move {
             loop {
                 let current_time = Instant::now();
