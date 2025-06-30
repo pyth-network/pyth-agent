@@ -86,6 +86,7 @@ pub struct PriceEntry {
 
 impl From<SolanaPriceAccount> for PriceEntry {
     fn from(other: SolanaPriceAccount) -> PriceEntry {
+        #[allow(unsafe_code, reason = "for tests only")]
         unsafe {
             // NOTE: We know the size is 32 because It's a Solana account. This is for tests only.
             let comp_mem = std::slice::from_raw_parts(other.comp.as_ptr(), 32);
@@ -102,6 +103,7 @@ impl PriceEntry {
     /// Construct the right underlying GenericPriceAccount based on the account size.
     #[instrument(skip(acc))]
     pub fn load_from_account(acc: &[u8]) -> Option<Self> {
+        #[allow(unsafe_code, reason = "optimization")]
         unsafe {
             let size = match acc.len() {
                 n if n == std::mem::size_of::<SolanaPriceAccount>() => 32,

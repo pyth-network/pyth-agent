@@ -67,6 +67,9 @@ panic = 'abort'
 [profile.dev]
 panic = 'abort'
 
+[lints.rust]
+unsafe_code = "deny"
+
 [lints.clippy]
 wildcard_dependencies = "deny"
 
