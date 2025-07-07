@@ -187,29 +187,42 @@ impl RpcMultiClient {
         }
     }
 
+    fn get_next_endpoint(&self) -> Option<usize> {
+        let mut state = self.round_robin_state.lock().unwrap();
+        state.get_next_healthy_endpoint()
+    }
+
+    fn handle_success(&self, index: usize) {
+        let mut state = self.round_robin_state.lock().unwrap();
+        state.mark_endpoint_healthy(index);
+    }
+
+    fn handle_error(&self, index: usize, operation_name: &str, error: &dyn std::fmt::Display) {
+        let client = &self.rpc_clients[index];
+        tracing::warn!(
+            "{} error for rpc endpoint {}: {}",
+            operation_name,
+            client.url(),
+            error
+        );
+        let mut state = self.round_robin_state.lock().unwrap();
+        state.mark_endpoint_failed(index);
+    }
 
     pub async fn get_balance(&self, kp: &Keypair) -> anyhow::Result<u64> {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
-            let endpoint_index = {
-                let mut state = self.round_robin_state.lock().unwrap();
-                state.get_next_healthy_endpoint()
-            };
-
-            if let Some(index) = endpoint_index {
+            if let Some(index) = self.get_next_endpoint() {
                 let client = &self.rpc_clients[index];
                 match client.get_balance(&kp.pubkey()).await {
                     Ok(balance) => {
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_healthy(index);
+                        self.handle_success(index);
                         return Ok(balance);
                     }
                     Err(e) => {
-                        tracing::warn!("getBalance error for rpc endpoint {}: {}", client.url(), e);
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_failed(index);
+                        self.handle_error(index, "getBalance", &e);
                     }
                 }
             }
@@ -230,12 +243,7 @@ impl RpcMultiClient {
         let max_attempts = self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
-            let endpoint_index = {
-                let mut state = self.round_robin_state.lock().unwrap();
-                state.get_next_healthy_endpoint()
-            };
-
-            if let Some(index) = endpoint_index {
+            if let Some(index) = self.get_next_endpoint() {
                 let client = &self.rpc_clients[index];
                 match client
                     .send_transaction_with_config(
@@ -248,18 +256,11 @@ impl RpcMultiClient {
                     .await
                 {
                     Ok(signature) => {
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_healthy(index);
+                        self.handle_success(index);
                         return Ok(signature);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "sendTransactionWithConfig error for rpc endpoint {}: {}",
-                            client.url(),
-                            e
-                        );
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_failed(index);
+                        self.handle_error(index, "sendTransactionWithConfig", &e);
                     }
                 }
             }
@@ -280,27 +281,15 @@ impl RpcMultiClient {
         let max_attempts = self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
-            let endpoint_index = {
-                let mut state = self.round_robin_state.lock().unwrap();
-                state.get_next_healthy_endpoint()
-            };
-
-            if let Some(index) = endpoint_index {
+            if let Some(index) = self.get_next_endpoint() {
                 let client = &self.rpc_clients[index];
                 match client.get_signature_statuses(signatures_contiguous).await {
                     Ok(statuses) => {
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_healthy(index);
+                        self.handle_success(index);
                         return Ok(statuses.value);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "getSignatureStatuses error for rpc endpoint {}: {}",
-                            client.url(),
-                            e
-                        );
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_failed(index);
+                        self.handle_error(index, "getSignatureStatuses", &e);
                     }
                 }
             }
@@ -321,27 +310,15 @@ impl RpcMultiClient {
         let max_attempts = self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
-            let endpoint_index = {
-                let mut state = self.round_robin_state.lock().unwrap();
-                state.get_next_healthy_endpoint()
-            };
-
-            if let Some(index) = endpoint_index {
+            if let Some(index) = self.get_next_endpoint() {
                 let client = &self.rpc_clients[index];
                 match client.get_recent_prioritization_fees(price_accounts).await {
                     Ok(fees) => {
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_healthy(index);
+                        self.handle_success(index);
                         return Ok(fees);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "getRecentPrioritizationFees error for rpc endpoint {}: {}",
-                            client.url(),
-                            e
-                        );
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_failed(index);
+                        self.handle_error(index, "getRecentPrioritizationFees", &e);
                     }
                 }
             }
@@ -362,27 +339,15 @@ impl RpcMultiClient {
         let max_attempts = self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
-            let endpoint_index = {
-                let mut state = self.round_robin_state.lock().unwrap();
-                state.get_next_healthy_endpoint()
-            };
-
-            if let Some(index) = endpoint_index {
+            if let Some(index) = self.get_next_endpoint() {
                 let client = &self.rpc_clients[index];
                 match client.get_program_accounts(&oracle_program_key).await {
                     Ok(accounts) => {
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_healthy(index);
+                        self.handle_success(index);
                         return Ok(accounts);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "getProgramAccounts error for rpc endpoint {}: {}",
-                            client.url(),
-                            e
-                        );
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_failed(index);
+                        self.handle_error(index, "getProgramAccounts", &e);
                     }
                 }
             }
@@ -400,27 +365,15 @@ impl RpcMultiClient {
         let max_attempts = self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
-            let endpoint_index = {
-                let mut state = self.round_robin_state.lock().unwrap();
-                state.get_next_healthy_endpoint()
-            };
-
-            if let Some(index) = endpoint_index {
+            if let Some(index) = self.get_next_endpoint() {
                 let client = &self.rpc_clients[index];
                 match client.get_account_data(publisher_config_key).await {
                     Ok(data) => {
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_healthy(index);
+                        self.handle_success(index);
                         return Ok(data);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "getAccountData error for rpc endpoint {}: {}",
-                            client.url(),
-                            e
-                        );
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_failed(index);
+                        self.handle_error(index, "getAccountData", &e);
                     }
                 }
             }
@@ -441,27 +394,15 @@ impl RpcMultiClient {
         let max_attempts = self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
-            let endpoint_index = {
-                let mut state = self.round_robin_state.lock().unwrap();
-                state.get_next_healthy_endpoint()
-            };
-
-            if let Some(index) = endpoint_index {
+            if let Some(index) = self.get_next_endpoint() {
                 let client = &self.rpc_clients[index];
                 match client.get_slot_with_commitment(commitment_config).await {
                     Ok(slot) => {
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_healthy(index);
+                        self.handle_success(index);
                         return Ok(slot);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "getSlotWithCommitment error for rpc endpoint {}: {}",
-                            client.url(),
-                            e
-                        );
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_failed(index);
+                        self.handle_error(index, "getSlotWithCommitment", &e);
                     }
                 }
             }
@@ -479,27 +420,15 @@ impl RpcMultiClient {
         let max_attempts = self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
-            let endpoint_index = {
-                let mut state = self.round_robin_state.lock().unwrap();
-                state.get_next_healthy_endpoint()
-            };
-
-            if let Some(index) = endpoint_index {
+            if let Some(index) = self.get_next_endpoint() {
                 let client = &self.rpc_clients[index];
                 match client.get_latest_blockhash().await {
                     Ok(hash) => {
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_healthy(index);
+                        self.handle_success(index);
                         return Ok(hash);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "getLatestBlockhash error for rpc endpoint {}: {}",
-                            client.url(),
-                            e
-                        );
-                        let mut state = self.round_robin_state.lock().unwrap();
-                        state.mark_endpoint_failed(index);
+                        self.handle_error(index, "getLatestBlockhash", &e);
                     }
                 }
             }
