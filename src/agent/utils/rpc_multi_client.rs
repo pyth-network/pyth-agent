@@ -18,8 +18,14 @@ use {
     },
     solana_transaction_status::TransactionStatus,
     std::{
-        sync::{Arc, Mutex},
-        time::{Duration, Instant},
+        sync::{
+            Arc,
+            Mutex,
+        },
+        time::{
+            Duration,
+            Instant,
+        },
     },
     url::Url,
 };
@@ -27,13 +33,13 @@ use {
 #[derive(Debug, Clone)]
 struct EndpointState {
     last_failure: Option<Instant>,
-    is_healthy: bool,
+    is_healthy:   bool,
 }
 
 #[derive(Debug)]
 struct RoundRobinState {
-    current_index: usize,
-    endpoint_states: Vec<EndpointState>,
+    current_index:     usize,
+    endpoint_states:   Vec<EndpointState>,
     cooldown_duration: Duration,
 }
 
@@ -41,7 +47,13 @@ impl RoundRobinState {
     fn new(endpoint_count: usize, cooldown_duration: Duration) -> Self {
         Self {
             current_index: 0,
-            endpoint_states: vec![EndpointState { last_failure: None, is_healthy: true }; endpoint_count],
+            endpoint_states: vec![
+                EndpointState {
+                    last_failure: None,
+                    is_healthy:   true,
+                };
+                endpoint_count
+            ],
             cooldown_duration,
         }
     }
@@ -49,18 +61,21 @@ impl RoundRobinState {
     fn get_next_healthy_endpoint(&mut self) -> Option<usize> {
         let now = Instant::now();
         let start_index = self.current_index;
-        
+
         for _ in 0..self.endpoint_states.len() {
             let index = self.current_index;
             self.current_index = (self.current_index + 1) % self.endpoint_states.len();
-            
+
             let state = &self.endpoint_states[index];
-            if state.is_healthy || state.last_failure.map_or(true, |failure_time| 
-                now.duration_since(failure_time) >= self.cooldown_duration) {
+            if state.is_healthy
+                || state.last_failure.map_or(true, |failure_time| {
+                    now.duration_since(failure_time) >= self.cooldown_duration
+                })
+            {
                 return Some(index);
             }
         }
-        
+
         let index = start_index;
         self.current_index = (start_index + 1) % self.endpoint_states.len();
         Some(index)
@@ -82,7 +97,7 @@ impl RoundRobinState {
 }
 
 pub struct RpcMultiClient {
-    rpc_clients: Vec<RpcClient>,
+    rpc_clients:       Vec<RpcClient>,
     round_robin_state: Arc<Mutex<RoundRobinState>>,
 }
 
@@ -91,12 +106,19 @@ impl RpcMultiClient {
         Self::new_with_timeout_and_cooldown(rpc_urls, timeout, Duration::from_secs(30))
     }
 
-    pub fn new_with_timeout_and_cooldown(rpc_urls: Vec<Url>, timeout: Duration, cooldown_duration: Duration) -> Self {
+    pub fn new_with_timeout_and_cooldown(
+        rpc_urls: Vec<Url>,
+        timeout: Duration,
+        cooldown_duration: Duration,
+    ) -> Self {
         let clients: Vec<RpcClient> = rpc_urls
             .iter()
             .map(|rpc_url| RpcClient::new_with_timeout(rpc_url.to_string(), timeout))
             .collect();
-        let round_robin_state = Arc::new(Mutex::new(RoundRobinState::new(clients.len(), cooldown_duration)));
+        let round_robin_state = Arc::new(Mutex::new(RoundRobinState::new(
+            clients.len(),
+            cooldown_duration,
+        )));
         Self {
             rpc_clients: clients,
             round_robin_state,
@@ -107,12 +129,19 @@ impl RpcMultiClient {
         Self::new_with_commitment_and_cooldown(rpc_urls, commitment_config, Duration::from_secs(30))
     }
 
-    pub fn new_with_commitment_and_cooldown(rpc_urls: Vec<Url>, commitment_config: CommitmentConfig, cooldown_duration: Duration) -> Self {
+    pub fn new_with_commitment_and_cooldown(
+        rpc_urls: Vec<Url>,
+        commitment_config: CommitmentConfig,
+        cooldown_duration: Duration,
+    ) -> Self {
         let clients: Vec<RpcClient> = rpc_urls
             .iter()
             .map(|rpc_url| RpcClient::new_with_commitment(rpc_url.to_string(), commitment_config))
             .collect();
-        let round_robin_state = Arc::new(Mutex::new(RoundRobinState::new(clients.len(), cooldown_duration)));
+        let round_robin_state = Arc::new(Mutex::new(RoundRobinState::new(
+            clients.len(),
+            cooldown_duration,
+        )));
         Self {
             rpc_clients: clients,
             round_robin_state,
@@ -124,7 +153,12 @@ impl RpcMultiClient {
         timeout: Duration,
         commitment_config: CommitmentConfig,
     ) -> Self {
-        Self::new_with_timeout_commitment_and_cooldown(rpc_urls, timeout, commitment_config, Duration::from_secs(30))
+        Self::new_with_timeout_commitment_and_cooldown(
+            rpc_urls,
+            timeout,
+            commitment_config,
+            Duration::from_secs(30),
+        )
     }
 
     pub fn new_with_timeout_commitment_and_cooldown(
@@ -143,7 +177,10 @@ impl RpcMultiClient {
                 )
             })
             .collect();
-        let round_robin_state = Arc::new(Mutex::new(RoundRobinState::new(clients.len(), cooldown_duration)));
+        let round_robin_state = Arc::new(Mutex::new(RoundRobinState::new(
+            clients.len(),
+            cooldown_duration,
+        )));
         Self {
             rpc_clients: clients,
             round_robin_state,
@@ -154,13 +191,13 @@ impl RpcMultiClient {
     pub async fn get_balance(&self, kp: &Keypair) -> anyhow::Result<u64> {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
-        
+
         while attempts < max_attempts {
             let endpoint_index = {
                 let mut state = self.round_robin_state.lock().unwrap();
                 state.get_next_healthy_endpoint()
             };
-            
+
             if let Some(index) = endpoint_index {
                 let client = &self.rpc_clients[index];
                 match client.get_balance(&kp.pubkey()).await {
@@ -178,8 +215,11 @@ impl RpcMultiClient {
             }
             attempts += 1;
         }
-        
-        bail!("getBalance failed for all RPC endpoints after {} attempts", attempts)
+
+        bail!(
+            "getBalance failed for all RPC endpoints after {} attempts",
+            attempts
+        )
     }
 
     pub async fn send_transaction_with_config(
@@ -188,13 +228,13 @@ impl RpcMultiClient {
     ) -> anyhow::Result<Signature> {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
-        
+
         while attempts < max_attempts {
             let endpoint_index = {
                 let mut state = self.round_robin_state.lock().unwrap();
                 state.get_next_healthy_endpoint()
             };
-            
+
             if let Some(index) = endpoint_index {
                 let client = &self.rpc_clients[index];
                 match client
@@ -213,7 +253,11 @@ impl RpcMultiClient {
                         return Ok(signature);
                     }
                     Err(e) => {
-                        tracing::warn!("sendTransactionWithConfig error for rpc endpoint {}: {}", client.url(), e);
+                        tracing::warn!(
+                            "sendTransactionWithConfig error for rpc endpoint {}: {}",
+                            client.url(),
+                            e
+                        );
                         let mut state = self.round_robin_state.lock().unwrap();
                         state.mark_endpoint_failed(index);
                     }
@@ -221,8 +265,11 @@ impl RpcMultiClient {
             }
             attempts += 1;
         }
-        
-        bail!("sendTransactionWithConfig failed for all RPC endpoints after {} attempts", attempts)
+
+        bail!(
+            "sendTransactionWithConfig failed for all RPC endpoints after {} attempts",
+            attempts
+        )
     }
 
     pub async fn get_signature_statuses(
@@ -231,13 +278,13 @@ impl RpcMultiClient {
     ) -> anyhow::Result<Vec<Option<TransactionStatus>>> {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
-        
+
         while attempts < max_attempts {
             let endpoint_index = {
                 let mut state = self.round_robin_state.lock().unwrap();
                 state.get_next_healthy_endpoint()
             };
-            
+
             if let Some(index) = endpoint_index {
                 let client = &self.rpc_clients[index];
                 match client.get_signature_statuses(signatures_contiguous).await {
@@ -247,7 +294,11 @@ impl RpcMultiClient {
                         return Ok(statuses.value);
                     }
                     Err(e) => {
-                        tracing::warn!("getSignatureStatuses error for rpc endpoint {}: {}", client.url(), e);
+                        tracing::warn!(
+                            "getSignatureStatuses error for rpc endpoint {}: {}",
+                            client.url(),
+                            e
+                        );
                         let mut state = self.round_robin_state.lock().unwrap();
                         state.mark_endpoint_failed(index);
                     }
@@ -255,8 +306,11 @@ impl RpcMultiClient {
             }
             attempts += 1;
         }
-        
-        bail!("getSignatureStatuses failed for all RPC endpoints after {} attempts", attempts)
+
+        bail!(
+            "getSignatureStatuses failed for all RPC endpoints after {} attempts",
+            attempts
+        )
     }
 
     pub async fn get_recent_prioritization_fees(
@@ -265,13 +319,13 @@ impl RpcMultiClient {
     ) -> anyhow::Result<Vec<RpcPrioritizationFee>> {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
-        
+
         while attempts < max_attempts {
             let endpoint_index = {
                 let mut state = self.round_robin_state.lock().unwrap();
                 state.get_next_healthy_endpoint()
             };
-            
+
             if let Some(index) = endpoint_index {
                 let client = &self.rpc_clients[index];
                 match client.get_recent_prioritization_fees(price_accounts).await {
@@ -281,7 +335,11 @@ impl RpcMultiClient {
                         return Ok(fees);
                     }
                     Err(e) => {
-                        tracing::warn!("getRecentPrioritizationFees error for rpc endpoint {}: {}", client.url(), e);
+                        tracing::warn!(
+                            "getRecentPrioritizationFees error for rpc endpoint {}: {}",
+                            client.url(),
+                            e
+                        );
                         let mut state = self.round_robin_state.lock().unwrap();
                         state.mark_endpoint_failed(index);
                     }
@@ -289,8 +347,11 @@ impl RpcMultiClient {
             }
             attempts += 1;
         }
-        
-        bail!("getRecentPrioritizationFees failed for all RPC endpoints after {} attempts", attempts)
+
+        bail!(
+            "getRecentPrioritizationFees failed for all RPC endpoints after {} attempts",
+            attempts
+        )
     }
 
     pub async fn get_program_accounts(
@@ -299,13 +360,13 @@ impl RpcMultiClient {
     ) -> anyhow::Result<Vec<(Pubkey, Account)>> {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
-        
+
         while attempts < max_attempts {
             let endpoint_index = {
                 let mut state = self.round_robin_state.lock().unwrap();
                 state.get_next_healthy_endpoint()
             };
-            
+
             if let Some(index) = endpoint_index {
                 let client = &self.rpc_clients[index];
                 match client.get_program_accounts(&oracle_program_key).await {
@@ -315,7 +376,11 @@ impl RpcMultiClient {
                         return Ok(accounts);
                     }
                     Err(e) => {
-                        tracing::warn!("getProgramAccounts error for rpc endpoint {}: {}", client.url(), e);
+                        tracing::warn!(
+                            "getProgramAccounts error for rpc endpoint {}: {}",
+                            client.url(),
+                            e
+                        );
                         let mut state = self.round_robin_state.lock().unwrap();
                         state.mark_endpoint_failed(index);
                     }
@@ -323,20 +388,23 @@ impl RpcMultiClient {
             }
             attempts += 1;
         }
-        
-        bail!("getProgramAccounts failed for all RPC endpoints after {} attempts", attempts)
+
+        bail!(
+            "getProgramAccounts failed for all RPC endpoints after {} attempts",
+            attempts
+        )
     }
 
     pub async fn get_account_data(&self, publisher_config_key: &Pubkey) -> anyhow::Result<Vec<u8>> {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
-        
+
         while attempts < max_attempts {
             let endpoint_index = {
                 let mut state = self.round_robin_state.lock().unwrap();
                 state.get_next_healthy_endpoint()
             };
-            
+
             if let Some(index) = endpoint_index {
                 let client = &self.rpc_clients[index];
                 match client.get_account_data(publisher_config_key).await {
@@ -346,7 +414,11 @@ impl RpcMultiClient {
                         return Ok(data);
                     }
                     Err(e) => {
-                        tracing::warn!("getAccountData error for rpc endpoint {}: {}", client.url(), e);
+                        tracing::warn!(
+                            "getAccountData error for rpc endpoint {}: {}",
+                            client.url(),
+                            e
+                        );
                         let mut state = self.round_robin_state.lock().unwrap();
                         state.mark_endpoint_failed(index);
                     }
@@ -354,8 +426,11 @@ impl RpcMultiClient {
             }
             attempts += 1;
         }
-        
-        bail!("getAccountData failed for all RPC endpoints after {} attempts", attempts)
+
+        bail!(
+            "getAccountData failed for all RPC endpoints after {} attempts",
+            attempts
+        )
     }
 
     pub async fn get_slot_with_commitment(
@@ -364,13 +439,13 @@ impl RpcMultiClient {
     ) -> anyhow::Result<u64> {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
-        
+
         while attempts < max_attempts {
             let endpoint_index = {
                 let mut state = self.round_robin_state.lock().unwrap();
                 state.get_next_healthy_endpoint()
             };
-            
+
             if let Some(index) = endpoint_index {
                 let client = &self.rpc_clients[index];
                 match client.get_slot_with_commitment(commitment_config).await {
@@ -380,7 +455,11 @@ impl RpcMultiClient {
                         return Ok(slot);
                     }
                     Err(e) => {
-                        tracing::warn!("getSlotWithCommitment error for rpc endpoint {}: {}", client.url(), e);
+                        tracing::warn!(
+                            "getSlotWithCommitment error for rpc endpoint {}: {}",
+                            client.url(),
+                            e
+                        );
                         let mut state = self.round_robin_state.lock().unwrap();
                         state.mark_endpoint_failed(index);
                     }
@@ -388,20 +467,23 @@ impl RpcMultiClient {
             }
             attempts += 1;
         }
-        
-        bail!("getSlotWithCommitment failed for all RPC endpoints after {} attempts", attempts)
+
+        bail!(
+            "getSlotWithCommitment failed for all RPC endpoints after {} attempts",
+            attempts
+        )
     }
 
     pub async fn get_latest_blockhash(&self) -> anyhow::Result<solana_sdk::hash::Hash> {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
-        
+
         while attempts < max_attempts {
             let endpoint_index = {
                 let mut state = self.round_robin_state.lock().unwrap();
                 state.get_next_healthy_endpoint()
             };
-            
+
             if let Some(index) = endpoint_index {
                 let client = &self.rpc_clients[index];
                 match client.get_latest_blockhash().await {
@@ -411,7 +493,11 @@ impl RpcMultiClient {
                         return Ok(hash);
                     }
                     Err(e) => {
-                        tracing::warn!("getLatestBlockhash error for rpc endpoint {}: {}", client.url(), e);
+                        tracing::warn!(
+                            "getLatestBlockhash error for rpc endpoint {}: {}",
+                            client.url(),
+                            e
+                        );
                         let mut state = self.round_robin_state.lock().unwrap();
                         state.mark_endpoint_failed(index);
                     }
@@ -419,7 +505,10 @@ impl RpcMultiClient {
             }
             attempts += 1;
         }
-        
-        bail!("getLatestBlockhash failed for all RPC endpoints after {} attempts", attempts)
+
+        bail!(
+            "getLatestBlockhash failed for all RPC endpoints after {} attempts",
+            attempts
+        )
     }
 }
