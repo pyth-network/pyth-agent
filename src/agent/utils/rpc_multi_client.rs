@@ -30,6 +30,36 @@ use {
     url::Url,
 };
 
+macro_rules! retry_rpc_operation {
+    ($self:expr, $operation_name:expr, $client:ident => $operation:expr) => {{
+        let mut attempts = 0;
+        let max_attempts = $self.rpc_clients.len() * 2;
+
+        while attempts < max_attempts {
+            if let Some(index) = $self.get_next_endpoint() {
+                let $client = &$self.rpc_clients[index];
+                match $operation {
+                    Ok(result) => {
+                        $self.handle_success(index);
+                        return Ok(result);
+                    }
+                    Err(e) => {
+                        $self.handle_error(index, $operation_name, &e);
+                    }
+                }
+            }
+            attempts += 1;
+        }
+
+        bail!(
+            "{} failed for all RPC endpoints after {} attempts",
+            $operation_name,
+            attempts
+        )
+    }};
+}
+
+
 #[derive(Debug, Clone)]
 struct EndpointState {
     last_failure: Option<Instant>,
@@ -209,67 +239,27 @@ impl RpcMultiClient {
         state.mark_endpoint_failed(index);
     }
 
+
     pub async fn get_balance(&self, kp: &Keypair) -> anyhow::Result<u64> {
-        let mut attempts = 0;
-        let max_attempts = self.rpc_clients.len() * 2;
-
-        while attempts < max_attempts {
-            if let Some(index) = self.get_next_endpoint() {
-                let client = &self.rpc_clients[index];
-                match client.get_balance(&kp.pubkey()).await {
-                    Ok(balance) => {
-                        self.handle_success(index);
-                        return Ok(balance);
-                    }
-                    Err(e) => {
-                        self.handle_error(index, "getBalance", &e);
-                    }
-                }
-            }
-            attempts += 1;
-        }
-
-        bail!(
-            "getBalance failed for all RPC endpoints after {} attempts",
-            attempts
-        )
+        retry_rpc_operation!(self, "getBalance", client => client.get_balance(&kp.pubkey()).await)
     }
 
     pub async fn send_transaction_with_config(
         &self,
         transaction: &Transaction,
     ) -> anyhow::Result<Signature> {
-        let mut attempts = 0;
-        let max_attempts = self.rpc_clients.len() * 2;
-
-        while attempts < max_attempts {
-            if let Some(index) = self.get_next_endpoint() {
-                let client = &self.rpc_clients[index];
-                match client
-                    .send_transaction_with_config(
-                        transaction,
-                        RpcSendTransactionConfig {
-                            skip_preflight: true,
-                            ..RpcSendTransactionConfig::default()
-                        },
-                    )
-                    .await
-                {
-                    Ok(signature) => {
-                        self.handle_success(index);
-                        return Ok(signature);
-                    }
-                    Err(e) => {
-                        self.handle_error(index, "sendTransactionWithConfig", &e);
-                    }
-                }
-            }
-            attempts += 1;
-        }
-
-        bail!(
-            "sendTransactionWithConfig failed for all RPC endpoints after {} attempts",
-            attempts
+        retry_rpc_operation!(
+            self,
+            "sendTransactionWithConfig",
+            client => client
+                .send_transaction_with_config(
+                    transaction,
+                    RpcSendTransactionConfig {
+                        skip_preflight: true,
+                        ..RpcSendTransactionConfig::default()
+                    },
+                )
+                .await
         )
     }
 
@@ -277,28 +267,10 @@ impl RpcMultiClient {
         &self,
         signatures_contiguous: &mut [Signature],
     ) -> anyhow::Result<Vec<Option<TransactionStatus>>> {
-        let mut attempts = 0;
-        let max_attempts = self.rpc_clients.len() * 2;
-
-        while attempts < max_attempts {
-            if let Some(index) = self.get_next_endpoint() {
-                let client = &self.rpc_clients[index];
-                match client.get_signature_statuses(signatures_contiguous).await {
-                    Ok(statuses) => {
-                        self.handle_success(index);
-                        return Ok(statuses.value);
-                    }
-                    Err(e) => {
-                        self.handle_error(index, "getSignatureStatuses", &e);
-                    }
-                }
-            }
-            attempts += 1;
-        }
-
-        bail!(
-            "getSignatureStatuses failed for all RPC endpoints after {} attempts",
-            attempts
+        retry_rpc_operation!(
+            self,
+            "getSignatureStatuses",
+            client => client.get_signature_statuses(signatures_contiguous).await.map(|statuses| statuses.value)
         )
     }
 
@@ -306,28 +278,10 @@ impl RpcMultiClient {
         &self,
         price_accounts: &[Pubkey],
     ) -> anyhow::Result<Vec<RpcPrioritizationFee>> {
-        let mut attempts = 0;
-        let max_attempts = self.rpc_clients.len() * 2;
-
-        while attempts < max_attempts {
-            if let Some(index) = self.get_next_endpoint() {
-                let client = &self.rpc_clients[index];
-                match client.get_recent_prioritization_fees(price_accounts).await {
-                    Ok(fees) => {
-                        self.handle_success(index);
-                        return Ok(fees);
-                    }
-                    Err(e) => {
-                        self.handle_error(index, "getRecentPrioritizationFees", &e);
-                    }
-                }
-            }
-            attempts += 1;
-        }
-
-        bail!(
-            "getRecentPrioritizationFees failed for all RPC endpoints after {} attempts",
-            attempts
+        retry_rpc_operation!(
+            self,
+            "getRecentPrioritizationFees",
+            client => client.get_recent_prioritization_fees(price_accounts).await
         )
     }
 
@@ -335,54 +289,18 @@ impl RpcMultiClient {
         &self,
         oracle_program_key: Pubkey,
     ) -> anyhow::Result<Vec<(Pubkey, Account)>> {
-        let mut attempts = 0;
-        let max_attempts = self.rpc_clients.len() * 2;
-
-        while attempts < max_attempts {
-            if let Some(index) = self.get_next_endpoint() {
-                let client = &self.rpc_clients[index];
-                match client.get_program_accounts(&oracle_program_key).await {
-                    Ok(accounts) => {
-                        self.handle_success(index);
-                        return Ok(accounts);
-                    }
-                    Err(e) => {
-                        self.handle_error(index, "getProgramAccounts", &e);
-                    }
-                }
-            }
-            attempts += 1;
-        }
-
-        bail!(
-            "getProgramAccounts failed for all RPC endpoints after {} attempts",
-            attempts
+        retry_rpc_operation!(
+            self,
+            "getProgramAccounts",
+            client => client.get_program_accounts(&oracle_program_key).await
         )
     }
 
     pub async fn get_account_data(&self, publisher_config_key: &Pubkey) -> anyhow::Result<Vec<u8>> {
-        let mut attempts = 0;
-        let max_attempts = self.rpc_clients.len() * 2;
-
-        while attempts < max_attempts {
-            if let Some(index) = self.get_next_endpoint() {
-                let client = &self.rpc_clients[index];
-                match client.get_account_data(publisher_config_key).await {
-                    Ok(data) => {
-                        self.handle_success(index);
-                        return Ok(data);
-                    }
-                    Err(e) => {
-                        self.handle_error(index, "getAccountData", &e);
-                    }
-                }
-            }
-            attempts += 1;
-        }
-
-        bail!(
-            "getAccountData failed for all RPC endpoints after {} attempts",
-            attempts
+        retry_rpc_operation!(
+            self,
+            "getAccountData",
+            client => client.get_account_data(publisher_config_key).await
         )
     }
 
@@ -390,54 +308,18 @@ impl RpcMultiClient {
         &self,
         commitment_config: CommitmentConfig,
     ) -> anyhow::Result<u64> {
-        let mut attempts = 0;
-        let max_attempts = self.rpc_clients.len() * 2;
-
-        while attempts < max_attempts {
-            if let Some(index) = self.get_next_endpoint() {
-                let client = &self.rpc_clients[index];
-                match client.get_slot_with_commitment(commitment_config).await {
-                    Ok(slot) => {
-                        self.handle_success(index);
-                        return Ok(slot);
-                    }
-                    Err(e) => {
-                        self.handle_error(index, "getSlotWithCommitment", &e);
-                    }
-                }
-            }
-            attempts += 1;
-        }
-
-        bail!(
-            "getSlotWithCommitment failed for all RPC endpoints after {} attempts",
-            attempts
+        retry_rpc_operation!(
+            self,
+            "getSlotWithCommitment",
+            client => client.get_slot_with_commitment(commitment_config).await
         )
     }
 
     pub async fn get_latest_blockhash(&self) -> anyhow::Result<solana_sdk::hash::Hash> {
-        let mut attempts = 0;
-        let max_attempts = self.rpc_clients.len() * 2;
-
-        while attempts < max_attempts {
-            if let Some(index) = self.get_next_endpoint() {
-                let client = &self.rpc_clients[index];
-                match client.get_latest_blockhash().await {
-                    Ok(hash) => {
-                        self.handle_success(index);
-                        return Ok(hash);
-                    }
-                    Err(e) => {
-                        self.handle_error(index, "getLatestBlockhash", &e);
-                    }
-                }
-            }
-            attempts += 1;
-        }
-
-        bail!(
-            "getLatestBlockhash failed for all RPC endpoints after {} attempts",
-            attempts
+        retry_rpc_operation!(
+            self,
+            "getLatestBlockhash",
+            client => client.get_latest_blockhash().await
         )
     }
 }
