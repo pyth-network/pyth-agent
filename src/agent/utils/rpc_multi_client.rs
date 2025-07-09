@@ -30,7 +30,6 @@ use {
     url::Url,
 };
 
-
 #[derive(Debug, Clone)]
 struct EndpointState {
     last_failure: Option<Instant>,
@@ -72,7 +71,7 @@ impl RpcMultiClient {
         operation: F,
     ) -> anyhow::Result<T>
     where
-        F: Fn(usize) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + 'a>>,
+        F: Fn(&'a RpcClient) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + 'a>>,
     {
         let mut attempts = 0;
         let max_attempts = self.rpc_clients.len() * 2;
@@ -81,15 +80,38 @@ impl RpcMultiClient {
             let index_option = self.get_next_endpoint().await;
 
             if let Some(index) = index_option {
-                let future = operation(index);
+                let future = operation(
+                    self.rpc_clients
+                        .get(index)
+                        .ok_or(anyhow::anyhow!("Index out of bounds"))?,
+                );
                 match future.await {
                     Ok(result) => {
-                        self.handle_success(index).await;
+                        let mut state = self.round_robin_state.lock().await;
+
+                        #[allow(clippy::indexing_slicing, reason = "index is checked")]
+                        if index < state.endpoint_states.len() {
+                            state.endpoint_states[index].is_healthy = true;
+                            state.endpoint_states[index].last_failure = None;
+                        }
                         return Ok(result);
                     }
                     Err(e) => {
-                        self.handle_error(index, operation_name, &e.to_string())
-                            .await;
+                        #[allow(clippy::indexing_slicing, reason = "index is checked")]
+                        let client = &self.rpc_clients[index];
+                        tracing::warn!(
+                            "{} error for rpc endpoint {}: {}",
+                            operation_name,
+                            client.url(),
+                            e
+                        );
+                        let mut state = self.round_robin_state.lock().await;
+
+                        #[allow(clippy::indexing_slicing, reason = "index is checked")]
+                        if index < state.endpoint_states.len() {
+                            state.endpoint_states[index].last_failure = Some(Instant::now());
+                            state.endpoint_states[index].is_healthy = false;
+                        }
                     }
                 }
             }
@@ -113,9 +135,10 @@ impl RpcMultiClient {
             let index = state.current_index;
             state.current_index = (state.current_index + 1) % state.endpoint_states.len();
 
+            #[allow(clippy::indexing_slicing, reason = "index is checked")]
             let endpoint_state = &state.endpoint_states[index];
             if endpoint_state.is_healthy
-                || endpoint_state.last_failure.map_or(true, |failure_time| {
+                || endpoint_state.last_failure.is_none_or(|failure_time| {
                     now.duration_since(failure_time) >= state.cooldown_duration
                 })
             {
@@ -132,28 +155,6 @@ impl RpcMultiClient {
         found_index
     }
 
-    async fn handle_success(&self, index: usize) {
-        let mut state = self.round_robin_state.lock().await;
-        if index < state.endpoint_states.len() {
-            state.endpoint_states[index].is_healthy = true;
-            state.endpoint_states[index].last_failure = None;
-        }
-    }
-
-    async fn handle_error(&self, index: usize, operation_name: &str, error: &str) {
-        let client = &self.rpc_clients[index];
-        tracing::warn!(
-            "{} error for rpc endpoint {}: {}",
-            operation_name,
-            client.url(),
-            error
-        );
-        let mut state = self.round_robin_state.lock().await;
-        if index < state.endpoint_states.len() {
-            state.endpoint_states[index].last_failure = Some(Instant::now());
-            state.endpoint_states[index].is_healthy = false;
-        }
-    }
     pub fn new_with_timeout(rpc_urls: Vec<Url>, timeout: Duration) -> Self {
         Self::new_with_timeout_and_cooldown(rpc_urls, timeout, Duration::from_secs(30))
     }
@@ -239,11 +240,9 @@ impl RpcMultiClient {
         }
     }
 
-
     pub async fn get_balance(&self, kp: &Keypair) -> anyhow::Result<u64> {
         let pubkey = kp.pubkey();
-        self.retry_with_round_robin("getBalance", |index| {
-            let client = &self.rpc_clients[index];
+        self.retry_with_round_robin("getBalance", |client| {
             Box::pin(async move {
                 client
                     .get_balance(&pubkey)
@@ -258,9 +257,7 @@ impl RpcMultiClient {
         &self,
         transaction: &Transaction,
     ) -> anyhow::Result<Signature> {
-        let transaction = transaction.clone();
-        self.retry_with_round_robin("sendTransactionWithConfig", |index| {
-            let client = &self.rpc_clients[index];
+        self.retry_with_round_robin("sendTransactionWithConfig", |client| {
             let transaction = transaction.clone();
             Box::pin(async move {
                 client
@@ -282,10 +279,8 @@ impl RpcMultiClient {
         &self,
         signatures_contiguous: &mut [Signature],
     ) -> anyhow::Result<Vec<Option<TransactionStatus>>> {
-        let signatures: Vec<Signature> = signatures_contiguous.to_vec();
-        self.retry_with_round_robin("getSignatureStatuses", |index| {
-            let client = &self.rpc_clients[index];
-            let signatures = signatures.clone();
+        self.retry_with_round_robin("getSignatureStatuses", |client| {
+            let signatures = signatures_contiguous.to_vec();
             Box::pin(async move {
                 client
                     .get_signature_statuses(&signatures)
@@ -301,10 +296,8 @@ impl RpcMultiClient {
         &self,
         price_accounts: &[Pubkey],
     ) -> anyhow::Result<Vec<RpcPrioritizationFee>> {
-        let price_accounts = price_accounts.to_vec();
-        self.retry_with_round_robin("getRecentPrioritizationFees", |index| {
-            let client = &self.rpc_clients[index];
-            let price_accounts = price_accounts.clone();
+        self.retry_with_round_robin("getRecentPrioritizationFees", |client| {
+            let price_accounts = price_accounts.to_vec();
             Box::pin(async move {
                 client
                     .get_recent_prioritization_fees(&price_accounts)
@@ -319,8 +312,7 @@ impl RpcMultiClient {
         &self,
         oracle_program_key: Pubkey,
     ) -> anyhow::Result<Vec<(Pubkey, Account)>> {
-        self.retry_with_round_robin("getProgramAccounts", |index| {
-            let client = &self.rpc_clients[index];
+        self.retry_with_round_robin("getProgramAccounts", |client| {
             Box::pin(async move {
                 client
                     .get_program_accounts(&oracle_program_key)
@@ -332,12 +324,10 @@ impl RpcMultiClient {
     }
 
     pub async fn get_account_data(&self, publisher_config_key: &Pubkey) -> anyhow::Result<Vec<u8>> {
-        let publisher_config_key = *publisher_config_key;
-        self.retry_with_round_robin("getAccountData", |index| {
-            let client = &self.rpc_clients[index];
+        self.retry_with_round_robin("getAccountData", |client| {
             Box::pin(async move {
                 client
-                    .get_account_data(&publisher_config_key)
+                    .get_account_data(publisher_config_key)
                     .await
                     .map_err(anyhow::Error::from)
             })
@@ -349,8 +339,7 @@ impl RpcMultiClient {
         &self,
         commitment_config: CommitmentConfig,
     ) -> anyhow::Result<u64> {
-        self.retry_with_round_robin("getSlotWithCommitment", |index| {
-            let client = &self.rpc_clients[index];
+        self.retry_with_round_robin("getSlotWithCommitment", |client| {
             Box::pin(async move {
                 client
                     .get_slot_with_commitment(commitment_config)
@@ -362,8 +351,7 @@ impl RpcMultiClient {
     }
 
     pub async fn get_latest_blockhash(&self) -> anyhow::Result<solana_sdk::hash::Hash> {
-        self.retry_with_round_robin("getLatestBlockhash", |index| {
-            let client = &self.rpc_clients[index];
+        self.retry_with_round_robin("getLatestBlockhash", |client| {
             Box::pin(async move {
                 client
                     .get_latest_blockhash()
