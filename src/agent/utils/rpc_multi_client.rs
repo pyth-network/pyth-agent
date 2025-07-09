@@ -18,15 +18,13 @@ use {
     },
     solana_transaction_status::TransactionStatus,
     std::{
-        sync::{
-            Arc,
-            Mutex,
-        },
+        sync::Arc,
         time::{
             Duration,
             Instant,
         },
     },
+    tokio::sync::Mutex,
     url::Url,
 };
 
@@ -36,15 +34,59 @@ macro_rules! retry_rpc_operation {
         let max_attempts = $self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
-            if let Some(index) = $self.get_next_endpoint() {
+            let index_option = {
+                let mut state = $self.round_robin_state.lock().await;
+                let now = Instant::now();
+                let start_index = state.current_index;
+
+                let mut found_index = None;
+                for _ in 0..state.endpoint_states.len() {
+                    let index = state.current_index;
+                    state.current_index = (state.current_index + 1) % state.endpoint_states.len();
+
+                    let endpoint_state = &state.endpoint_states[index];
+                    if endpoint_state.is_healthy
+                        || endpoint_state.last_failure.map_or(true, |failure_time| {
+                            now.duration_since(failure_time) >= state.cooldown_duration
+                        })
+                    {
+                        found_index = Some(index);
+                        break;
+                    }
+                }
+
+                if found_index.is_none() {
+                    let index = start_index;
+                    state.current_index = (start_index + 1) % state.endpoint_states.len();
+                    found_index = Some(index);
+                }
+                found_index
+            };
+
+            if let Some(index) = index_option {
                 let $client = &$self.rpc_clients[index];
                 match $operation {
                     Ok(result) => {
-                        $self.handle_success(index);
+                        let mut state = $self.round_robin_state.lock().await;
+                        if index < state.endpoint_states.len() {
+                            state.endpoint_states[index].is_healthy = true;
+                            state.endpoint_states[index].last_failure = None;
+                        }
                         return Ok(result);
                     }
                     Err(e) => {
-                        $self.handle_error(index, $operation_name, &e);
+                        let client = &$self.rpc_clients[index];
+                        tracing::warn!(
+                            "{} error for rpc endpoint {}: {}",
+                            $operation_name,
+                            client.url(),
+                            e
+                        );
+                        let mut state = $self.round_robin_state.lock().await;
+                        if index < state.endpoint_states.len() {
+                            state.endpoint_states[index].last_failure = Some(Instant::now());
+                            state.endpoint_states[index].is_healthy = false;
+                        }
                     }
                 }
             }
@@ -85,43 +127,6 @@ impl RoundRobinState {
                 endpoint_count
             ],
             cooldown_duration,
-        }
-    }
-
-    fn get_next_healthy_endpoint(&mut self) -> Option<usize> {
-        let now = Instant::now();
-        let start_index = self.current_index;
-
-        for _ in 0..self.endpoint_states.len() {
-            let index = self.current_index;
-            self.current_index = (self.current_index + 1) % self.endpoint_states.len();
-
-            let state = &self.endpoint_states[index];
-            if state.is_healthy
-                || state.last_failure.map_or(true, |failure_time| {
-                    now.duration_since(failure_time) >= self.cooldown_duration
-                })
-            {
-                return Some(index);
-            }
-        }
-
-        let index = start_index;
-        self.current_index = (start_index + 1) % self.endpoint_states.len();
-        Some(index)
-    }
-
-    fn mark_endpoint_failed(&mut self, index: usize) {
-        if index < self.endpoint_states.len() {
-            self.endpoint_states[index].last_failure = Some(Instant::now());
-            self.endpoint_states[index].is_healthy = false;
-        }
-    }
-
-    fn mark_endpoint_healthy(&mut self, index: usize) {
-        if index < self.endpoint_states.len() {
-            self.endpoint_states[index].is_healthy = true;
-            self.endpoint_states[index].last_failure = None;
         }
     }
 }
@@ -215,28 +220,6 @@ impl RpcMultiClient {
             rpc_clients: clients,
             round_robin_state,
         }
-    }
-
-    fn get_next_endpoint(&self) -> Option<usize> {
-        let mut state = self.round_robin_state.lock().unwrap();
-        state.get_next_healthy_endpoint()
-    }
-
-    fn handle_success(&self, index: usize) {
-        let mut state = self.round_robin_state.lock().unwrap();
-        state.mark_endpoint_healthy(index);
-    }
-
-    fn handle_error(&self, index: usize, operation_name: &str, error: &dyn std::fmt::Display) {
-        let client = &self.rpc_clients[index];
-        tracing::warn!(
-            "{} error for rpc endpoint {}: {}",
-            operation_name,
-            client.url(),
-            error
-        );
-        let mut state = self.round_robin_state.lock().unwrap();
-        state.mark_endpoint_failed(index);
     }
 
 
