@@ -18,6 +18,8 @@ use {
     },
     solana_transaction_status::TransactionStatus,
     std::{
+        future::Future,
+        pin::Pin,
         sync::Arc,
         time::{
             Duration,
@@ -27,79 +29,6 @@ use {
     tokio::sync::Mutex,
     url::Url,
 };
-
-macro_rules! retry_rpc_operation {
-    ($self:expr, $operation_name:expr, $client:ident => $operation:expr) => {{
-        let mut attempts = 0;
-        let max_attempts = $self.rpc_clients.len() * 2;
-
-        while attempts < max_attempts {
-            let index_option = {
-                let mut state = $self.round_robin_state.lock().await;
-                let now = Instant::now();
-                let start_index = state.current_index;
-
-                let mut found_index = None;
-                for _ in 0..state.endpoint_states.len() {
-                    let index = state.current_index;
-                    state.current_index = (state.current_index + 1) % state.endpoint_states.len();
-
-                    let endpoint_state = &state.endpoint_states[index];
-                    if endpoint_state.is_healthy
-                        || endpoint_state.last_failure.map_or(true, |failure_time| {
-                            now.duration_since(failure_time) >= state.cooldown_duration
-                        })
-                    {
-                        found_index = Some(index);
-                        break;
-                    }
-                }
-
-                if found_index.is_none() {
-                    let index = start_index;
-                    state.current_index = (start_index + 1) % state.endpoint_states.len();
-                    found_index = Some(index);
-                }
-                found_index
-            };
-
-            if let Some(index) = index_option {
-                let $client = &$self.rpc_clients[index];
-                match $operation {
-                    Ok(result) => {
-                        let mut state = $self.round_robin_state.lock().await;
-                        if index < state.endpoint_states.len() {
-                            state.endpoint_states[index].is_healthy = true;
-                            state.endpoint_states[index].last_failure = None;
-                        }
-                        return Ok(result);
-                    }
-                    Err(e) => {
-                        let client = &$self.rpc_clients[index];
-                        tracing::warn!(
-                            "{} error for rpc endpoint {}: {}",
-                            $operation_name,
-                            client.url(),
-                            e
-                        );
-                        let mut state = $self.round_robin_state.lock().await;
-                        if index < state.endpoint_states.len() {
-                            state.endpoint_states[index].last_failure = Some(Instant::now());
-                            state.endpoint_states[index].is_healthy = false;
-                        }
-                    }
-                }
-            }
-            attempts += 1;
-        }
-
-        bail!(
-            "{} failed for all RPC endpoints after {} attempts",
-            $operation_name,
-            attempts
-        )
-    }};
-}
 
 
 #[derive(Debug, Clone)]
@@ -137,6 +66,94 @@ pub struct RpcMultiClient {
 }
 
 impl RpcMultiClient {
+    async fn retry_with_round_robin<'a, T, F>(
+        &'a self,
+        operation_name: &str,
+        operation: F,
+    ) -> anyhow::Result<T>
+    where
+        F: Fn(usize) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + 'a>>,
+    {
+        let mut attempts = 0;
+        let max_attempts = self.rpc_clients.len() * 2;
+
+        while attempts < max_attempts {
+            let index_option = self.get_next_endpoint().await;
+
+            if let Some(index) = index_option {
+                let future = operation(index);
+                match future.await {
+                    Ok(result) => {
+                        self.handle_success(index).await;
+                        return Ok(result);
+                    }
+                    Err(e) => {
+                        self.handle_error(index, operation_name, &e.to_string())
+                            .await;
+                    }
+                }
+            }
+            attempts += 1;
+        }
+
+        bail!(
+            "{} failed for all RPC endpoints after {} attempts",
+            operation_name,
+            attempts
+        )
+    }
+
+    async fn get_next_endpoint(&self) -> Option<usize> {
+        let mut state = self.round_robin_state.lock().await;
+        let now = Instant::now();
+        let start_index = state.current_index;
+
+        let mut found_index = None;
+        for _ in 0..state.endpoint_states.len() {
+            let index = state.current_index;
+            state.current_index = (state.current_index + 1) % state.endpoint_states.len();
+
+            let endpoint_state = &state.endpoint_states[index];
+            if endpoint_state.is_healthy
+                || endpoint_state.last_failure.map_or(true, |failure_time| {
+                    now.duration_since(failure_time) >= state.cooldown_duration
+                })
+            {
+                found_index = Some(index);
+                break;
+            }
+        }
+
+        if found_index.is_none() {
+            let index = start_index;
+            state.current_index = (start_index + 1) % state.endpoint_states.len();
+            found_index = Some(index);
+        }
+        found_index
+    }
+
+    async fn handle_success(&self, index: usize) {
+        let mut state = self.round_robin_state.lock().await;
+        if index < state.endpoint_states.len() {
+            state.endpoint_states[index].is_healthy = true;
+            state.endpoint_states[index].last_failure = None;
+        }
+    }
+
+    async fn handle_error(&self, index: usize, operation_name: &str, error: &str) {
+        let client = &self.rpc_clients[index];
+        tracing::warn!(
+            "{} error for rpc endpoint {}: {}",
+            operation_name,
+            client.url(),
+            error
+        );
+        let mut state = self.round_robin_state.lock().await;
+        if index < state.endpoint_states.len() {
+            state.endpoint_states[index].last_failure = Some(Instant::now());
+            state.endpoint_states[index].is_healthy = false;
+        }
+    }
     pub fn new_with_timeout(rpc_urls: Vec<Url>, timeout: Duration) -> Self {
         Self::new_with_timeout_and_cooldown(rpc_urls, timeout, Duration::from_secs(30))
     }
@@ -224,85 +241,136 @@ impl RpcMultiClient {
 
 
     pub async fn get_balance(&self, kp: &Keypair) -> anyhow::Result<u64> {
-        retry_rpc_operation!(self, "getBalance", client => client.get_balance(&kp.pubkey()).await)
+        let pubkey = kp.pubkey();
+        self.retry_with_round_robin("getBalance", |index| {
+            let client = &self.rpc_clients[index];
+            Box::pin(async move {
+                client
+                    .get_balance(&pubkey)
+                    .await
+                    .map_err(anyhow::Error::from)
+            })
+        })
+        .await
     }
 
     pub async fn send_transaction_with_config(
         &self,
         transaction: &Transaction,
     ) -> anyhow::Result<Signature> {
-        retry_rpc_operation!(
-            self,
-            "sendTransactionWithConfig",
-            client => client
-                .send_transaction_with_config(
-                    transaction,
-                    RpcSendTransactionConfig {
-                        skip_preflight: true,
-                        ..RpcSendTransactionConfig::default()
-                    },
-                )
-                .await
-        )
+        let transaction = transaction.clone();
+        self.retry_with_round_robin("sendTransactionWithConfig", |index| {
+            let client = &self.rpc_clients[index];
+            let transaction = transaction.clone();
+            Box::pin(async move {
+                client
+                    .send_transaction_with_config(
+                        &transaction,
+                        RpcSendTransactionConfig {
+                            skip_preflight: true,
+                            ..RpcSendTransactionConfig::default()
+                        },
+                    )
+                    .await
+                    .map_err(anyhow::Error::from)
+            })
+        })
+        .await
     }
 
     pub async fn get_signature_statuses(
         &self,
         signatures_contiguous: &mut [Signature],
     ) -> anyhow::Result<Vec<Option<TransactionStatus>>> {
-        retry_rpc_operation!(
-            self,
-            "getSignatureStatuses",
-            client => client.get_signature_statuses(signatures_contiguous).await.map(|statuses| statuses.value)
-        )
+        let signatures: Vec<Signature> = signatures_contiguous.to_vec();
+        self.retry_with_round_robin("getSignatureStatuses", |index| {
+            let client = &self.rpc_clients[index];
+            let signatures = signatures.clone();
+            Box::pin(async move {
+                client
+                    .get_signature_statuses(&signatures)
+                    .await
+                    .map(|statuses| statuses.value)
+                    .map_err(anyhow::Error::from)
+            })
+        })
+        .await
     }
 
     pub async fn get_recent_prioritization_fees(
         &self,
         price_accounts: &[Pubkey],
     ) -> anyhow::Result<Vec<RpcPrioritizationFee>> {
-        retry_rpc_operation!(
-            self,
-            "getRecentPrioritizationFees",
-            client => client.get_recent_prioritization_fees(price_accounts).await
-        )
+        let price_accounts = price_accounts.to_vec();
+        self.retry_with_round_robin("getRecentPrioritizationFees", |index| {
+            let client = &self.rpc_clients[index];
+            let price_accounts = price_accounts.clone();
+            Box::pin(async move {
+                client
+                    .get_recent_prioritization_fees(&price_accounts)
+                    .await
+                    .map_err(anyhow::Error::from)
+            })
+        })
+        .await
     }
 
     pub async fn get_program_accounts(
         &self,
         oracle_program_key: Pubkey,
     ) -> anyhow::Result<Vec<(Pubkey, Account)>> {
-        retry_rpc_operation!(
-            self,
-            "getProgramAccounts",
-            client => client.get_program_accounts(&oracle_program_key).await
-        )
+        self.retry_with_round_robin("getProgramAccounts", |index| {
+            let client = &self.rpc_clients[index];
+            Box::pin(async move {
+                client
+                    .get_program_accounts(&oracle_program_key)
+                    .await
+                    .map_err(anyhow::Error::from)
+            })
+        })
+        .await
     }
 
     pub async fn get_account_data(&self, publisher_config_key: &Pubkey) -> anyhow::Result<Vec<u8>> {
-        retry_rpc_operation!(
-            self,
-            "getAccountData",
-            client => client.get_account_data(publisher_config_key).await
-        )
+        let publisher_config_key = *publisher_config_key;
+        self.retry_with_round_robin("getAccountData", |index| {
+            let client = &self.rpc_clients[index];
+            Box::pin(async move {
+                client
+                    .get_account_data(&publisher_config_key)
+                    .await
+                    .map_err(anyhow::Error::from)
+            })
+        })
+        .await
     }
 
     pub async fn get_slot_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
     ) -> anyhow::Result<u64> {
-        retry_rpc_operation!(
-            self,
-            "getSlotWithCommitment",
-            client => client.get_slot_with_commitment(commitment_config).await
-        )
+        self.retry_with_round_robin("getSlotWithCommitment", |index| {
+            let client = &self.rpc_clients[index];
+            Box::pin(async move {
+                client
+                    .get_slot_with_commitment(commitment_config)
+                    .await
+                    .map_err(anyhow::Error::from)
+            })
+        })
+        .await
     }
 
     pub async fn get_latest_blockhash(&self) -> anyhow::Result<solana_sdk::hash::Hash> {
-        retry_rpc_operation!(
-            self,
-            "getLatestBlockhash",
-            client => client.get_latest_blockhash().await
-        )
+        self.retry_with_round_robin("getLatestBlockhash", |index| {
+            let client = &self.rpc_clients[index];
+            Box::pin(async move {
+                client
+                    .get_latest_blockhash()
+                    .await
+                    .map_err(anyhow::Error::from)
+            })
+        })
+        .await
     }
 }
