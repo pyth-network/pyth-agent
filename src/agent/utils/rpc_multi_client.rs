@@ -67,7 +67,7 @@ pub struct RpcMultiClient {
 }
 
 impl RpcMultiClient {
-    /// 
+    ///
     async fn retry_with_round_robin<'a, T, F>(
         &'a self,
         operation_name: &str,
@@ -128,7 +128,7 @@ impl RpcMultiClient {
         )
     }
 
-    /// 
+    ///
     async fn get_next_endpoint(&self) -> Option<usize> {
         let mut state = self.round_robin_state.lock().await;
         let now = Instant::now();
