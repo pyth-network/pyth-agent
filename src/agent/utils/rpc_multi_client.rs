@@ -30,6 +30,7 @@ use {
     url::Url,
 };
 
+
 #[derive(Debug, Clone)]
 struct EndpointState {
     last_failure: Option<Instant>,
