@@ -127,6 +127,7 @@ impl RpcMultiClient {
         )
     }
 
+    ///
     async fn get_next_endpoint(&self) -> Option<usize> {
         let mut state = self.round_robin_state.lock().await;
         let now = Instant::now();
