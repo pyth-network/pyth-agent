@@ -30,20 +30,27 @@ use {
     url::Url,
 };
 
+
 #[derive(Debug, Clone)]
 struct EndpointState {
+
     last_failure: Option<Instant>,
     is_healthy:   bool,
+
 }
 
 #[derive(Debug)]
 struct RoundRobinState {
+
     current_index:     usize,
     endpoint_states:   Vec<EndpointState>,
+
     cooldown_duration: Duration,
 }
 
+
 impl RoundRobinState {
+
     fn new(endpoint_count: usize, cooldown_duration: Duration) -> Self {
         Self {
             current_index: 0,
