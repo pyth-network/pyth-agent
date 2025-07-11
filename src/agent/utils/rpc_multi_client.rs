@@ -258,7 +258,6 @@ impl RpcMultiClient {
         &self,
         transaction: &Transaction,
     ) -> anyhow::Result<Signature> {
-        let transaction = transaction.clone();
         self.retry_with_round_robin("sendTransactionWithConfig", |index| {
             let client = &self.rpc_clients[index];
             let transaction = transaction.clone();
@@ -282,10 +281,9 @@ impl RpcMultiClient {
         &self,
         signatures_contiguous: &mut [Signature],
     ) -> anyhow::Result<Vec<Option<TransactionStatus>>> {
-        let signatures: Vec<Signature> = signatures_contiguous.to_vec();
         self.retry_with_round_robin("getSignatureStatuses", |index| {
             let client = &self.rpc_clients[index];
-            let signatures = signatures.clone();
+            let signatures = signatures_contiguous.to_vec();
             Box::pin(async move {
                 client
                     .get_signature_statuses(&signatures)
@@ -301,10 +299,9 @@ impl RpcMultiClient {
         &self,
         price_accounts: &[Pubkey],
     ) -> anyhow::Result<Vec<RpcPrioritizationFee>> {
-        let price_accounts = price_accounts.to_vec();
         self.retry_with_round_robin("getRecentPrioritizationFees", |index| {
             let client = &self.rpc_clients[index];
-            let price_accounts = price_accounts.clone();
+            let price_accounts = price_accounts.to_vec();
             Box::pin(async move {
                 client
                     .get_recent_prioritization_fees(&price_accounts)
