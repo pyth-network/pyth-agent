@@ -76,6 +76,7 @@ impl RpcMultiClient {
         F: Fn(&'a RpcClient) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + 'a>>,
     {
         let mut attempts = 0;
+        // Try all endpoints twice in the worst case.
         let max_attempts = self.rpc_clients.len() * 2;
 
         while attempts < max_attempts {
@@ -137,6 +138,7 @@ impl RpcMultiClient {
             let index = state.current_index;
             state.current_index = (state.current_index + 1) % state.endpoint_states.len();
 
+            // Choose the next endpoint that is either healthy or has waited out the cooldown period.
             #[allow(clippy::indexing_slicing, reason = "index is checked")]
             let endpoint_state = &state.endpoint_states[index];
             if endpoint_state.is_healthy
@@ -149,6 +151,7 @@ impl RpcMultiClient {
             }
         }
 
+        // If all endpoints have failed, simply move on to the next one.
         if found_index.is_none() {
             let index = start_index;
             state.current_index = (start_index + 1) % state.endpoint_states.len();
