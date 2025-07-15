@@ -30,7 +30,6 @@ use {
     url::Url,
 };
 
-
 #[derive(Debug, Clone)]
 struct EndpointState {
     last_failure: Option<Instant>,
@@ -43,7 +42,6 @@ struct RoundRobinState {
     endpoint_states:   Vec<EndpointState>,
     cooldown_duration: Duration,
 }
-
 
 impl RoundRobinState {
     fn new(endpoint_count: usize, cooldown_duration: Duration) -> Self {
@@ -263,11 +261,10 @@ impl RpcMultiClient {
         transaction: &Transaction,
     ) -> anyhow::Result<Signature> {
         self.retry_with_round_robin("sendTransactionWithConfig", |client| {
-            let transaction = transaction.clone();
             Box::pin(async move {
                 client
                     .send_transaction_with_config(
-                        &transaction,
+                        transaction,
                         RpcSendTransactionConfig {
                             skip_preflight: true,
                             ..RpcSendTransactionConfig::default()
@@ -282,13 +279,12 @@ impl RpcMultiClient {
 
     pub async fn get_signature_statuses(
         &self,
-        signatures_contiguous: &mut [Signature],
+        signatures_contiguous: &[Signature],
     ) -> anyhow::Result<Vec<Option<TransactionStatus>>> {
         self.retry_with_round_robin("getSignatureStatuses", |client| {
-            let signatures = signatures_contiguous.to_vec();
             Box::pin(async move {
                 client
-                    .get_signature_statuses(&signatures)
+                    .get_signature_statuses(signatures_contiguous)
                     .await
                     .map(|statuses| statuses.value)
                     .map_err(anyhow::Error::from)
@@ -302,10 +298,9 @@ impl RpcMultiClient {
         price_accounts: &[Pubkey],
     ) -> anyhow::Result<Vec<RpcPrioritizationFee>> {
         self.retry_with_round_robin("getRecentPrioritizationFees", |client| {
-            let price_accounts = price_accounts.to_vec();
             Box::pin(async move {
                 client
-                    .get_recent_prioritization_fees(&price_accounts)
+                    .get_recent_prioritization_fees(price_accounts)
                     .await
                     .map_err(anyhow::Error::from)
             })
