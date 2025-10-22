@@ -420,7 +420,8 @@ mod lazer_exporter {
         // consume immediate tick
         publish_interval.tick().await;
 
-        let mut last_sent_timestamps: HashMap<pyth_sdk::Identifier, chrono::NaiveDateTime> = HashMap::new();
+        let mut last_sent_timestamps: HashMap<pyth_sdk::Identifier, chrono::NaiveDateTime> =
+            HashMap::new();
 
         loop {
             tokio::select! {
