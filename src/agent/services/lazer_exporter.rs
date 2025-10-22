@@ -420,6 +420,9 @@ mod lazer_exporter {
         // consume immediate tick
         publish_interval.tick().await;
 
+        let mut last_sent_timestamps: HashMap<pyth_sdk::Identifier, chrono::NaiveDateTime> =
+            HashMap::new();
+
         loop {
             tokio::select! {
                 _ = publish_interval.tick() => {
@@ -434,6 +437,12 @@ mod lazer_exporter {
                     // TODO: This read locks and clones local::Store::prices, which may not meet performance needs.
                     for (identifier, price_info) in state.get_all_price_infos().await {
                         if let Some(symbol) = lazer_symbols.get(&identifier) {
+                            if let Some(last_timestamp) = last_sent_timestamps.get(&identifier) {
+                                if price_info.timestamp <= *last_timestamp {
+                                    continue;
+                                }
+                            }
+
                             let source_timestamp_micros = price_info.timestamp.and_utc().timestamp_micros();
                             let source_timestamp = MessageField::some(Timestamp {
                                 seconds: source_timestamp_micros / 1_000_000,
@@ -449,7 +458,8 @@ mod lazer_exporter {
                                     ..PriceUpdate::default()
                                 })),
                                 special_fields: Default::default(),
-                            })
+                            });
+                            last_sent_timestamps.insert(identifier, price_info.timestamp);
                         }
                     }
 
